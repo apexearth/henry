@@ -5,9 +5,12 @@ import { join, normalize } from "node:path";
 import type { ServerWebSocket } from "bun";
 import type { ClientMessage, ServerMessage, StateSnapshot, Usage } from "@henry/shared";
 import * as activity from "./activity";
-import { config } from "./config";
+import { config, expandHome, isFirstRun, setReposRoot } from "./config";
 import * as db from "./db";
 import * as engagement from "./engagement";
+import * as federation from "./federation";
+import type { Client } from "./federation";
+import type { FedState, PeerLink } from "./fed-peer";
 import * as git from "./git";
 import * as files from "./files";
 import * as hooks from "./hooks";
@@ -19,28 +22,55 @@ const ALL = "all";
 const topic = (sessionId: string) => `session:${sessionId}`;
 
 interface WsData {
-  attached: Set<string>;
+  client: Client;
 }
 
 type Ws = ServerWebSocket<WsData>;
 
 let server: ReturnType<typeof Bun.serve<WsData>> | undefined;
 
-/** Send to every connected window. */
+/** Send to every connected window, and on to the peers dialed in to us (local state only). */
 export function broadcast(msg: ServerMessage): void {
+  toWindows(msg);
+  federation.fanout(msg);
+}
+
+/** Windows only: what a peer relayed to us must not fan back out. */
+export function toWindows(msg: ServerMessage): void {
   server?.publish(ALL, JSON.stringify(msg));
 }
 
-/** Send to windows attached to one session (PTY traffic only). */
+/** Send to windows (and peers) attached to one session (PTY traffic only). */
 function publishSession(sessionId: string, msg: ServerMessage): void {
   server?.publish(topic(sessionId), JSON.stringify(msg));
+  federation.publishInbound(sessionId, msg);
 }
 
-function send(ws: Ws, msg: ServerMessage): void {
-  ws.send(JSON.stringify(msg));
+/** A window as a Client: JSON frames, pub/sub topics per session. */
+function windowClient(ws: Ws): Client {
+  return {
+    attached: new Set<string>(),
+    get open() {
+      return ws.readyState === 1;
+    },
+    send: (msg) => ws.send(JSON.stringify(msg)),
+    subscribe: (id) => ws.subscribe(topic(id)),
+    unsubscribe: (id) => ws.unsubscribe(topic(id)),
+  };
 }
 
+/** Everything in the window's snapshot: this daemon's sessions plus each connected peer's. */
 export function buildState(): StateSnapshot {
+  return federation.merge(localState());
+}
+
+/** What a peer is shown: our sessions, repos, flags, usage, playbook. Never the config (keys). */
+function peerState(): FedState {
+  const { config: _config, uiBuild: _build, firstRun: _first, ...rest } = localState();
+  return rest;
+}
+
+function localState(): StateSnapshot {
   const snapshot = db.latestUsageSnapshot<Usage>();
   const usage: Usage = snapshot?.json ?? { perSession: {}, updatedAt: 0 };
   usage.perSession = db.listSessionUsage();
@@ -51,6 +81,7 @@ export function buildState(): StateSnapshot {
     usage,
     playbook: db.listPlaybook(undefined, 200),
     config,
+    firstRun: isFirstRun(),
     uiBuild,
   };
 }
@@ -81,27 +112,35 @@ sessions.on("data", (id, data) => publishSession(id, { type: "pty:data", session
 sessions.on("exit", (id, exitCode) => publishSession(id, { type: "pty:exit", sessionId: id, exitCode }));
 sessions.on("update", (session) => broadcast({ type: "session:update", session }));
 
-async function handleMessage(ws: Ws, msg: ClientMessage): Promise<void> {
+async function handleMessage(client: Client, msg: ClientMessage): Promise<void> {
+  // A session relayed from a paired machine: its link answers, in the same shapes.
+  const link = "sessionId" in msg && msg.sessionId ? federation.linkOf(msg.sessionId) : undefined;
+  if (link) return handleRemote(client, msg, link);
   switch (msg.type) {
     case "attach": {
       const id = msg.sessionId;
       if (!sessions.get(id)) return;
-      ws.data.attached.add(id);
+      client.attached.add(id);
       // Scrollback comes from sessiond. Subscribe to live output inside the callback, which
       // runs before any later data event is published, so the window never sees output
       // that is also in the scrollback, nor output from before it out of order.
       sessions.withScrollback(id, (data) => {
-        if (ws.readyState !== 1 || !ws.data.attached.has(id)) return;
-        ws.subscribe(topic(id));
-        send(ws, { type: "pty:scrollback", sessionId: id, data });
+        if (!client.open || !client.attached.has(id)) return;
+        client.subscribe(id);
         const s = sessions.get(id);
-        if (s?.status === "exited") send(ws, { type: "pty:exit", sessionId: id, exitCode: s.exitCode ?? 0 });
+        const exitCode = s?.status === "exited" ? s.exitCode ?? 0 : undefined;
+        // A daemon relaying for one of its windows (reqId) gets the exit in the same frame.
+        if (msg.reqId !== undefined) client.send({ type: "pty:scrollback", sessionId: id, data, reqId: msg.reqId, exitCode });
+        else {
+          client.send({ type: "pty:scrollback", sessionId: id, data });
+          if (exitCode !== undefined) client.send({ type: "pty:exit", sessionId: id, exitCode });
+        }
       });
       return;
     }
     case "detach":
-      ws.data.attached.delete(msg.sessionId);
-      ws.unsubscribe(topic(msg.sessionId));
+      client.attached.delete(msg.sessionId);
+      client.unsubscribe(msg.sessionId);
       return;
     case "pty:input":
       sessions.write(msg.sessionId, msg.data);
@@ -111,10 +150,16 @@ async function handleMessage(ws: Ws, msg: ClientMessage): Promise<void> {
       sessions.resize(msg.sessionId, msg.cols, msg.rows);
       return;
     case "session:create": {
+      if (msg.peer) {
+        const remote = federation.linkNamed(msg.peer);
+        if (!remote) return console.error(`[ws] session:create on ${msg.peer}: no such connected peer`);
+        remote.create(msg, (session) => client.send({ type: "session:update", session, requestId: msg.requestId }));
+        return;
+      }
       // The manager's "update" listener broadcasts too; this direct send carries the requestId
       // so the creating window can select the new tab.
       const session = await sessions.create({ cwd: msg.cwd, title: msg.title, kind: msg.kind, command: msg.command, args: msg.args, resume: msg.resume });
-      send(ws, { type: "session:update", session, requestId: msg.requestId });
+      client.send({ type: "session:update", session, requestId: msg.requestId });
       return;
     }
     case "session:kill":
@@ -122,18 +167,47 @@ async function handleMessage(ws: Ws, msg: ClientMessage): Promise<void> {
       if (!sessions.get(msg.sessionId)) broadcast({ type: "state", ...buildState() });
       return;
     case "flags:markRead":
-      db.markFlagsRead(msg.ids);
+      db.markFlagsRead(federation.markFlagsRead(msg.ids));
       return;
     case "playbook:request":
-      for (const entry of db.listPlaybook(msg.sessionId).reverse()) send(ws, { type: "playbook:update", entry });
+      for (const entry of db.listPlaybook(msg.sessionId).reverse()) client.send({ type: "playbook:update", entry });
       return;
     case "repo:diff": {
       const { diff, baseline } = await git.diffSinceBaseline(msg.sessionId, msg.repoPath);
-      send(ws, { type: "repo:diff", sessionId: msg.sessionId, repoPath: msg.repoPath, diff, baseline });
+      client.send({ type: "repo:diff", sessionId: msg.sessionId, repoPath: msg.repoPath, diff, baseline });
       return;
     }
     case "state:request":
-      send(ws, { type: "state", ...buildState() });
+      client.send({ type: "state", ...buildState() });
+      return;
+  }
+}
+
+function handleRemote(client: Client, msg: ClientMessage, link: PeerLink): void {
+  switch (msg.type) {
+    case "attach": {
+      const id = msg.sessionId;
+      client.attached.add(id);
+      link.attach(id, (data, exitCode) => {
+        if (!client.open || !client.attached.has(id)) return;
+        client.subscribe(id);
+        client.send({ type: "pty:scrollback", sessionId: id, data });
+        if (exitCode !== undefined) client.send({ type: "pty:exit", sessionId: id, exitCode });
+      });
+      return;
+    }
+    case "detach":
+      if (client.attached.delete(msg.sessionId)) {
+        client.unsubscribe(msg.sessionId);
+        link.detach(msg.sessionId);
+      }
+      return;
+    case "pty:input":
+    case "pty:resize":
+    case "session:kill":
+    case "playbook:request":
+    case "repo:diff":
+      link.send(msg);
       return;
   }
 }
@@ -177,7 +251,7 @@ export async function startServer(): Promise<void> {
       const url = new URL(req.url);
       const { pathname } = url;
       if (pathname === "/ws") {
-        return srv.upgrade(req, { data: { attached: new Set<string>() } }) ? undefined : new Response("upgrade failed", { status: 400 });
+        return srv.upgrade(req, { data: { client: undefined as unknown as Client } }) ? undefined : new Response("upgrade failed", { status: 400 });
       }
       if (req.method === "POST" && pathname === "/hook") {
         try {
@@ -192,7 +266,65 @@ export async function startServer(): Promise<void> {
         const result = hooks.ingestStatusline(await readJson(req));
         return new Response(result?.text ?? "", { headers: { "content-type": "text/plain; charset=utf-8" } });
       }
-      if (pathname === "/api/state") return json(buildState());
+      if (pathname.startsWith("/api/")) return handleApi(req, url, false);
+      if (req.method !== "GET") return new Response("method not allowed", { status: 405 });
+      return serveStatic(pathname);
+    },
+    websocket: {
+      open(ws) {
+        ws.data.client = windowClient(ws);
+        ws.subscribe(ALL);
+        ws.data.client.send({ type: "state", ...buildState() });
+      },
+      async message(ws, raw) {
+        let msg: ClientMessage;
+        try {
+          msg = JSON.parse(typeof raw === "string" ? raw : new TextDecoder().decode(raw));
+        } catch {
+          return;
+        }
+        try {
+          await handleMessage(ws.data.client, msg);
+        } catch (e) {
+          console.error(`[ws] ${msg.type} failed:`, e);
+        }
+      },
+      close(ws) {
+        for (const id of ws.data.client.attached) {
+          ws.unsubscribe(topic(id));
+          federation.linkOf(id)?.detach(id);
+        }
+      },
+    },
+  });
+  git.setBroadcast(broadcast);
+  git.start();
+  federation.init({ handleMessage, localState: peerState, handleApi: (req, fromPeer) => handleApi(req, new URL(req.url), fromPeer), toWindows, publishSession, buildState });
+  federation.start();
+  watchUiBuild();
+  console.log(`[henry] listening on http://127.0.0.1:${config.port} (db: ${db.dbPath})`);
+}
+
+/**
+ * /api/*. A request for a peer's session (`sessionId` of a relayed session, or an explicit
+ * `peer=` query) is forwarded over the link and answered by that daemon's copy of this
+ * function. Peers may never reach /api/federation/*, so `fromPeer` requests are refused there.
+ */
+export async function handleApi(req: Request, url: URL, fromPeer: boolean): Promise<Response> {
+  const { pathname } = url;
+  if (pathname.startsWith("/api/federation/")) return fromPeer ? json({ error: "forbidden" }, 403) : federationApi(req, url);
+  // Peers read, and may ask the overseer; they never change this daemon's setup.
+  if (fromPeer && req.method !== "GET" && pathname !== "/api/playbook/manual") return json({ error: "forbidden" }, 403);
+  if (!fromPeer) {
+    const peerName = url.searchParams.get("peer") ?? federation.linkOf(url.searchParams.get("sessionId"))?.rec.name;
+    if (peerName) {
+      const link = federation.linkNamed(peerName);
+      if (!link) return json({ error: `${peerName} is not a connected peer` }, 502);
+      url.searchParams.delete("peer");
+      return link.http(req.method, url.pathname + url.search, req.method === "GET" ? undefined : await req.text());
+    }
+  }
+  if (pathname === "/api/state") return json(fromPeer ? peerState() : buildState());
       if (pathname === "/api/playbook/status") return json(overseer.overseerStatus());
       if (req.method === "POST" && pathname === "/api/playbook/manual") {
         const body = (await readJson(req)) as { sessionId?: string | null; prompt?: string };
@@ -203,7 +335,27 @@ export async function startServer(): Promise<void> {
       if (pathname === "/api/events") {
         return json(db.listEvents({ sessionId: url.searchParams.get("session") ?? undefined, limit: Number(url.searchParams.get("limit")) || 200 }));
       }
-      if (pathname === "/api/repos") return json(await git.listRepos(config.reposRoot));
+      // First-run setup: choose the folder that holds every repo. Validated here, not in the
+      // UI, because only the daemon can see the filesystem.
+      if (req.method === "POST" && pathname === "/api/config") {
+        const body = (await readJson(req)) as { reposRoot?: string };
+        const typed = (body.reposRoot ?? "").trim().replace(/(.)\/+$/, "$1");
+        if (!typed) return json({ error: "path required" }, 400);
+        const root = expandHome(typed);
+        let isDir = false;
+        try {
+          isDir = statSync(root).isDirectory();
+        } catch {}
+        if (!isDir) return json({ error: `${root} is not a folder` }, 400);
+        setReposRoot(typed);
+        broadcast({ type: "state", ...buildState() });
+        return json({ ok: true, reposRoot: config.reposRoot });
+      }
+      if (pathname === "/api/repos") {
+        // `root` previews another folder (first-run setup) without changing config.
+        const root = url.searchParams.get("root");
+        return json(await git.listRepos(root ? expandHome(root.trim()) : config.reposRoot));
+      }
       if (pathname === "/api/repo/log") {
         const sessionId = url.searchParams.get("sessionId") ?? "";
         const repoPath = url.searchParams.get("repoPath") ?? "";
@@ -219,42 +371,39 @@ export async function startServer(): Promise<void> {
         const peek = files.readPeek(url.searchParams.get("path") ?? "", url.searchParams.get("cwd") ?? undefined);
         return peek ? json(peek) : json({ error: "not found" }, 404);
       }
-      if (pathname.startsWith("/api/")) return json({ error: "not found" }, 404);
-      if (req.method !== "GET") return new Response("method not allowed", { status: 405 });
-      return serveStatic(pathname);
-    },
-    websocket: {
-      open(ws) {
-        ws.subscribe(ALL);
-        send(ws, { type: "state", ...buildState() });
-      },
-      async message(ws, raw) {
-        let msg: ClientMessage;
-        try {
-          msg = JSON.parse(typeof raw === "string" ? raw : new TextDecoder().decode(raw));
-        } catch {
-          return;
-        }
-        try {
-          await handleMessage(ws, msg);
-        } catch (e) {
-          console.error(`[ws] ${msg.type} failed:`, e);
-        }
-      },
-      close(ws) {
-        for (const id of ws.data.attached) ws.unsubscribe(topic(id));
-      },
-    },
-  });
-  git.setBroadcast(broadcast);
-  git.start();
-  watchUiBuild();
-  console.log(`[henry] listening on http://127.0.0.1:${config.port} (db: ${db.dbPath})`);
+  return json({ error: "not found" }, 404);
+}
+
+/** Pairing and peer management. Loopback only: never proxied, never served to a peer. */
+async function federationApi(req: Request, url: URL): Promise<Response> {
+  const { pathname } = url;
+  if (pathname === "/api/federation/status") return json(federation.status());
+  if (req.method !== "POST") return json({ error: "not found" }, 404);
+  if (pathname === "/api/federation/pairing/start") return json(federation.startPairing());
+  if (pathname === "/api/federation/pairing/stop") {
+    federation.stopPairing();
+    return json({ ok: true });
+  }
+  const body = (await readJson(req)) as { address?: string; code?: string; name?: string; enabled?: boolean };
+  if (pathname === "/api/federation/pair") {
+    if (!body.address || !body.code) return json({ error: "address and code required" }, 400);
+    try {
+      return json({ peer: await federation.pair(body.address, body.code) });
+    } catch (e) {
+      return json({ error: (e as Error).message }, 502);
+    }
+  }
+  if (pathname === "/api/federation/peer/forget") return body.name && federation.forgetPeer(body.name) ? json({ ok: true }) : json({ error: "no such peer" }, 404);
+  if (pathname === "/api/federation/peer/enable") {
+    return body.name && federation.enablePeer(body.name, body.enabled !== false) ? json({ ok: true }) : json({ error: "no such peer" }, 404);
+  }
+  return json({ error: "not found" }, 404);
 }
 
 /** Stops the daemon's own listeners. sessiond and the sessions in it keep running. */
 export function stopServer(): void {
   clearInterval(uiBuildTimer);
+  federation.stop();
   activity.stop();
   engagement.stop();
   git.stop();

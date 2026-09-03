@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { ChangedFile } from "@henry/shared";
 import { openPeek } from "./FileView";
 import { splitPath, useSessionFiles } from "./files";
+import { hueText, nameHue } from "./theme";
 import { useStore } from "./ws";
 
 const STATUS_TEXT: Record<ChangedFile["status"], string> = { M: "modified", A: "added", D: "deleted", R: "renamed", "?": "untracked" };
@@ -24,7 +25,7 @@ export function FilesSection() {
       {open && (total ? (
         repos.map((r) => (
           <div key={r.path}>
-            {repos.length > 1 && <div className="files-repo" title={r.path}>{r.name}</div>}
+            {repos.length > 1 && <div className="files-repo" style={{ color: hueText(nameHue(r.name)) }} title={r.path}>{r.name}</div>}
             {[...r.files].sort((a, b) => (b.mtime ?? 0) - (a.mtime ?? 0)).map((f) => {
               const { dir, name } = splitPath(f.path);
               const gone = f.status === "D";

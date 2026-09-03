@@ -69,7 +69,7 @@ pid) and `~/.henry/sessiond.log`. `HENRY_HOME` and `HENRY_PORT` override all of 
 `config.host` (default: short `os.hostname()`) is stamped on every session the daemon
 creates, groundwork for running daemons on several machines.
 
-CLI (`packages/daemon/src/index.ts`): `henry start | install | uninstall | status`, plus
+CLI (`packages/daemon/src/index.ts`): `henry start | install | uninstall | status | pair | peers`, plus
 
 - `henry sessiond status` — prints `sessiond.json`, whether that process answers a ping,
   its protocol version against the daemon's, and how many sessions it holds.
@@ -78,20 +78,38 @@ CLI (`packages/daemon/src/index.ts`): `henry start | install | uninstall | statu
   session and exits immediately. This is how a new sessiond version gets picked up; the
   daemon warns at startup when the two protocol versions differ.
 
+## Sessions on other machines
+
+Run Henry on each machine (they share nothing; every daemon has its own DB and sessiond),
+then pair them once and each window shows both. The daemon listens for peers on the
+machine's Tailscale address, port 4712, and nowhere else (`federation.listen` in
+`~/.henry/config.json`: `"tailscale"`, `"off"`, or an address). To pair: on machine A open
+**remotes** in the top bar and click "show a pairing code" (or run `henry pair`); on machine
+B open remotes → join, enter A's address and the code. That is all: A stores B's key and
+dials B back, B stores A's key and dials A, and sessions from the other machine appear in
+the rail with a dotted chip naming it. Compare the fingerprints the menu shows on both
+sides. Pairing codes live ten minutes and work once; every connection after that is
+mutually authenticated by the stored keys and encrypted end to end (details in
+`PLAN.md`, "Federation"). `henry peers` lists what is paired; `henry peers forget <name>` or
+the menu's × drops a machine.
+
+A paired machine can do to your sessions what a window can, typing included. Pair only over
+your own tailnet, with machines you own.
+
 ## Install hooks
 
 Henry learns what a session does from Claude Code's own hooks and status line. Nothing is
 wired up until you run:
 
 ```sh
-bun run --cwd packages/daemon start install   # or: bun packages/daemon/src/index.ts install
+bun packages/daemon/src/index.ts install
 ```
 
 That merges into `~/.claude/settings.json` (or `$CLAUDE_CONFIG_DIR/settings.json`):
 
 - one `{ matcher: "", hooks: [{ type: "command", command: "<repo>/packages/daemon/hooks/henry-hook.sh <Event>" }] }`
   entry for each of PreToolUse, PostToolUse, Stop, SubagentStop, UserPromptSubmit,
-  SessionStart, SessionEnd, PreCompact, Notification, unless an entry for that event
+  SessionStart, SessionEnd, PreCompact, Notification, PermissionRequest, unless an entry for that event
   already runs `henry-hook.sh`;
 - `statusLine: { type: "command", command: "<repo>/packages/daemon/hooks/henry-statusline.sh" }`,
   but only if you have no `statusLine` yet. If you do, install prints a warning and leaves

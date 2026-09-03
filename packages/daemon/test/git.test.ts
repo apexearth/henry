@@ -70,6 +70,7 @@ beforeAll(async () => {
   g(repo, "remote", "add", "origin", bare);
   g(repo, "push", "-q", "-u", "origin", "main");
   mkdirSync(join(root, "app-worktrees"), { recursive: true });
+  mkdirSync(join(root, "scratch"), { recursive: true });
   g(repo, "worktree", "add", "-q", "-b", "feat", wt, "HEAD");
 
   git = await import("../src/git");
@@ -204,7 +205,8 @@ describe("git", () => {
     expect(byPath[repo]).toMatchObject({ name: "app", isWorktree: false });
     expect(byPath[wt]).toMatchObject({ name: "feat", isWorktree: true, worktreeOf: repo });
     expect(list.filter((e) => e.path === wt)).toHaveLength(1); // deduped
-    expect(byPath[join(root, "app-worktrees")]).toBeUndefined();
+    expect(byPath[join(root, "app-worktrees")]).toBeUndefined(); // a container of repos, not a place to work
+    expect(byPath[join(root, "scratch")]).toMatchObject({ name: "scratch", isWorktree: false, folder: true });
   });
 
   test("a new commit triggers a git HenryEvent and a repos:update", async () => {

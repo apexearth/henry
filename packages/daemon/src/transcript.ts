@@ -9,6 +9,7 @@ import { closeSync, existsSync, openSync, readSync, statSync, watch, type FSWatc
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import type { HenryEvent, Session, SessionUsage, Usage } from "@henry/shared";
+import * as activity from "./activity";
 import * as db from "./db";
 import { broadcast } from "./server";
 import { sessions } from "./sessions";
@@ -273,6 +274,8 @@ interface TranscriptLine {
   message?: {
     id?: string;
     model?: string;
+    /** Blocks; a "user" line carries the tool_result answering each tool_use. */
+    content?: unknown;
     usage?: {
       input_tokens?: number;
       output_tokens?: number;
@@ -293,6 +296,7 @@ function handleLine(tail: Tail, raw: string): boolean {
   if (!line || typeof line !== "object") return false;
   noteSidechain(tail, line);
   if (line.type === "custom-title" && typeof line.customTitle === "string") sessions.setTitle(tail.sessionId, line.customTitle);
+  if (line.type === "user") noteToolResults(tail, line);
   if (line.type !== "assistant") return false;
   const usage = line.message?.usage;
   if (!usage) return false;
@@ -311,6 +315,17 @@ function handleLine(tail: Tail, raw: string): boolean {
   tail.totals.cacheWrite += usage.cache_creation_input_tokens ?? 0;
   if (line.message?.model) tail.model = line.message.model;
   return true;
+}
+
+/** A denied tool call fires no PostToolUse; its tool_result here is the only word that it is over. */
+function noteToolResults(tail: Tail, line: TranscriptLine): void {
+  const content = line.message?.content;
+  if (!Array.isArray(content)) return;
+  for (const block of content) {
+    if (block && typeof block === "object" && block.type === "tool_result" && typeof block.tool_use_id === "string") {
+      activity.toolResult(tail.sessionId, block.tool_use_id);
+    }
+  }
 }
 
 function noteSidechain(tail: Tail, line: TranscriptLine): void {

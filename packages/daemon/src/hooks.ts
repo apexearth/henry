@@ -229,6 +229,11 @@ export function summarize(hookEvent: string, p: HookPayload): string {
       const prefix = hookEvent === "PostToolUse" ? (toolFailed(p.tool_response) ? "✗ " : "✓ ") : "";
       return `${prefix}${tool}${detail ? ": " + detail : ""}`;
     }
+    case "PermissionRequest": {
+      const tool = p.tool_name ?? "tool";
+      const detail = toolDetail(tool, input, p.cwd);
+      return `Permission? ${tool}${detail ? ": " + detail : ""}`;
+    }
     case "UserPromptSubmit":
       return `Prompt: ${clip(p.prompt ?? "", 80)}`;
     case "Stop":

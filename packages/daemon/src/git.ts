@@ -247,7 +247,8 @@ async function listWorktrees(repoPath: string): Promise<{ path: string; branch?:
 
 /**
  * Checkouts under `root`: direct children with a .git, worktrees of those repos wherever
- * they live, and one level deeper (`<root>/<group>/<wt>`) for worktree collections.
+ * they live, and one level deeper (`<root>/<group>/<wt>`) for worktree collections. A plain
+ * directory under root that holds no repos is listed too, as a folder (scratch space).
  */
 export async function listRepos(root: string): Promise<RepoPickerEntry[]> {
   if (!existsSync(root)) return [];
@@ -280,7 +281,12 @@ export async function listRepos(root: string): Promise<RepoPickerEntry[]> {
     return plain;
   };
   // Non-repo dirs directly under root may hold worktree collections; look one level down.
-  for (const group of scanDir(root)) scanDir(group);
+  // One that holds none is scratch space the user may still want a session in.
+  for (const group of scanDir(root)) {
+    const before = found.size;
+    scanDir(group);
+    if (found.size === before) found.set(group, { path: group, name: basename(group), isWorktree: false, folder: true });
+  }
   const mains = [...found.values()].filter((e) => !e.isWorktree);
   const lists = await Promise.all(mains.map((m) => listWorktrees(m.path)));
   for (const list of lists) {

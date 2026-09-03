@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import type { RepoState, Session } from "@henry/shared";
 import { DiffView } from "../DiffView";
 import { diffKey, requestDiff, useStore } from "../ws";
+import { hueText, nameHue } from "../theme";
 
 export interface ReposPanelProps {
   sessionId: string | null;
@@ -113,7 +114,7 @@ function RepoCard({ sessionId, repo, diff, onRequestDiff }: CardProps) {
   return (
     <div className="rc">
       <div className="rc-head">
-        <span className="rc-name" title={repo.path}>{repo.name}</span>
+        <span className="rc-name" style={{ color: hueText(nameHue(repo.name)) }} title={repo.path}>{repo.name}</span>
         {repo.isWorktree && (
           <span className="rc-wt" title={repo.worktreeOf ?? "worktree"}>
             worktree{repo.worktreeOf ? ` of ${repo.worktreeOf.split("/").pop()}` : ""}
@@ -192,7 +193,7 @@ function DiffModal({ repo, diff, requested, onRefresh, onClose }: DiffModalProps
     <div className="dm-bg" onMouseDown={onClose}>
       <div className="dm" onMouseDown={(e) => e.stopPropagation()}>
         <div className="dm-head">
-          <span className="rc-name">{repo.name}</span>
+          <span className="rc-name" style={{ color: hueText(nameHue(repo.name)) }}>{repo.name}</span>
           <span className="rc-path dm-path" title={repo.path}>{shortPath(repo.path)}</span>
           <span className="rc-spacer" />
           <button className="rc-link" onClick={onRefresh} title="re-request the diff from the daemon">refresh</button>

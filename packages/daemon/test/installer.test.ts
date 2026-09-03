@@ -38,7 +38,7 @@ async function henry(cmd: string, env: Record<string, string> = {}) {
 }
 
 const read = () => JSON.parse(readFileSync(settings, "utf8"));
-const HOOK_EVENTS = ["PreToolUse", "PostToolUse", "Stop", "SubagentStop", "UserPromptSubmit", "SessionStart", "SessionEnd", "PreCompact", "Notification"];
+const HOOK_EVENTS = ["PreToolUse", "PostToolUse", "Stop", "SubagentStop", "UserPromptSubmit", "SessionStart", "SessionEnd", "PreCompact", "Notification", "PermissionRequest"];
 
 beforeAll(() => {
   writeFileSync(join(claudeDir, "..", ".keep"), "");

@@ -27,13 +27,14 @@ export function useSessionFiles(sessionId: string | null): SessionFiles | undefi
 const INDEX_TTL_MS = 10_000;
 const index = new Map<string, { at: number; files: string[] }>();
 
-/** Every path in the repo containing `repoPath`, relative to its root. */
-export async function repoIndex(repoPath: string): Promise<string[]> {
-  const hit = index.get(repoPath);
+/** Every path in the repo containing `repoPath`, relative to its root; on `peer` when given. */
+export async function repoIndex(repoPath: string, peer?: string): Promise<string[]> {
+  const key = `${peer ?? ""}\n${repoPath}`;
+  const hit = index.get(key);
   if (hit && Date.now() - hit.at < INDEX_TTL_MS) return hit.files;
-  const r = await fetch(`/api/repo/files?repo=${encodeURIComponent(repoPath)}`);
+  const r = await fetch(`/api/repo/files?repo=${encodeURIComponent(repoPath)}${peer ? `&peer=${encodeURIComponent(peer)}` : ""}`);
   const files = r.ok ? ((await r.json()) as string[]) : [];
-  index.set(repoPath, { at: Date.now(), files });
+  index.set(key, { at: Date.now(), files });
   return files;
 }
 

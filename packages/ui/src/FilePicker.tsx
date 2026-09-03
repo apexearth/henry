@@ -57,6 +57,9 @@ const TIER_GLYPH = ["", "↺", "", ""];
 export function FilePicker({ onClose }: { onClose: () => void }) {
   const active = useStore((s) => s.activeSessionId);
   const cwd = useStore((s) => s.sessions.find((x) => x.id === s.activeSessionId)?.cwd ?? "");
+  // Peeks open on the active session's machine, so only repos of sessions there are in scope.
+  const peer = useStore((s) => s.sessions.find((x) => x.id === s.activeSessionId)?.peer);
+  const sameMachine = useStore((s) => s.sessions.filter((x) => x.peer === peer).map((x) => x.id).join("\n"));
   const allRepos = useStore((s) => s.repos);
   const sf = useSessionFiles(active);
   const [query, setQuery] = useState("");
@@ -72,18 +75,19 @@ export function FilePicker({ onClose }: { onClose: () => void }) {
     };
     for (const r of sf?.repos ?? []) add(r.path, r.name, true);
     for (const r of allRepos[active ?? ""] ?? []) add(r.path, r.name, true);
-    for (const [sid, rs] of Object.entries(allRepos)) if (sid !== active) for (const r of rs) add(r.path, r.name, false);
+    const here = new Set(sameMachine.split("\n"));
+    for (const [sid, rs] of Object.entries(allRepos)) if (sid !== active && here.has(sid)) for (const r of rs) add(r.path, r.name, false);
     out.sort((a, b) => Number(cwd.startsWith(b.path + "/") || cwd === b.path) - Number(cwd.startsWith(a.path + "/") || cwd === a.path));
     return out;
-  }, [sf, allRepos, active, cwd]);
+  }, [sf, allRepos, active, cwd, sameMachine]);
 
   useEffect(() => {
     let on = true;
-    for (const r of scope) repoIndex(r.path).then((files) => on && setIndexes((prev) => (prev[r.path] === files ? prev : { ...prev, [r.path]: files })));
+    for (const r of scope) repoIndex(r.path, peer).then((files) => on && setIndexes((prev) => (prev[r.path] === files ? prev : { ...prev, [r.path]: files })));
     return () => {
       on = false;
     };
-  }, [scope]);
+  }, [scope, peer]);
 
   const rows = useMemo(() => {
     const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);

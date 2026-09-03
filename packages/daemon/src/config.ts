@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, watch } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, watch, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { DEFAULT_CONFIG, type HenryConfig } from "@henry/shared";
@@ -11,20 +11,44 @@ export function expandHome(p: string): string {
   return p === "~" ? homedir() : p.startsWith("~/") ? join(homedir(), p.slice(2)) : p;
 }
 
+/** The user's own config.json, or {} when absent or unparsable. */
+function readUser(): Partial<HenryConfig> {
+  if (!existsSync(configPath)) return {};
+  try {
+    return JSON.parse(readFileSync(configPath, "utf8"));
+  } catch (e) {
+    console.error(`[henry] could not parse ${configPath}: ${(e as Error).message}; using defaults`);
+    return {};
+  }
+}
+
+let userHasRoot = false;
+
+/** True until the user has chosen a reposRoot (config.json missing or without one). */
+export function isFirstRun(): boolean {
+  return !userHasRoot;
+}
+
+/** Record the chosen repos folder (as typed, "~" allowed) and reload. defaultRepo follows it
+ * unless the user already set one. */
+export function setReposRoot(root: string): void {
+  const user = readUser();
+  const next: Partial<HenryConfig> = { ...user, reposRoot: root };
+  if (!user.defaultRepo) next.defaultRepo = root;
+  if (!existsSync(henryDir)) mkdirSync(henryDir, { recursive: true });
+  writeFileSync(configPath, JSON.stringify(next, null, 2) + "\n");
+  reloadConfig();
+}
+
 function load(): HenryConfig {
   if (!existsSync(henryDir)) mkdirSync(henryDir, { recursive: true });
-  let user: Partial<HenryConfig> = {};
-  if (existsSync(configPath)) {
-    try {
-      user = JSON.parse(readFileSync(configPath, "utf8"));
-    } catch (e) {
-      console.error(`[henry] could not parse ${configPath}: ${(e as Error).message}; using defaults`);
-    }
-  }
+  const user = readUser();
+  userHasRoot = typeof user.reposRoot === "string" && user.reposRoot.trim() !== "";
   const merged: HenryConfig = {
     ...DEFAULT_CONFIG,
     ...user,
     overseer: { ...DEFAULT_CONFIG.overseer, ...(user.overseer ?? {}) },
+    federation: { ...DEFAULT_CONFIG.federation, ...(user.federation ?? {}) },
     rules: { ...DEFAULT_CONFIG.rules, ...(user.rules ?? {}) },
   };
   if (process.env.HENRY_PORT) merged.port = Number(process.env.HENRY_PORT);

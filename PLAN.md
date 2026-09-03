@@ -55,7 +55,8 @@ the design changes; do not let it drift into a changelog.
   merges hooks + statusLine idempotently and preserves everything else.
   `henry uninstall` removes only what it added.
 - **New tab is a typed picker.** One text box filters rows; ↑↓ picks, Enter opens. Rows
-  are every repo under `~/code/*` (and worktrees) as a Claude session, then the same repos
+  are every repo under `~/code/*` (and worktrees, and plain folders holding no repo, marked
+  "folder") as a Claude session, then the same rows
   and `~` as a plain terminal; a typed path offers both. `defaultRepo` sorts first.
 - **Plain terminals are sessions too.** `kind: "shell"` runs `$SHELL -l` in the same PTY
   host with the same rail entry. The rail shows Clawd (orange, solid while running,
@@ -84,6 +85,9 @@ the design changes; do not let it drift into a changelog.
   stay the running-then-exited rail order. The active *row* is the one you picked (session
   plus group): it alone gets the full highlight, the same session's rows under other repos
   get a half-strength bar, and `⌘↑/↓` step from the picked row, not its first echo.
+  A repo name is coloured by a hash of the name wherever it appears (group headers, row
+  sub-labels, the Repos panel, the Files section, the new-session picker), so one repo is one
+  colour across grouping modes, restarts and machines; "no repo" and the attention groups stay grey.
 - **Activity is derived, never polled.** Every Claude session carries `activity`:
   `working` (a turn is running), `needsInput` (blocked on a permission prompt), `waiting`
   (the turn ended, the next move is mine) or `idle` (waiting >10 min, or silent >15 min
@@ -93,9 +97,18 @@ the design changes; do not let it drift into a changelog.
   heartbeat that keeps a long tool call from ageing out. `SubagentStop` and `PreCompact` are
   heartbeats only: Claude Code fires SubagentStop for background agents that finish minutes
   after the turn ended (its "away summary"), and reading that as working pinned finished
-  sessions to orange. It is not persisted: a restarted
-  daemon re-derives each running session's state from its last hook event, because a session
-  waiting for me sends nothing until I type. The rail says it on Clawd: orange pulsing =
+  sessions to orange. A permission prompt blocks on the tool call that opened it, not on
+  the next `PostToolUse`: Claude issues several calls per message and Claude Code prompts for
+  them one at a time, so the first approval must not read as working while the second prompt
+  is up. Calls are tracked by `tool_use_id` from `PreToolUse` to `PostToolUse`.
+  `PermissionRequest` fires the moment a prompt opens, once per prompt, without a
+  `tool_use_id`, so the call is matched by tool name and input; the `permission_prompt`
+  `Notification` fires once per batch after ~6 s of silence, so it blocks on every call in
+  flight from the thread (main or subagent) that made the latest call. A denied call, mine or
+  the auto-mode classifier's, fires no hook: the transcript tailer prunes it from its
+  `tool_result`, and a thread's next `PreToolUse` releases what it was blocked on. It is not
+  persisted: a restarted daemon replays each running session's last hook events in order,
+  because a session waiting for me sends nothing until I type. The rail says it on Clawd: orange pulsing =
   working, amber = wants an answer, green = my move, dim = idle. The time beside it is
   time-in-state while working and time since I last typed otherwise (see engagement).
 - **Engagement is my side of the same coin.** `activity` says what Claude is doing;
@@ -121,6 +134,44 @@ the design changes; do not let it drift into a changelog.
 - **The overseer runs once per real turn.** Stops with `stop_hook_active` (Claude sent
   back by another Stop hook) are ignored, and Stop-triggered runs for one session are
   at least `overseer.stopMinIntervalSec` (60) apart. Flags still run immediately.
+
+## Federation: sessions on other machines
+
+Every machine runs the full pair (sessiond + daemon): hooks, git and transcripts are local
+files, so a daemon cannot be remote. What crosses machines is a **link between daemons**,
+never a window talking to a far daemon: the UI keeps its one WebSocket, and no credential
+ever reaches a browser. The daemon a window is attached to dials each paired peer, mirrors
+the peer's sessions into the state it already serves (tagged `peer`, with their repos,
+flags, usage and playbook), and relays terminal traffic, `session:create`, kill, diffs and
+the `/api/*` calls those sessions need (`?peer=` or a relayed `sessionId` routes a request
+to the peer's copy of the same handler). A dropped link takes its sessions out of the rail
+until it is back. Two machines that both listen dial each other, so each window sees both.
+
+- **Listening is tailnet-only by default.** `federation.listen: "tailscale"` binds the
+  machine's 100.64/10 address on `federation.port` (4712) and serves nothing but `/fed`:
+  no UI, no `/api`, no hooks. `"off"` never listens; an explicit address binds that
+  (`0.0.0.0` works, with a warning). Loopback :4711 is unchanged.
+- **Identity is a per-machine Ed25519 key** in `~/.henry/federation.json` (0600), next
+  to the peer list. Pairing pins the other side's key; from then on every connection is
+  mutually authenticated: an X25519 ephemeral exchange, HKDF, AES-256-GCM per direction
+  with strict counters (replay = out of order = drop), and both sides sign the full
+  transcript (nonces, ephemeral keys, identity keys), so a swapped key fails verification
+  and the wire is private even off the tailnet.
+- **Pairing is a one-time code.** "Show a pairing code" (remotes menu, or `henry pair`)
+  opens a ten-minute window with a 60-bit code; the joiner proves it under the shared
+  secret (a passive observer learns nothing; an active one gets five online guesses, then
+  the code is revoked). The joiner also advertises its own listen URL, so one pairing
+  links both ways. Both sides show fingerprints to compare afterwards. Five failed
+  handshakes from one address lock it out for a minute.
+- **A paired machine is you.** It can attach, type, start and kill sessions and read files
+  in repos there, exactly what a window can. Pause or forget a peer from the remotes menu
+  (`henry peers forget <name>`); a forgotten key is refused at the next handshake.
+  `/api/federation/*` is never proxied and never served to a peer.
+- **In the rail** a relayed session carries a dotted chip with the peer's name (coloured
+  like a repo name); "by machine" grouping buckets on it; "+ new" offers the connected
+  machines as a place to start the session. File peeks and ⌘K read from the machine of the
+  session you are looking at. Global playbook and 5h/7d usage stay per machine (same
+  account, same limits).
 
 ## Layout
 
@@ -221,6 +272,10 @@ henry/
       src/sessions.ts          # session records, reconciliation with sessiond, attach/detach
       src/sessiond-client.ts   # finds/starts sessiond, NDJSON over loopback TCP, reconnect
       src/sessiond-cli.ts      # henry sessiond status | restart [--now]
+      src/federation.ts        # peer store, tailnet listener, pairing, inbound links, state merge
+      src/fed-peer.ts          # outbound link: dial, mirror a peer's sessions, relay PTY + /api
+      src/fed-crypto.ts        # identity keys, handshake, AES-GCM channel, pairing codes
+      src/federation-cli.ts    # henry pair | peers [forget <name>]
       src/db.ts                # bun:sqlite schema + queries (~/.henry/henry.db)
       src/hooks.ts             # POST /hook, POST /statusline ingest
       src/transcript.ts        # tail ~/.claude/projects/**/<session>.jsonl
@@ -257,6 +312,7 @@ claude (in PTY) ──hooks──▶ henry-hook.sh ──POST /hook──▶ dae
 sessiond (owns PTYs) ◀──TCP 127.0.0.1, token──▶ daemon (spawn, write, attach, scrollback)
 daemon ──WS──▶ every attached window (pty data, state deltas)
 daemon ──on Stop / on flag──▶ overseer ──▶ playbook rows ──WS──▶ windows
+daemon ◀──ws://<tailscale ip>:4712/fed, mutually authenticated──▶ peer daemon (its sessions, relayed)
 ```
 
 Session identity: the daemon spawns `claude` with env `HENRY_SESSION=<uuid>`. Hook
@@ -269,6 +325,14 @@ path resolves into it), record `HEAD` as that session's baseline for that repo.
 
 ## Config (`~/.henry/config.json`)
 
+- **First run asks for `reposRoot`.** Until config.json has one, every window shows a
+  modal (no dismiss) explaining that Henry expects a single folder holding all repos as
+  subfolders, with a live count of what it finds at the typed path. `POST /api/config
+  {reposRoot}` validates the folder, writes it (and `defaultRepo`, unless already set) and
+  broadcasts state with `firstRun: false`. The same modal reopens from the topbar
+  (`repos <path>`) to change the folder later, with Cancel; the daemon never writes
+  config.json otherwise. Changing it moves the outside-root boundary for running sessions.
+
 ```json
 {
   "port": 4711,
@@ -276,6 +340,7 @@ path resolves into it), record `HEAD` as that session's baseline for that repo.
   "reposRoot": "~/code",
   "defaultRepo": "~/code",
   "overseer": { "backend": "auto", "model": "claude-opus-5", "onStop": true, "onFlag": true, "stopMinIntervalSec": 60 },
+  "federation": { "listen": "tailscale", "port": 4712 },
   "rules": {
     "protectedBranches": ["main", "master"],
     "alarm": ["git push --force", "git push -f", "git reset --hard", "rm -rf", "git branch -D", "git checkout -- ."],

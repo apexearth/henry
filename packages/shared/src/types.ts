@@ -34,6 +34,9 @@ export interface Session {
   pid?: number;
   /** Short name of the machine whose daemon owns this session (config.host, default os.hostname()). */
   host?: string;
+  /** Set by the daemon you are attached to on sessions it relays from a paired machine
+   * (federation): the peer's name in this daemon's peer list. Absent on local sessions. */
+  peer?: string;
   /** Derived, never persisted: undefined for terminals and for Claude sessions yet to post a hook. */
   activity?: SessionActivity;
   /** When the session entered `activity`; the rail shows the time since. */
@@ -151,6 +154,38 @@ export interface Usage {
 
 export type OverseerBackend = "auto" | "api" | "claude-cli";
 
+/** One paired machine as this daemon sees it (federation). */
+export interface PeerStatus {
+  name: string;
+  /** SHA-256 of the peer's identity key, hex, grouped; compare across machines after pairing. */
+  fingerprint: string;
+  /** ws://host:port/fed we dial; absent for a peer that only dials us. */
+  url?: string;
+  /** Our outbound link: "off" when there is no url or the peer is disabled. */
+  link: "connected" | "connecting" | "offline" | "off";
+  /** The peer is currently dialed in to us (it sees our sessions). */
+  inbound: boolean;
+  enabled: boolean;
+  pairedAt: number;
+  lastSeenAt?: number;
+  /** Sessions currently relayed from this peer. */
+  sessions: number;
+  error?: string;
+}
+
+/** GET /api/federation/status. */
+export interface FederationStatus {
+  name: string;
+  fingerprint: string;
+  /** Where inbound peers reach us, once the listener is up. */
+  listening?: { address: string; port: number };
+  /** Why the listener is not up (config off, no tailnet address, bind failed). */
+  listenError?: string;
+  /** An active pairing window: a one-time code another machine can use to pair with us. */
+  pairing?: { code: string; expiresAt: number };
+  peers: PeerStatus[];
+}
+
 export interface HenryConfig {
   port: number;
   /** Name stamped on sessions this daemon creates; default: short os.hostname(). */
@@ -168,6 +203,14 @@ export interface HenryConfig {
     apiKey?: string;
     /** Floor in seconds between two Stop-triggered playbook runs for one session (default 60). */
     stopMinIntervalSec?: number;
+  };
+  /** Sessions on other machines (federation.ts). The daemon dials paired peers and relays
+   * their sessions; `listen` is where other machines reach this one. */
+  federation: {
+    /** "tailscale" binds the Tailscale (CGNAT 100.64/10) address only; "off" never listens; an
+     * explicit address binds that (0.0.0.0 is accepted with a warning). Default "tailscale". */
+    listen: "tailscale" | "off" | string;
+    port: number;
   };
   rules: {
     protectedBranches: string[];
@@ -187,6 +230,7 @@ export const DEFAULT_CONFIG: HenryConfig = {
   reposRoot: "~/code",
   defaultRepo: "~/code",
   overseer: { backend: "auto", model: "claude-opus-5", onStop: true, onFlag: true },
+  federation: { listen: "tailscale", port: 4712 },
   rules: {
     protectedBranches: ["main", "master"],
     alarm: ["git push --force", "git push -f", "git reset --hard", "rm -rf", "git branch -D", "git checkout -- ."],
@@ -211,6 +255,8 @@ export interface RepoPickerEntry {
   name: string;
   isWorktree: boolean;
   worktreeOf?: string;
+  /** A plain directory under reposRoot with no .git (scratch space); absent for repos. */
+  folder?: true;
 }
 
 /** One file, read for a peek (GET /api/file). `content` is text, capped; see `truncated`. */

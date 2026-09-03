@@ -104,6 +104,18 @@ export function useTheme(): ThemeChoice {
   return useSyncExternalStore(onTheme, () => current);
 }
 
+// A stable hue for a name (repo, folder), so the same name is the same colour on every
+// machine and in every grouping mode. FNV-1a keeps near-identical names far apart.
+export function nameHue(name: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < name.length; i++) h = Math.imul(h ^ name.charCodeAt(i), 0x01000193);
+  return (h >>> 0) % 360;
+}
+/** Text colour for a hue, light enough to read on the dark shades at header sizes. */
+export function hueText(hue: number): string {
+  return oklch(0.78, 0.12, hue);
+}
+
 export function cssVar(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }

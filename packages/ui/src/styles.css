@@ -46,6 +46,7 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 /* The active session listed again under another repo: the bar only, at half strength. */
 .rail-item.echo { border-left-color: color-mix(in srgb, var(--accent) 50%, transparent); }
 .rail-item.off .title { color: var(--fg-dim); }
+.rail-item.off .sub { opacity: 0.55; }
 .rail-item .title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .rail-item .sub { flex: 0 1 auto; max-width: 40%; color: var(--fg-dim); font-size: 11px; overflow: hidden; text-overflow: ellipsis; }
 .rail-item .close { flex: none; opacity: 0; background: none; border: none; padding: 0 2px; color: var(--fg-dim); }
@@ -266,3 +267,34 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 
 /* Pixel size of each group, shown at its centre while a sash is dragged (Layout.tsx SizeOverlay). */
 .size-badge { position: fixed; transform: translate(-50%, -50%); pointer-events: none; z-index: 50; font-size: 12px; padding: 2px 8px; border-radius: 4px; background: var(--bg); color: var(--fg); border: 1px solid var(--accent); white-space: nowrap; }
+
+/* federation: sessions relayed from a paired machine, and the remotes menu */
+.rail-item .peer { flex: none; font-size: 10px; line-height: 14px; padding: 0 4px; border: 1px dotted; border-radius: 7px; opacity: .85; }
+.rail-item.off .peer { opacity: .5; }
+.picker-machines { display: flex; gap: 6px; align-items: center; padding: 10px 12px 0; font-size: 12px; }
+.picker-machines .hint { color: var(--fg-dim); font-size: 11px; }
+.chip { background: none; border: 1px dotted var(--border); border-radius: 10px; padding: 1px 8px; font-size: 11px; color: var(--fg-dim); }
+.chip.sel { border-style: solid; border-color: currentColor; background: var(--bg-3); color: var(--fg); }
+.remotes-pop { width: 420px; font-size: 12px; }
+.remotes-pop h4 { margin: 8px 0 4px; font-size: 10px; letter-spacing: .04em; text-transform: uppercase; color: var(--fg-dim); font-weight: normal; }
+.remotes-pop .me, .remotes-pop .peer-row { display: flex; gap: 8px; align-items: center; padding: 4px 0; }
+.remotes-pop .peer-row { white-space: nowrap; }
+.remotes-pop .me { flex-wrap: wrap; }
+.remotes-pop .peer-row .name { font-weight: bold; }
+.remotes-pop .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.remotes-pop .dim { color: var(--fg-dim); }
+.remotes-pop .fp { font-family: var(--mono); color: var(--fg-dim); font-size: 11px; }
+.remotes-pop .dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--fg-faint); }
+.remotes-pop .dot.connected { background: var(--ok); }
+.remotes-pop .dot.connecting { background: var(--warn); }
+.remotes-pop .dot.offline { background: var(--alarm); }
+.remotes-pop .code { font-family: var(--mono); font-size: 20px; letter-spacing: .08em; padding: 6px 0; user-select: all; }
+.remotes-pop form { display: flex; gap: 6px; align-items: center; margin-top: 4px; }
+.remotes-pop form input { flex: 1; min-width: 0; }
+.remotes-pop .err { color: var(--alarm); }
+.remotes-pop .ok { color: var(--ok); }
+.remotes-pop .small { background: none; border: none; padding: 0 4px; color: var(--fg-dim); }
+.remotes-pop .small:hover { color: var(--fg); }
+.topbar .remotes-btn .n { margin-left: 4px; }
+.topbar .remotes-btn .n.off { color: var(--alarm); }
+.topbar .remotes-btn .n.on { color: var(--ok); }

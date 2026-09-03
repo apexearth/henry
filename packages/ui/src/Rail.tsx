@@ -3,6 +3,7 @@ import { isClaudeSession, type Session, type SessionActivity } from "@henry/shar
 import { FilesSection } from "./RailFiles";
 import { RepoPicker } from "./RepoPicker";
 import { inShell, onMenu } from "./shell";
+import { hueText, nameHue } from "./theme";
 import { showSession } from "./dock";
 import { activeRowIndex, duplicateSession, killSession, railGroups, railRows, resumeSession, setActive, setGroupBy, toggleShowClosed, useStore, type GroupBy } from "./ws";
 
@@ -100,6 +101,7 @@ const GROUP_LABEL: Record<GroupBy, string> = {
   cwd: "by folder",
   repos: "by repo",
   attention: "by attention",
+  host: "by machine",
 };
 
 export function Rail() {
@@ -134,6 +136,11 @@ export function Rail() {
     return () => window.removeEventListener("keydown", onKey, true);
   }, []);
 
+  // The repo sub-label repeats the header under "by folder" / "by repo", so it only shows
+  // where it is the row's only repo cue.
+  const showSub = groupBy === "none" || groupBy === "attention" || groupBy === "host";
+  // The peer chip repeats the header under "by machine".
+  const showPeer = groupBy !== "host";
   const unread = (id: string) => flags.filter((f) => f.sessionId === id && !f.read);
   // Counted off the sessions themselves: under "by repo" a session can appear in several groups.
   const running = sessions.filter((s) => s.status === "running").length;
@@ -148,7 +155,7 @@ export function Rail() {
           <div key={g.key} className="rail-group">
             {g.label && (
               <div className="rail-group-h" title={g.title}>
-                <span className="name">{g.label}</span>
+                <span className="name" style={g.hue !== undefined ? { color: hueText(g.hue) } : undefined}>{g.label}</span>
                 <span className="n">{g.sessions.length}</span>
               </div>
             )}
@@ -173,11 +180,12 @@ export function Rail() {
               const fade = neglect(s, now);
               return (
                 <div key={g.key + "\n" + s.id} className={"rail-item" + mark + (on ? "" : " off") + (fade ? " neglect-" + fade : "")} onClick={() => { setActive(s.id, g.key); showSession(s.id); }}
-                  title={`${what}, ${state}${on && s.activity ? ` — ${ACTIVITY_TEXT[s.activity]}${ago && s.activity === "working" ? ` for ${ago}` : ""}` : ""}${yours}\n${s.cwd}${s.host ? `\non ${s.host}` : ""}${i >= 0 && i < 9 ? `\n⌘${i + 1}` : ""}`}>
+                  title={`${what}, ${state}${on && s.activity ? ` — ${ACTIVITY_TEXT[s.activity]}${ago && s.activity === "working" ? ` for ${ago}` : ""}` : ""}${yours}\n${s.cwd}${s.peer ? `\non ${s.peer} (remote, via its own Henry daemon)` : s.host ? `\non ${s.host}` : ""}${i >= 0 && i < 9 ? `\n⌘${i + 1}` : ""}`}>
                   {on && claude && <Spark prompts={s.prompts} now={now} />}
                   {claude ? <ClaudeMark on={on} activity={on ? s.activity : undefined} /> : <ShellMark on={on} />}
                   <span className="title">{s.title}</span>
-                  {s.title !== repo && <span className="sub">{repo}</span>}
+                  {s.title !== repo && showSub && <span className="sub" style={{ color: hueText(nameHue(repo)) }}>{repo}</span>}
+                  {s.peer && showPeer && <span className="peer" style={{ color: hueText(nameHue(s.peer)), borderColor: hueText(nameHue(s.peer)) }}>{s.peer}</span>}
                   {ago && <span className={"act act-" + s.activity}>{ago}</span>}
                   {u.length > 0 && <span className={"badge flag" + (hasAlarm ? " alarm" : "")}>⚑ {u.length}</span>}
                   {!on && s.claudeSessionId && !external && (

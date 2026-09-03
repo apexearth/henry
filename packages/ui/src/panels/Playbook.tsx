@@ -9,7 +9,7 @@
 // collapse to their headline. Plain-prose entries (older rows) still render as a paragraph.
 import { Fragment, useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { parsePlaybookText, type PlaybookEntry, type PlaybookSection } from "@henry/shared";
-import { useStore } from "../ws";
+import { getState, useStore } from "../ws";
 
 export interface PlaybookPanelProps {
   sessionId: string | null;
@@ -145,7 +145,8 @@ export function PlaybookPanel({ sessionId, entries }: PlaybookPanelProps) {
     setAskError(null);
     setAnswer(null);
     try {
-      const r = await fetch("/api/playbook/manual", {
+      const peer = view === "global" ? undefined : getState().sessions.find((x) => x.id === sessionId)?.peer;
+      const r = await fetch(peer ? `/api/playbook/manual?peer=${encodeURIComponent(peer)}` : "/api/playbook/manual", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ sessionId: view === "global" ? null : sessionId, prompt: q }),

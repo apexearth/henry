@@ -1,15 +1,20 @@
 import { useEffect, useState } from "react";
 import { HenryMark } from "./HenryMark";
 import { ThemeMenu } from "./ThemeMenu";
+import { RemotesMenu } from "./RemotesMenu";
 import { FilePicker } from "./FilePicker";
 import { Layout } from "./Layout";
+import { Setup } from "./Setup";
 import { closePeek, getDockApi, isFilePanel, resetLayout, showSession, stageStep } from "./dock";
 import { onMenu } from "./shell";
 import { activeRowIndex, railRows, setActive, useStore, type RailRow } from "./ws";
 
 export function App() {
   const connected = useStore((s) => s.connected);
+  const firstRun = useStore((s) => s.hydrated && s.firstRun);
+  const reposRoot = useStore((s) => s.config?.reposRoot);
   const [finder, setFinder] = useState(false);
+  const [setup, setSetup] = useState(false);
 
   useEffect(() => onMenu("reset-layout", resetLayout), []);
 
@@ -69,11 +74,18 @@ export function App() {
         <span className="brand">henry</span>
         <span className={"conn" + (connected ? " on" : "")} title={connected ? "connected" : "reconnecting"}>●</span>
         <span style={{ flex: 1 }} />
+        {reposRoot && (
+          <button className="topbar-btn" onClick={() => setSetup(true)} title="the folder holding all your repos; click to change">
+            repos {reposRoot}
+          </button>
+        )}
+        <RemotesMenu />
         <ThemeMenu />
         <button className="topbar-btn" onClick={resetLayout} title="back to rail | terminals | tools">reset layout</button>
       </div>
       <Layout />
       {finder && <FilePicker onClose={() => setFinder(false)} />}
+      {firstRun ? <Setup /> : setup && <Setup onClose={() => setSetup(false)} />}
     </div>
   );
 }

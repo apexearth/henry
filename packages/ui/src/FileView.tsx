@@ -17,6 +17,9 @@ export function splitLineRef(ref: string): { path: string; line?: number } {
 export async function fetchPeek(path: string, cwd?: string): Promise<FilePeek | null> {
   const q = new URLSearchParams({ path });
   if (cwd) q.set("cwd", cwd);
+  // Files are read where the session you are looking at runs: a relayed session's machine.
+  const peer = getState().sessions.find((x) => x.id === getState().activeSessionId)?.peer;
+  if (peer) q.set("peer", peer);
   const r = await fetch(`/api/file?${q}`);
   return r.ok ? ((await r.json()) as FilePeek) : null;
 }

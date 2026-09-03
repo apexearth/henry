@@ -17,6 +17,7 @@ export const HOOK_EVENTS = [
   "SessionEnd",
   "PreCompact",
   "Notification",
+  "PermissionRequest",
 ] as const;
 
 const HOOK_SCRIPT = "henry-hook.sh";

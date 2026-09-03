@@ -1,13 +1,14 @@
 // WebSocket client + tiny store (useSyncExternalStore). PTY traffic bypasses React state:
 // Terminal components subscribe per session via subscribePty.
 import { useSyncExternalStore } from "react";
-import { isClaudeSession, type ClientMessage, type Flag, type HenryConfig, type HenryEvent, type PlaybookEntry, type RepoState, type ServerMessage, type Session, type SessionKind, type Usage } from "@henry/shared";
+import { nameHue } from "./theme";
+import { isClaudeSession, type ClientMessage, type Flag, type HenryConfig, type HenryEvent, type PeerStatus, type PlaybookEntry, type RepoState, type ServerMessage, type Session, type SessionKind, type Usage } from "@henry/shared";
 
 export type PtyMessage = Extract<ServerMessage, { type: "pty:data" | "pty:scrollback" | "pty:exit" }>;
 
 /** How the rail buckets sessions: not at all, by working directory, by every repo touched,
  * or by who owes whom a move (your move first, longest-unanswered at the top). */
-export type GroupBy = "none" | "cwd" | "repos" | "attention";
+export type GroupBy = "none" | "cwd" | "repos" | "attention" | "host";
 
 export interface UiState {
   connected: boolean;
@@ -21,6 +22,12 @@ export interface UiState {
   usage: Usage;
   playbook: PlaybookEntry[];
   config: HenryConfig | null;
+  /** The daemon has no user-chosen reposRoot yet; the setup modal blocks until it does. */
+  firstRun: boolean;
+  /** This daemon's own name; sessions without `peer` live on it. */
+  host: string | null;
+  /** Paired machines and how their links are doing (federation). */
+  peers: PeerStatus[];
   /** Persisted, so a refresh reopens the session (or at least the repo) you were in. */
   activeSessionId: string | null;
   /** Which rail row of the active session is "here": under "by repo" a session is listed
@@ -47,6 +54,9 @@ let state: UiState = {
   usage: { perSession: {}, updatedAt: 0 },
   playbook: [],
   config: null,
+  firstRun: false,
+  host: null,
+  peers: [],
   activeSessionId: readLastActive()?.id ?? null,
   activeGroup: null,
   showClosed: readShowClosed(),
@@ -66,7 +76,7 @@ function readShowClosed(): boolean {
 function readGroupBy(): GroupBy {
   try {
     const v = localStorage.getItem("henry.groupBy");
-    return v === "cwd" || v === "repos" || v === "attention" ? v : "none";
+    return v === "cwd" || v === "repos" || v === "attention" || v === "host" ? v : "none";
   } catch {
     return "none";
   }
@@ -182,6 +192,9 @@ function handle(m: ServerMessage): void {
         usage: m.usage,
         playbook: m.playbook,
         config: m.config,
+        firstRun: m.firstRun,
+        host: m.host ?? null,
+        peers: m.peers ?? [],
         activeSessionId: pickActive(m.sessions, state.activeSessionId),
         hydrated: true,
       });
@@ -220,6 +233,9 @@ function handle(m: ServerMessage): void {
     case "ui:build":
       noteUiBuild(m.build);
       return;
+    case "peers:update":
+      setState({ peers: m.peers });
+      return;
   }
 }
 
@@ -238,21 +254,30 @@ export interface RailGroup {
   /** Empty when the rail should list the rows with no header (groupBy "none"). */
   label: string;
   title: string;
+  /** Set for identity groups (a folder, a repo) and left off semantic ones. */
+  hue?: number;
   sessions: Session[];
 }
 
 const NO_REPO = "\u0000no-repo";
+const LOCAL_HOST = "\u0000local";
 
 function buildGroups(order: Session[], s: UiState): RailGroup[] {
   if (s.groupBy === "none") return [{ key: "all", label: "", title: "", sessions: order }];
   const groups = new Map<string, RailGroup>();
   const add = (key: string, label: string, title: string, session: Session) => {
     let g = groups.get(key);
-    if (!g) groups.set(key, (g = { key, label, title, sessions: [] }));
+    if (!g) groups.set(key, (g = { key, label, title, hue: key === NO_REPO ? undefined : nameHue(label), sessions: [] }));
     g.sessions.push(session);
   };
   if (s.groupBy === "attention") return attentionGroups(order);
   for (const session of order) {
+    if (s.groupBy === "host") {
+      // One bucket per machine: this one first (it is listed first in `order`), then each peer.
+      const name = session.peer ?? s.host ?? "this machine";
+      add(session.peer ?? LOCAL_HOST, name, session.peer ? `sessions on ${name} (remote)` : `sessions on this machine`, session);
+      continue;
+    }
     if (s.groupBy === "cwd") {
       add(session.cwd, basename(session.cwd), session.cwd, session);
       continue;
@@ -301,6 +326,7 @@ function railCache(s: UiState): { groups: RailGroup[]; flat: Session[]; rows: Ra
     c.s.showClosed === s.showClosed &&
     c.s.activeSessionId === s.activeSessionId &&
     c.s.groupBy === s.groupBy &&
+    c.s.host === s.host &&
     c.s.repos === s.repos
   )
     return c;
@@ -365,16 +391,16 @@ export function setActive(sessionId: string | null, group?: string): void {
   if (sessionId !== state.activeSessionId || activeGroup !== state.activeGroup) setState({ activeSessionId: sessionId, activeGroup });
 }
 
-export function createSession(cwd: string, title?: string, kind: SessionKind = "claude"): void {
+export function createSession(cwd: string, title?: string, kind: SessionKind = "claude", peer?: string): void {
   const requestId = crypto.randomUUID();
   pendingCreates.add(requestId);
-  send({ type: "session:create", cwd, title: title || undefined, kind, requestId });
+  send({ type: "session:create", cwd, title: title || undefined, kind, requestId, peer });
 }
 
-/** Another tab of the same kind in the active session's folder. Nothing happens with no active tab. */
+/** Another tab of the same kind in the active session's folder, on the same machine. Nothing happens with no active tab. */
 export function duplicateSession(): void {
   const s = state.sessions.find((x) => x.id === state.activeSessionId);
-  if (s) createSession(s.cwd, undefined, s.kind ?? "claude");
+  if (s) createSession(s.cwd, undefined, s.kind ?? "claude", s.peer);
 }
 
 /** Start a new tab that resumes an exited session's Claude conversation, and drop the old tab. */
@@ -382,7 +408,7 @@ export function resumeSession(s: Session): void {
   if (!s.claudeSessionId) return;
   const requestId = crypto.randomUUID();
   pendingCreates.add(requestId);
-  send({ type: "session:create", cwd: s.cwd, title: s.title, resume: s.claudeSessionId, requestId });
+  send({ type: "session:create", cwd: s.cwd, title: s.title, resume: s.claudeSessionId, requestId, peer: s.peer });
   killSession(s.id);
 }
 
