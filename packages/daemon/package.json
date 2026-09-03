@@ -1,0 +1,22 @@
+{
+  "name": "@henry/daemon",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": { "henry": "./src/index.ts" },
+  "scripts": {
+    "dev": "bun --watch src/index.ts start",
+    "start": "bun src/index.ts start",
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "smoke": "bun test/smoke.ts"
+  },
+  "dependencies": {
+    "@henry/shared": "workspace:*",
+    "node-pty": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.0",
+    "@types/node": "^22.0.0"
+  }
+}
