@@ -7,6 +7,7 @@ import type { ClientMessage, ServerMessage, StateSnapshot, Usage } from "@henry/
 import * as activity from "./activity";
 import { config } from "./config";
 import * as db from "./db";
+import * as engagement from "./engagement";
 import * as git from "./git";
 import * as files from "./files";
 import * as hooks from "./hooks";
@@ -104,6 +105,7 @@ async function handleMessage(ws: Ws, msg: ClientMessage): Promise<void> {
       return;
     case "pty:input":
       sessions.write(msg.sessionId, msg.data);
+      engagement.input(msg.sessionId, msg.data);
       return;
     case "pty:resize":
       sessions.resize(msg.sessionId, msg.cols, msg.rows);
@@ -167,6 +169,7 @@ export async function startServer(): Promise<void> {
   await sessions.start();
   // Re-derives each running session's activity from its last hook, then ages it on a tick.
   activity.start();
+  engagement.start();
   server = Bun.serve<WsData>({
     hostname: "127.0.0.1",
     port: config.port,
@@ -205,6 +208,12 @@ export async function startServer(): Promise<void> {
         const sessionId = url.searchParams.get("sessionId") ?? "";
         const repoPath = url.searchParams.get("repoPath") ?? "";
         return json(await git.logSinceBaseline(sessionId, repoPath));
+      }
+      if (pathname === "/api/session/files") return json(await git.sessionFiles(url.searchParams.get("sessionId") ?? ""));
+      if (pathname === "/api/repo/files") return json(await git.listFiles(url.searchParams.get("repo") ?? ""));
+      if (pathname === "/api/file/diff") {
+        const d = await git.fileDiff(url.searchParams.get("sessionId") || undefined, url.searchParams.get("path") ?? "");
+        return d ? json(d) : json({ error: "not in a repo" }, 404);
       }
       if (pathname === "/api/file") {
         const peek = files.readPeek(url.searchParams.get("path") ?? "", url.searchParams.get("cwd") ?? undefined);
@@ -247,6 +256,7 @@ export async function startServer(): Promise<void> {
 export function stopServer(): void {
   clearInterval(uiBuildTimer);
   activity.stop();
+  engagement.stop();
   git.stop();
   sessions.shutdown();
   server?.stop(true);

@@ -19,16 +19,23 @@ const PERMISSION = /permission|approve|confirm/i;
 interface Payload {
   stop_hook_active?: boolean;
   message?: string;
+  source?: string;
 }
 
-/** The state a hook event implies, or undefined when it says nothing about activity. */
+/**
+ * The state a hook event implies, or undefined when it says nothing about activity.
+ * Undefined events still count as a heartbeat. SubagentStop is deliberately one of them:
+ * Claude Code fires it for background agents that outlive the turn (the "away summary"
+ * it writes minutes after a Stop, plugin workers), and every one seen so far arrived after
+ * a Stop or Notification. Reading it as "working" pinned finished sessions to orange
+ * until the silence timeout. A subagent that runs mid-turn changes nothing: the
+ * PreToolUse that launched it already said working.
+ */
 export function nextActivity(hookEvent: string, payload: Payload = {}): SessionActivity | undefined {
   switch (hookEvent) {
     case "UserPromptSubmit":
     case "PreToolUse":
     case "PostToolUse":
-    case "SubagentStop":
-    case "PreCompact":
       return "working";
     case "Stop":
       // stop_hook_active: another Stop hook sent Claude back for more, so the turn goes on.
@@ -36,9 +43,12 @@ export function nextActivity(hookEvent: string, payload: Payload = {}): SessionA
     case "Notification":
       return PERMISSION.test(payload.message ?? "") ? "needsInput" : "waiting";
     case "SessionStart":
-      // Startup, /clear or a resume: Claude is sitting at the prompt.
-      return "waiting";
+      // Startup, /clear or a resume: Claude is sitting at the prompt. After a compaction
+      // the turn (or the prompt) simply carries on, so keep whatever state it was in.
+      return payload.source === "compact" ? undefined : "waiting";
     default:
+      // SubagentStop, PreCompact (auto-compact happens mid-turn, manual at the prompt),
+      // and anything new: heartbeat only.
       return undefined;
   }
 }

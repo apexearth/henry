@@ -1,12 +1,13 @@
 // WebSocket client + tiny store (useSyncExternalStore). PTY traffic bypasses React state:
 // Terminal components subscribe per session via subscribePty.
 import { useSyncExternalStore } from "react";
-import type { ClientMessage, Flag, HenryConfig, HenryEvent, PlaybookEntry, RepoState, ServerMessage, Session, SessionKind, Usage } from "@henry/shared";
+import { isClaudeSession, type ClientMessage, type Flag, type HenryConfig, type HenryEvent, type PlaybookEntry, type RepoState, type ServerMessage, type Session, type SessionKind, type Usage } from "@henry/shared";
 
 export type PtyMessage = Extract<ServerMessage, { type: "pty:data" | "pty:scrollback" | "pty:exit" }>;
 
-/** How the rail buckets sessions: not at all, by working directory, or by every repo touched. */
-export type GroupBy = "none" | "cwd" | "repos";
+/** How the rail buckets sessions: not at all, by working directory, by every repo touched,
+ * or by who owes whom a move (your move first, longest-unanswered at the top). */
+export type GroupBy = "none" | "cwd" | "repos" | "attention";
 
 export interface UiState {
   connected: boolean;
@@ -60,7 +61,7 @@ function readShowClosed(): boolean {
 function readGroupBy(): GroupBy {
   try {
     const v = localStorage.getItem("henry.groupBy");
-    return v === "cwd" || v === "repos" ? v : "none";
+    return v === "cwd" || v === "repos" || v === "attention" ? v : "none";
   } catch {
     return "none";
   }
@@ -245,6 +246,7 @@ function buildGroups(order: Session[], s: UiState): RailGroup[] {
     if (!g) groups.set(key, (g = { key, label, title, sessions: [] }));
     g.sessions.push(session);
   };
+  if (s.groupBy === "attention") return attentionGroups(order);
   for (const session of order) {
     if (s.groupBy === "cwd") {
       add(session.cwd, basename(session.cwd), session.cwd, session);
@@ -258,6 +260,25 @@ function buildGroups(order: Session[], s: UiState): RailGroup[] {
   }
   // First-appearance order (running sessions first), except the catch-all which goes last.
   return [...groups.values()].sort((a, b) => Number(a.key === NO_REPO) - Number(b.key === NO_REPO));
+}
+
+/** Running Claude sessions split into "your move" (sorted by how long you have left them:
+ * oldest input first) and "working", then terminals, then whatever closed rows are shown. */
+function attentionGroups(order: Session[]): RailGroup[] {
+  const yours: Session[] = [];
+  const working: Session[] = [];
+  const rest: Session[] = [];
+  for (const x of order) {
+    if (x.status !== "running" || !isClaudeSession(x)) rest.push(x);
+    else if (x.activity === "working") working.push(x);
+    else yours.push(x);
+  }
+  yours.sort((a, b) => (a.lastInputAt ?? a.activitySince ?? a.createdAt) - (b.lastInputAt ?? b.activitySince ?? b.createdAt));
+  const groups: RailGroup[] = [];
+  if (yours.length) groups.push({ key: "yours", label: "your move", title: "the turn ended or Claude is asking; longest since you typed first", sessions: yours });
+  if (working.length) groups.push({ key: "working", label: "working", title: "a turn is running", sessions: working });
+  if (rest.length) groups.push({ key: "rest", label: "other", title: "terminals and closed sessions", sessions: rest });
+  return groups;
 }
 
 function basename(p: string): string {
@@ -319,6 +340,12 @@ export function createSession(cwd: string, title?: string, kind: SessionKind = "
   const requestId = crypto.randomUUID();
   pendingCreates.add(requestId);
   send({ type: "session:create", cwd, title: title || undefined, kind, requestId });
+}
+
+/** Another tab of the same kind in the active session's folder. Nothing happens with no active tab. */
+export function duplicateSession(): void {
+  const s = state.sessions.find((x) => x.id === state.activeSessionId);
+  if (s) createSession(s.cwd, undefined, s.kind ?? "claude");
 }
 
 /** Start a new tab that resumes an exited session's Claude conversation, and drop the old tab. */

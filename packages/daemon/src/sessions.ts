@@ -343,6 +343,8 @@ class SessionManager extends EventEmitter<SessionEvents> {
     l.session.claudeActive = false;
     l.session.activity = undefined;
     l.session.activitySince = undefined;
+    l.session.lastInputAt = undefined;
+    l.session.prompts = undefined;
     db.updateSession(id, { claudeActive: false });
     this.emit("update", l.session);
   }
@@ -360,6 +362,15 @@ class SessionManager extends EventEmitter<SessionEvents> {
     this.emit("update", l.session);
   }
 
+  /** Your engagement with a Claude session, decided by engagement.ts. Not persisted, like activity. */
+  setEngagement(id: string, lastInputAt: number | undefined, prompts: number[] | undefined): void {
+    const l = this.live.get(id);
+    if (!l || l.session.status !== "running") return;
+    l.session.lastInputAt = lastInputAt;
+    l.session.prompts = prompts;
+    this.emit("update", l.session);
+  }
+
   /** Disconnect from sessiond. Sessions keep running there; the next daemon picks them up. */
   shutdown(): void {
     this.client.close();
@@ -372,6 +383,8 @@ class SessionManager extends EventEmitter<SessionEvents> {
     l.session.endedAt = Date.now();
     l.session.activity = undefined;
     l.session.activitySince = undefined;
+    l.session.lastInputAt = undefined;
+    l.session.prompts = undefined;
     this.titleTail.delete(l.session.id);
     db.updateSession(l.session.id, { status: "exited", exitCode, endedAt: l.session.endedAt });
     this.emit("exit", l.session.id, exitCode);

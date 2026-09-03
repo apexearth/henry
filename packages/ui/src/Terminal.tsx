@@ -6,6 +6,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { isClaudeSession } from "@henry/shared";
 import { getState, send, subscribePty, useStore } from "./ws";
 import { openPeek, splitLineRef } from "./FileView";
+import { cssVar, onTheme, xtermTheme } from "./theme";
 
 interface Props {
   sessionId: string;
@@ -30,11 +31,11 @@ export function TerminalView({ sessionId, visible, focused }: Props) {
   useEffect(() => {
     const t = new Terminal({
       cursorBlink: true,
-      fontFamily: "ui-monospace, Menlo, Monaco, Consolas, monospace",
+      fontFamily: cssVar("--mono"),
       fontSize: 13,
       scrollback: 10000,
       allowProposedApi: true,
-      theme: { background: "#000000" },
+      theme: xtermTheme(),
     });
     const f = new FitAddon();
     t.loadAddon(f);
@@ -47,9 +48,9 @@ export function TerminalView({ sessionId, visible, focused }: Props) {
       console.warn("[henry] WebGL renderer unavailable, using DOM renderer", e);
     }
     t.attachCustomKeyEventHandler((ev) => {
-      // The window-level handlers own Cmd/Ctrl+1..9 and Cmd+↑/↓ (App.tsx) and Cmd/Ctrl+N (Rail.tsx).
+      // The window-level handlers own Cmd/Ctrl+1..9, Cmd+arrows and Cmd+K (App.tsx) and Cmd/Ctrl+N (Rail.tsx).
       if ((ev.metaKey || ev.ctrlKey) && !ev.altKey && !ev.shiftKey && (ev.key === "n" || ev.key === "N")) return false;
-      if ((ev.metaKey || ev.ctrlKey) && !ev.altKey && (/^[1-9]$/.test(ev.key) || (ev.metaKey && (ev.key === "ArrowUp" || ev.key === "ArrowDown")))) return false;
+      if ((ev.metaKey || ev.ctrlKey) && !ev.altKey && (/^[1-9]$/.test(ev.key) || (ev.metaKey && (ev.key.startsWith("Arrow") || ev.key === "k" || ev.key === "K")))) return false;
       // Shift+Enter inserts a newline in Claude Code's prompt: send ESC CR, the sequence its own
       // /terminal-setup binds. Plain shells keep a normal Enter. keypress must be swallowed too or
       // xterm still emits "\r" from it.
@@ -110,6 +111,7 @@ export function TerminalView({ sessionId, visible, focused }: Props) {
       nudge = setTimeout(() => send({ type: "pty:resize", sessionId, cols, rows }), 40);
     };
     doFit();
+    const offTheme = onTheme(() => { t.options.theme = xtermTheme(); });
     const ro = new ResizeObserver(() => doFit());
     ro.observe(box.current!);
     term.current = t;
@@ -118,6 +120,7 @@ export function TerminalView({ sessionId, visible, focused }: Props) {
     (t as unknown as { _henryResync: () => void })._henryResync = resync;
     return () => {
       ro.disconnect();
+      offTheme();
       clearTimeout(nudge);
       t.dispose();
       term.current = null;

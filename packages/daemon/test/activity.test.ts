@@ -63,7 +63,7 @@ describe("activity", () => {
 
   test("tool calls and prompts mean working; a plain Stop hands the turn back", () => {
     const t0 = Date.now();
-    for (const ev of ["UserPromptSubmit", "PreToolUse", "PostToolUse", "SubagentStop", "PreCompact"]) {
+    for (const ev of ["UserPromptSubmit", "PreToolUse", "PostToolUse"]) {
       activity.note(s.id, "Stop", {}, t0);
       activity.note(s.id, ev, {}, t0 + 1);
       expect(s.activity).toBe("working");
@@ -71,6 +71,31 @@ describe("activity", () => {
     activity.note(s.id, "Stop", { stop_hook_active: false }, t0 + 2);
     expect(s.activity).toBe("waiting");
     expect(s.activitySince).toBe(t0 + 2);
+  });
+
+  test("a SubagentStop after the turn ended (away summary, plugin workers) does not restart it", () => {
+    const t0 = Date.now();
+    activity.note(s.id, "Stop", { stop_hook_active: false }, t0);
+    activity.note(s.id, "SubagentStop", { stop_hook_active: false }, t0 + 3 * MIN);
+    expect(s.activity).toBe("waiting");
+    expect(s.activitySince).toBe(t0);
+    // Mid-turn it is a heartbeat: the session stays working and does not age out.
+    activity.note(s.id, "PreToolUse", { tool_name: "Agent" }, t0 + 4 * MIN);
+    activity.note(s.id, "SubagentStop", {}, t0 + 4 * MIN + activity.SILENT_AFTER_MS - MIN);
+    activity.age(t0 + 4 * MIN + activity.SILENT_AFTER_MS + MIN);
+    expect(s.activity).toBe("working");
+  });
+
+  test("compaction keeps the state it interrupted", () => {
+    const t0 = Date.now();
+    activity.note(s.id, "PreToolUse", {}, t0);
+    activity.note(s.id, "PreCompact", { trigger: "auto" }, t0 + 1);
+    activity.note(s.id, "SessionStart", { source: "compact" }, t0 + 2);
+    expect(s.activity).toBe("working");
+    activity.note(s.id, "Stop", {}, t0 + 3);
+    activity.note(s.id, "PreCompact", { trigger: "manual" }, t0 + 4);
+    activity.note(s.id, "SessionStart", { source: "compact" }, t0 + 5);
+    expect(s.activity).toBe("waiting");
   });
 
   test("a Stop that another hook forced is still working", () => {

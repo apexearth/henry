@@ -10,7 +10,7 @@
 // imported by tests without starting the server. server.ts wires it in startServer().
 import { existsSync, readFileSync, readdirSync, statSync, realpathSync, watch, type FSWatcher } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
-import type { HenryEvent, RepoPickerEntry, RepoState, ServerMessage } from "@henry/shared";
+import type { ChangedFile, FileDiff, HenryEvent, RepoPickerEntry, RepoState, ServerMessage, SessionFiles } from "@henry/shared";
 import * as db from "./db";
 import * as rules from "./rules";
 
@@ -642,6 +642,101 @@ export async function diffSinceBaseline(sessionId: string, repoPath: string): Pr
   }
   if (truncated) parts.push(`\n# diff truncated at ${Math.round(DIFF_CAP_BYTES / 1024 / 1024)}MB\n`);
   return { diff: parts.join(""), baseline };
+}
+
+// ---- files: changed since baseline, repo index, one-file diff ----
+
+const FILES_CAP = 2000;
+const INDEX_TTL_MS = 10_000;
+const INDEX_CAP_BYTES = 8 * 1024 * 1024;
+
+/** Working tree vs the session baseline, one row per path, untracked files as `?`. */
+export async function changedFiles(sessionId: string, repoPath: string): Promise<ChangedFile[]> {
+  const info = resolveRepo(repoPath);
+  if (!info) return [];
+  const baseline = await baselineFor(sessionId, info);
+  const out: ChangedFile[] = [];
+  if (baseline) {
+    const r = await run(info.path, ["diff", "--name-status", "-z", "-M", baseline, "--", "."]);
+    if (r.code === 0 || r.code === 1) {
+      const parts = r.out.split("\0");
+      for (let i = 0; i < parts.length && out.length < FILES_CAP; ) {
+        const code = parts[i++];
+        if (!code) continue;
+        const c = code[0];
+        if (c === "R" || c === "C") {
+          const from = parts[i++];
+          const path = parts[i++];
+          if (path) out.push({ path, status: "R", from });
+        } else {
+          const path = parts[i++];
+          if (path) out.push({ path, status: c === "A" || c === "D" ? c : "M" });
+        }
+      }
+    }
+  }
+  const u = await run(info.path, ["ls-files", "--others", "--exclude-standard", "-z"]);
+  if (u.code === 0) {
+    for (const path of u.out.split("\0")) {
+      if (out.length >= FILES_CAP) break;
+      if (path) out.push({ path, status: "?" });
+    }
+  }
+  for (const f of out) {
+    if (f.status === "D") continue;
+    try {
+      f.mtime = statSync(join(info.path, f.path)).mtimeMs;
+    } catch {
+      /* gone between listing and stat */
+    }
+  }
+  return out;
+}
+
+/** Changed files for every repo the session touched, plus the repo its cwd sits in. */
+export async function sessionFiles(sessionId: string): Promise<SessionFiles> {
+  const paths = new Set<string>(sessionRepos.get(sessionId) ?? []);
+  const cwdRepo = resolveRepo(db.getSession(sessionId)?.cwd ?? "");
+  if (cwdRepo) paths.add(cwdRepo.path);
+  const repos: SessionFiles["repos"] = [];
+  for (const path of paths) {
+    const info = resolveRepo(path);
+    if (!info) continue;
+    repos.push({ path: info.path, name: info.name, baseline: await baselineFor(sessionId, info), files: await changedFiles(sessionId, info.path) });
+  }
+  return { sessionId, repos };
+}
+
+const indexCache = new Map<string, { at: number; files: string[] }>();
+
+/** Every tracked and untracked (not ignored) path under the repo, for ⌘K. Cached briefly. */
+export async function listFiles(anyPath: string): Promise<string[]> {
+  const info = resolveRepo(anyPath);
+  if (!info) return [];
+  const hit = indexCache.get(info.path);
+  if (hit && Date.now() - hit.at < INDEX_TTL_MS) return hit.files;
+  const r = await run(info.path, ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], { maxBytes: INDEX_CAP_BYTES });
+  const files = r.code === 0 ? r.out.split("\0").filter(Boolean) : [];
+  indexCache.set(info.path, { at: Date.now(), files });
+  return files;
+}
+
+/**
+ * One file vs the session baseline (HEAD when no session is given). An untracked file diffs
+ * against /dev/null; an unchanged or ignored file yields an empty diff. Undefined: not in a repo.
+ */
+export async function fileDiff(sessionId: string | undefined, absPath: string): Promise<FileDiff | undefined> {
+  const info = resolveRepo(absPath);
+  if (!info || !absPath.startsWith(info.path + "/")) return undefined;
+  const rel = absPath.slice(info.path.length + 1);
+  const baseline = sessionId ? await baselineFor(sessionId, info) : (await run(info.path, ["rev-parse", "HEAD"])).out.trim();
+  if (!baseline) return { baseline: "", diff: "" };
+  const tracked = await run(info.path, ["diff", "--no-color", "--no-ext-diff", baseline, "--", rel], { maxBytes: DIFF_CAP_BYTES });
+  if (tracked.out) return { baseline, diff: tracked.out };
+  const untracked = await run(info.path, ["ls-files", "--others", "--exclude-standard", "--", rel]);
+  if (!untracked.out.trim()) return { baseline, diff: "" };
+  const one = await run(info.path, ["diff", "--no-color", "--no-index", "--", "/dev/null", rel], { maxBytes: DIFF_CAP_BYTES });
+  return { baseline, diff: one.out };
 }
 
 /** Commits between the session baseline and HEAD, newest first. */

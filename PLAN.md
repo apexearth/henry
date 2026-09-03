@@ -74,7 +74,9 @@ the design changes; do not let it drift into a changelog.
   first. The exited session you are looking at stays listed. Closing an exited session
   (×) sets `dismissed_at` in the DB: it never returns after a daemon restart, but its
   events, flags and playbook stay. `⌘1..9` (or `Ctrl`) and `⌘↑/↓` follow the rail order;
-  `⌃N` (⌘N where the browser frees it) opens the "+ new" picker.
+  `⌃N` (⌘N where the browser frees it) opens the "+ new" picker; `⌘D` duplicates the active
+  tab, a new session of the same kind in its cwd, skipping the picker. No `⌃D`: that is EOF
+  in the terminal.
 - **Grouping is a rail-footer choice, persisted per browser.** Off by default; "by folder"
   buckets sessions on `cwd`, "by repo" on the repos the git watcher has seen the session
   touch, so a session working across two repos is listed under both (one that has touched
@@ -86,10 +88,26 @@ the design changes; do not let it drift into a changelog.
   mid-turn). It falls out of the hook stream Henry already ingests — `UserPromptSubmit` /
   `Pre|PostToolUse` mean working, a plain `Stop` means waiting, a `Notification` says which
   kind — so it costs one switch per event plus a 10 s tick, with the statusline POST as the
-  heartbeat that keeps a long tool call from ageing out. It is not persisted: a restarted
+  heartbeat that keeps a long tool call from ageing out. `SubagentStop` and `PreCompact` are
+  heartbeats only: Claude Code fires SubagentStop for background agents that finish minutes
+  after the turn ended (its "away summary"), and reading that as working pinned finished
+  sessions to orange. It is not persisted: a restarted
   daemon re-derives each running session's state from its last hook event, because a session
   waiting for me sends nothing until I type. The rail says it on Clawd: orange pulsing =
-  working, amber = wants an answer, green = my move, dim = idle, time-in-state beside it.
+  working, amber = wants an answer, green = my move, dim = idle. The time beside it is
+  time-in-state while working and time since I last typed otherwise (see engagement).
+- **Engagement is my side of the same coin.** `activity` says what Claude is doing;
+  `lastInputAt` and `prompts` (daemon/engagement.ts) say whether I have been showing up,
+  which is what tells a session I parked from one I forgot. Prompts come from the
+  `UserPromptSubmit` hook, so the last 4 h of them survive a restart via the event log;
+  keystrokes relayed to the PTY move `lastInputAt` too (throttled to one update per 30 s,
+  terminal replies filtered out, never persisted). The rail draws the prompts as a 16-bar
+  sparkline across the whole row's background (15 min per bar, centred on the row's midline, faint ink under the text,
+  current bar in the accent; flags there are a bare icon + count so they do not cover it)
+  so a busy morning with a flat tail reads as "dropped", fades a row that is waiting on me the longer I leave it (5 min /
+  15 min / 1 h steps; a working session never fades, it does not need me), and offers
+  "by attention" grouping: my move first, longest since I typed at the top, then working,
+  then terminals and closed rows. Looking at a session without typing is not engagement.
 - **Shift+Enter is a newline in Claude Code.** The terminal sends ESC CR (what
   `/terminal-setup` binds) when the session is running Claude; a plain shell gets Enter.
 - **Sessions outlive the daemon, terminal included.** After a daemon restart the
@@ -136,13 +154,35 @@ fight xterm's mouse handling and text selection.
 **File peeks.** Files are things you glance at, not documents you keep open. ⌘-click a
 path in terminal output (relative paths resolve against the session's cwd) or a file header
 in a diff and the file opens read-only over the session, in the same stage group, with its
-own slim header (path, repo, size, ×). A `path:line` reference scrolls to and tints that
-line. The stage is a strip: the session at position 0, its peeks to the right; ⌘←/→ walk
-it, Esc (or ×) closes the peek in view, and closing the last one lands on the session that
-was showing. Peeks are per window, never restored with the layout, served by
-`GET /api/file?path=&cwd=` (1 MB cap, binary detection). Next: a Files list in the rail
-from per-session dirty state, ⌘K fuzzy file search over the session's repos, and changed
-lines tinted against the session baseline.
+own slim header (path, repo, +added −deleted vs baseline, size, ×). A `path:line` reference
+scrolls to and tints that line. The stage is a strip: the session at position 0, its peeks
+to the right; ⌘←/→ walk it, Esc (or ×) closes the peek in view, and closing the last one
+lands on the session that was showing. Peeks are per window, never restored with the
+layout, served by `GET /api/file?path=&cwd=` (1 MB cap, binary detection).
+
+**Changes are shown against the session's baseline**, not HEAD: that is the Henry question
+("what did this session do"). `GET /api/file/diff?sessionId=&path=` returns the one-file
+unified diff (untracked files against /dev/null); the peek tints added lines and shows
+deleted lines as struck-through ghosts where they were. A session with no baseline (a plain
+terminal) diffs against HEAD, so "changed" means "uncommitted" there.
+
+**Files in the rail.** Under the sessions, the active session's changed files
+(`GET /api/session/files?sessionId=`: working tree vs baseline per repo the session touched,
+plus the repo its cwd is in; untracked as `?`), newest mtime first, click to peek. Nothing
+to open or close: the list is derived from git.
+
+**⌘K finds a file to peek at.** Changed files of the session you are looking at come first,
+then recent peeks (per browser, last 40), then, once you type, every file in that session's
+repos (the one its cwd is in first) and finally other sessions' repos, fuzzy-matched on the
+path with a bias to file-name hits. `GET /api/repo/files?repo=` is `git ls-files` incl.
+untracked, cached 10 s. ⌃K works too, except in the terminal where it stays kill-line.
+
+**Appearance.** Three choices in the topbar "theme" popover (tone, highlight, shade) derive
+the whole palette in OKLCH; `theme.ts` writes it as CSS variables on `<html>` and the
+terminal (background, foreground, cursor, selection, the 16 ANSI colors) reads the same
+variables, so the stage and the chrome always match. Nothing else hard-codes a color.
+Saved as `henry.theme`. Semantic colors (ok/warn/alarm) and the Claude orange stay fixed
+across themes; no light mode yet.
 
 Tool tabs:
 - **Repos** — every repo this session has touched: branch, ahead/behind upstream,
@@ -179,6 +219,7 @@ henry/
       src/git.ts               # repo discovery, worktrees, status, ahead/behind, diff
       src/rules.ts             # ~/.henry/config.json rules → classify events
       src/activity.ts          # working | needsInput | waiting | idle, derived from hooks
+      src/engagement.ts        # my prompts + keystrokes per session: lastInputAt, prompt sparkline
       src/overseer.ts          # playbook writer (api | claude-cli backend)
       src/installer.ts         # settings.json merge/unmerge
       hooks/henry-hook.sh      # tiny script installed into settings.json

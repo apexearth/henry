@@ -38,6 +38,12 @@ export interface Session {
   activity?: SessionActivity;
   /** When the session entered `activity`; the rail shows the time since. */
   activitySince?: number;
+  /** Your side of the session (daemon/engagement.ts): when you last typed into it, prompt
+   * or keystroke. Derived like `activity`; a restart recovers the last prompt only. */
+  lastInputAt?: number;
+  /** Timestamps of your prompts over the last PROMPT_WINDOW_MS, ascending. The rail draws
+   * them as a sparkline so a session you stopped feeding reads as a flat tail. */
+  prompts?: number[];
 }
 
 export interface RepoState {
@@ -214,4 +220,26 @@ export interface FilePeek {
   truncated: boolean;
   binary: boolean;
   content: string;
+}
+
+/** A file changed since the session's baseline (working tree vs baseline; `?` = untracked). */
+export interface ChangedFile {
+  /** Relative to the repo root. */
+  path: string;
+  status: "M" | "A" | "D" | "R" | "?";
+  from?: string;
+  /** Working-tree mtime, ms; absent for deleted files. */
+  mtime?: number;
+}
+
+/** GET /api/session/files: every repo the session touched (plus the one its cwd is in). */
+export interface SessionFiles {
+  sessionId: string;
+  repos: { path: string; name: string; baseline: string; files: ChangedFile[] }[];
+}
+
+/** GET /api/file/diff: one file, working tree vs the session baseline (unified diff, may be empty). */
+export interface FileDiff {
+  baseline: string;
+  diff: string;
 }

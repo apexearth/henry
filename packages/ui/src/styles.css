@@ -4,7 +4,11 @@
   --bg-3: #1f242e;
   --fg: #d6dae2;
   --fg-dim: #7d8590;
+  --fg-faint: #4b515b;
   --accent: #6ea8fe;
+  --accent-soft: #6ea8fe2e;
+  --accent-glow: #6ea8fee6;
+  --sel: #6ea8fe55;
   --ok: #3fb950;
   --warn: #d29922;
   --alarm: #f85149;
@@ -64,13 +68,28 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 @keyframes mark-blink { 0%, 60% { opacity: 1; } 61%, 100% { opacity: 0.25; } }
 .rail-item .act { flex: none; font-size: 10px; color: var(--fg-dim); }
 .rail-item .act.act-needsInput { color: var(--warn); }
+/* Engagement (daemon/engagement.ts): the sparkline is your prompts over 4 h, and a row
+   waiting on you fades the longer it has been since you typed into it. */
+.rail-item { position: relative; }
+.rail-item > * { position: relative; }
+.rail-item .spark { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.rail-item .spark .bar { fill: var(--fg); opacity: 0.09; }
+.rail-item .spark .bar.now { fill: var(--accent); opacity: 0.3; }
+.rail-item:hover .spark .bar, .rail-item.active .spark .bar { opacity: 0.14; }
+.rail-item:hover .spark .bar.now, .rail-item.active .spark .bar.now { opacity: 0.4; }
+.rail-item.neglect-1 .title, .rail-item.neglect-1 .sub { opacity: 0.85; }
+.rail-item.neglect-2 .title, .rail-item.neglect-2 .sub { opacity: 0.7; }
+.rail-item.neglect-3 .title, .rail-item.neglect-3 .sub { opacity: 0.5; }
+.rail-item.neglect-3 .mark.claude { --mark: var(--fg-faint); }
 .rail-foot .needs { color: var(--warn); }
 .badge { padding: 0 5px; border-radius: 8px; background: var(--bg); border: 1px solid var(--border); }
+/* Rail flags sit over the sparkline: bare icon + count, no box. */
+.rail-item .badge.flag { padding: 0; background: none; border: none; font-size: 11px; }
 .badge.flag { color: var(--warn); }
 .badge.alarm { color: var(--alarm); }
 .rail-group-h { position: sticky; top: 0; z-index: 1; display: flex; gap: 6px; align-items: center; padding: 6px 8px 2px; background: var(--bg-2); color: var(--fg-dim); font-size: 10px; letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; }
 .rail-group-h .name { overflow: hidden; text-overflow: ellipsis; }
-.rail-group-h .n { flex: none; margin-left: auto; color: #4b515b; }
+.rail-group-h .n { flex: none; margin-left: auto; color: var(--fg-faint); }
 .rail-groupby { background: none; border: none; padding: 0; color: var(--fg-dim); font: inherit; font-size: 11px; }
 .rail-groupby:hover { color: var(--fg); }
 .rail-new { margin: 8px 10px; }
@@ -80,7 +99,7 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 .conn { color: var(--alarm); }
 .conn.on { color: var(--ok); }
 
-.term-host { position: relative; height: 100%; background: #000; }
+.term-host { position: relative; height: 100%; background: var(--bg); }
 .term { position: absolute; inset: 0; padding: 4px; }
 .term .xterm { height: 100%; }
 .empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--fg-dim); text-align: center; padding: 20px; }
@@ -103,19 +122,29 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 .modal .row .path { color: var(--fg-dim); font-size: 11px; }
 .modal .foot { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--border); align-items: center; }
 .modal .foot input { flex: 1; }
-.xterm .xterm-viewport { scrollbar-color: #333 #000; }
-.xterm .xterm-viewport::-webkit-scrollbar { width: 8px; background: #000; }
-.xterm .xterm-viewport::-webkit-scrollbar-thumb { background: #333; }
+.xterm .xterm-viewport { scrollbar-color: var(--border) var(--bg); }
+.xterm .xterm-viewport::-webkit-scrollbar { width: 8px; background: var(--bg); }
+.xterm .xterm-viewport::-webkit-scrollbar-thumb { background: var(--border); }
+
+/* Theme popover (topbar). */
+.pop-bg { position: fixed; inset: 0; z-index: 998; }
+.pop { position: absolute; top: 30px; right: 8px; z-index: 999; background: var(--bg-2); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, .4); }
+.theme-row { display: flex; align-items: center; gap: 10px; padding: 3px 0; }
+.theme-label { width: 12ch; color: var(--fg-dim); font-size: 11px; }
+.theme-swatches { display: flex; gap: 5px; }
+.swatch { width: 16px; height: 16px; padding: 0; border-radius: 50%; border: 2px solid transparent; }
+.swatch:hover { border-color: var(--fg-dim); }
+.swatch.sel { border-color: var(--fg); }
 
 /* Dockview theme: Henry palette on top of the stock variable set (mirrors the abyss theme). */
 .dockview-theme-henry {
   --dv-paneview-active-outline-color: var(--accent);
   --dv-tabs-and-actions-container-font-size: 12px;
   --dv-tabs-and-actions-container-height: 28px;
-  --dv-drag-over-background-color: rgba(110, 168, 254, 0.18);
+  --dv-drag-over-background-color: var(--accent-soft);
   --dv-drag-over-border-color: transparent;
-  --dv-edge-dock-indicator-color: rgba(110, 168, 254, 0.9);
-  --dv-tabs-container-scrollbar-color: #444;
+  --dv-edge-dock-indicator-color: var(--accent-glow);
+  --dv-tabs-container-scrollbar-color: var(--border);
   --dv-icon-hover-background-color: rgba(255, 255, 255, 0.12);
   --dv-floating-box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.3);
   --dv-floating-border: 1px solid var(--border);
@@ -163,7 +192,7 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
   --dv-activegroup-visiblepanel-tab-color: var(--fg);
   --dv-activegroup-hiddenpanel-tab-color: var(--fg-dim);
   --dv-inactivegroup-visiblepanel-tab-color: var(--fg-dim);
-  --dv-inactivegroup-hiddenpanel-tab-color: #5a616b;
+  --dv-inactivegroup-hiddenpanel-tab-color: var(--fg-faint);
   --dv-separator-border: var(--border);
   --dv-paneview-header-border-color: var(--border);
   --dv-context-menu-background-color: var(--bg-3);
@@ -186,6 +215,49 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 .peek-body { flex: 1; overflow: auto; outline: none; font-size: 12px; line-height: 1.5; }
 .peek-body pre { margin: 0; font: inherit; }
 .peek-line { display: flex; white-space: pre; }
-.peek-line.hit { background: rgba(110, 168, 254, 0.15); }
-.peek-no { flex: none; width: 5ch; text-align: right; padding-right: 1ch; margin-right: 1ch; color: #4b515b; user-select: none; border-right: 1px solid var(--border); }
+.peek-line.hit { background: var(--accent-soft); }
+.peek-no { flex: none; width: 5ch; text-align: right; padding-right: 1ch; margin-right: 1ch; color: var(--fg-faint); user-select: none; border-right: 1px solid var(--border); }
 .peek-note { padding: 16px; color: var(--fg-dim); }
+
+/* highlight.js tokens, GitHub-dark-ish so they sit with the rest of the palette. */
+.peek-line .hljs-keyword, .peek-line .hljs-selector-tag, .peek-line .hljs-doctag, .peek-line .hljs-template-tag,
+.peek-line .hljs-type, .peek-line .hljs-variable.language_, .peek-line .hljs-meta .hljs-keyword { color: #ff7b72; }
+.peek-line .hljs-title, .peek-line .hljs-title.class_, .peek-line .hljs-title.function_ { color: #d2a8ff; }
+.peek-line .hljs-attr, .peek-line .hljs-attribute, .peek-line .hljs-literal, .peek-line .hljs-meta, .peek-line .hljs-number,
+.peek-line .hljs-operator, .peek-line .hljs-variable, .peek-line .hljs-selector-attr, .peek-line .hljs-selector-class,
+.peek-line .hljs-selector-id, .peek-line .hljs-property { color: #79c0ff; }
+.peek-line .hljs-regexp, .peek-line .hljs-string, .peek-line .hljs-meta .hljs-string { color: #a5d6ff; }
+.peek-line .hljs-built_in, .peek-line .hljs-symbol { color: #ffa657; }
+.peek-line .hljs-comment, .peek-line .hljs-code, .peek-line .hljs-formula { color: #8b949e; }
+.peek-line .hljs-name, .peek-line .hljs-quote, .peek-line .hljs-selector-pseudo, .peek-line .hljs-tag { color: #7ee787; }
+.peek-line .hljs-subst { color: var(--fg); }
+.peek-line .hljs-section { color: #79c0ff; font-weight: bold; }
+.peek-line .hljs-bullet { color: #f2cc60; }
+.peek-line .hljs-emphasis { font-style: italic; }
+.peek-line .hljs-strong { font-weight: bold; }
+.peek-line .hljs-addition { color: #aff5b4; background: rgba(63,185,80,.18); }
+.peek-line .hljs-deletion { color: #ffdcd7; background: rgba(248,81,73,.18); }
+
+/* Rail: changed files of the active session, under the sessions. */
+.rail-files { flex: 0 1 auto; max-height: 45%; overflow-y: auto; border-top: 1px solid var(--border); }
+.rail-files .files-h { cursor: pointer; }
+.files-repo { padding: 3px 8px 1px; color: var(--fg-dim); font-size: 11px; }
+.files-empty { padding: 4px 10px 6px; color: #4b515b; font-size: 11px; }
+.rail-item.file { height: 22px; }
+.fstat { flex: none; width: 1.2ch; font-size: 11px; font-weight: 600; color: var(--fg-dim); text-align: center; }
+.fstat.s-M { color: var(--warn); }
+.fstat.s-A, .fstat.s-\? { color: var(--ok); }
+.fstat.s-D { color: var(--alarm); }
+.fstat.s-R { color: var(--accent); }
+
+/* ⌘K file picker rows. */
+.picker-files { width: 640px; }
+.picker-files .file-cell { display: flex; gap: 8px; align-items: center; overflow: hidden; }
+.picker-files .file-cell .kind-word { margin-left: 0; overflow: hidden; text-overflow: ellipsis; }
+.picker-files .path { color: var(--fg-dim); font-size: 11px; flex: none; }
+
+/* Peek: lines vs the session baseline. */
+.peek-line.add { background: rgba(63, 185, 80, 0.12); }
+.peek-line.del { background: rgba(248, 81, 73, 0.12); color: var(--fg-dim); text-decoration: line-through; }
+.peek-diffstat .a { color: var(--ok); margin-right: 6px; }
+.peek-diffstat .d { color: var(--alarm); }

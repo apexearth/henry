@@ -1,5 +1,7 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { HenryMark } from "./HenryMark";
+import { ThemeMenu } from "./ThemeMenu";
+import { FilePicker } from "./FilePicker";
 import { Layout } from "./Layout";
 import { closePeek, getDockApi, isFilePanel, resetLayout, showSession, stageStep } from "./dock";
 import type { Session } from "@henry/shared";
@@ -8,13 +10,14 @@ import { getState, railOrder, setActive, useStore } from "./ws";
 
 export function App() {
   const connected = useStore((s) => s.connected);
+  const [finder, setFinder] = useState(false);
 
   useEffect(() => onMenu("reset-layout", resetLayout), []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       // Esc closes the file peek in view (modals handle their own Esc).
-      if (e.key === "Escape" && !e.metaKey && !e.ctrlKey && !document.querySelector(".modal-bg, .dm-bg")) {
+      if (e.key === "Escape" && !e.metaKey && !e.ctrlKey && !document.querySelector(".modal-bg, .dm-bg, .pop-bg")) {
         const p = getDockApi()?.activePanel;
         if (p && isFilePanel(p.id)) {
           e.preventDefault();
@@ -23,6 +26,12 @@ export function App() {
         return;
       }
       if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+      // ⌘K finds a file to peek at. ⌃K too, except in the terminal where it is kill-line.
+      if ((e.key === "k" || e.key === "K") && !e.shiftKey && (e.metaKey || !(e.target as HTMLElement | null)?.closest?.(".xterm"))) {
+        e.preventDefault();
+        setFinder((v) => !v);
+        return;
+      }
       // Cmd+←/→ walk the stage: the session, then its peeks.
       if (e.metaKey && !e.ctrlKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
         e.preventDefault();
@@ -54,9 +63,11 @@ export function App() {
         <span className="brand">henry</span>
         <span className={"conn" + (connected ? " on" : "")} title={connected ? "connected" : "reconnecting"}>●</span>
         <span style={{ flex: 1 }} />
+        <ThemeMenu />
         <button className="topbar-btn" onClick={resetLayout} title="back to rail | terminals | tools">reset layout</button>
       </div>
       <Layout />
+      {finder && <FilePicker onClose={() => setFinder(false)} />}
     </div>
   );
 }

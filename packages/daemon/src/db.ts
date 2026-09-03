@@ -259,6 +259,14 @@ export function listEvents(opts: { sessionId?: string; limit?: number } = {}): H
   return rows.map(rowToEvent);
 }
 
+/** Timestamps of one hook event for a session since `since`, ascending (engagement.ts restore). */
+export function listHookTimes(sessionId: string, hookEvent: string, since: number): number[] {
+  const rows = db
+    .prepare("SELECT ts FROM events WHERE session_id = ? AND kind = 'hook' AND hook_event = ? AND ts >= ? ORDER BY ts ASC")
+    .all(sessionId, hookEvent, since) as { ts: number }[];
+  return rows.map((r) => r.ts);
+}
+
 // ---- flags ----
 
 interface FlagRow { id: string; event_id: string; session_id: string; ts: number; severity: Flag["severity"]; rule: string; summary: string; read: number }

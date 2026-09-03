@@ -9,6 +9,7 @@ import type { Flag, HenryEvent, RateWindow, Session, Usage } from "@henry/shared
 import * as activity from "./activity";
 import { config } from "./config";
 import * as db from "./db";
+import * as engagement from "./engagement";
 import * as git from "./git";
 import * as overseer from "./overseer";
 import * as rules from "./rules";
@@ -101,6 +102,7 @@ function ingestHookInner(body: HookBody): IngestResult {
   db.insertEvent(event);
   broadcast({ type: "event", event });
   activity.note(session.id, hookEvent, payload, event.ts);
+  engagement.note(session.id, hookEvent, event.ts);
   const result: IngestResult = { event };
 
   if (event.severity !== "info") {

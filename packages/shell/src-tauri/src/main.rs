@@ -31,6 +31,7 @@ fn main() {
                 .build()?;
 
             let new_session = MenuItem::with_id(app, "new-session", "New Session", true, Some("CmdOrCtrl+N"))?;
+            let duplicate_session = MenuItem::with_id(app, "duplicate-session", "Duplicate Session", true, Some("Cmd+D"))?;
             let reset_layout = MenuItem::with_id(app, "reset-layout", "Reset Layout", true, Some("CmdOrCtrl+Shift+R"))?;
             let reload = MenuItem::with_id(app, "reload", "Reload", true, Some("CmdOrCtrl+R"))?;
 
@@ -55,7 +56,7 @@ fn main() {
                         app,
                         "File",
                         true,
-                        &[&new_session, &PredefinedMenuItem::separator(app)?, &PredefinedMenuItem::close_window(app, None)?],
+                        &[&new_session, &duplicate_session, &PredefinedMenuItem::separator(app)?, &PredefinedMenuItem::close_window(app, None)?],
                     )?,
                     // The Edit submenu is not decoration: without these roles WKWebView
                     // never delivers ⌘C/⌘V to xterm.

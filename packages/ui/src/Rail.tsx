@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { isClaudeSession, type Session, type SessionActivity } from "@henry/shared";
+import { FilesSection } from "./RailFiles";
 import { RepoPicker } from "./RepoPicker";
 import { inShell, onMenu } from "./shell";
 import { showSession } from "./dock";
-import { killSession, railGroups, railOrder, resumeSession, setActive, setGroupBy, toggleShowClosed, useStore, type GroupBy } from "./ws";
+import { duplicateSession, killSession, railGroups, railOrder, resumeSession, setActive, setGroupBy, toggleShowClosed, useStore, type GroupBy } from "./ws";
 
 function base(p: string) {
   return p.replace(/\/+$/, "").split("/").pop() || p;
@@ -33,6 +34,49 @@ const ACTIVITY_TEXT: Record<SessionActivity, string> = {
   idle: "idle",
 };
 
+/** Prompt sparkline drawn across the whole row's background: 4 h in 15-minute bars, one
+ * series, so it is faint ink under the text with the current bucket in the accent. Bar
+ * height is sqrt(count) so one burst does not flatten the rest of the strip. */
+const SPARK_BUCKETS = 16;
+const SPARK_BUCKET_MS = 15 * 60_000;
+const SPARK_FULL = 6;
+const SPARK_H = 10;
+
+export function bucketPrompts(prompts: number[] | undefined, now: number): number[] {
+  const counts = new Array<number>(SPARK_BUCKETS).fill(0);
+  const start = now - SPARK_BUCKETS * SPARK_BUCKET_MS;
+  for (const t of prompts ?? []) {
+    if (t < start || t > now) continue;
+    counts[Math.min(SPARK_BUCKETS - 1, Math.floor((t - start) / SPARK_BUCKET_MS))]!++;
+  }
+  return counts;
+}
+
+function Spark({ prompts, now }: { prompts: number[] | undefined; now: number }) {
+  const counts = bucketPrompts(prompts, now);
+  if (!counts.some(Boolean)) return null;
+  // Unit-per-bucket viewBox stretched to the row (preserveAspectRatio none), so the strip
+  // fills whatever width the rail has; a 0.15 unit gap keeps adjacent bars apart.
+  return (
+    <svg className="spark" viewBox={`0 0 ${SPARK_BUCKETS} ${SPARK_H}`} preserveAspectRatio="none" aria-hidden>
+      {counts.map((n, i) => {
+        if (!n) return null;
+        // Anchored to the row's midline, growing both ways, so the strip reads as a symmetric pulse.
+        const h = Math.max(1, SPARK_H * Math.min(1, Math.sqrt(n / SPARK_FULL)));
+        return <rect key={i} className={i === SPARK_BUCKETS - 1 ? "bar now" : "bar"} x={i + 0.075} y={(SPARK_H - h) / 2} width={0.85} height={h} />;
+      })}
+    </svg>
+  );
+}
+
+/** How stale your attention is: only while the session is waiting on you, in three steps
+ * (5 min, 15 min, 1 h) so the row fades instead of the label just growing. */
+function neglect(s: Session, now: number): 0 | 1 | 2 | 3 {
+  if (s.status !== "running" || !s.activity || s.activity === "working") return 0;
+  const since = now - (s.lastInputAt ?? s.activitySince ?? now);
+  return since >= 60 * 60_000 ? 3 : since >= 15 * 60_000 ? 2 : since >= 5 * 60_000 ? 1 : 0;
+}
+
 /** Compact time in state. Blank under a minute: a row that changes every second is noise. */
 function since(ts: number | undefined, now: number): string {
   if (!ts) return "";
@@ -55,6 +99,7 @@ const GROUP_LABEL: Record<GroupBy, string> = {
   none: "no grouping",
   cwd: "by folder",
   repos: "by repo",
+  attention: "by attention",
 };
 
 export function Rail() {
@@ -68,15 +113,21 @@ export function Rail() {
   const [picker, setPicker] = useState(false);
   const now = useNow(15000);
 
-  // In the native shell the File menu owns ⌘N and calls us through onMenu. In a browser tab
+  // In the native shell the File menu owns ⌘N / ⌘D and calls us through onMenu. In a browser tab
   // Chrome keeps ⌘N for itself (new window) and never delivers it, so ⌃N is the one that fires.
+  // ⌘D (bookmark) is overridable, so it works in both. ⌃D is EOF in the terminal: never bound.
   useEffect(() => onMenu("new-session", () => setPicker(true)), []);
+  useEffect(() => onMenu("duplicate-session", duplicateSession), []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
-      if (e.key !== "n" && e.key !== "N") return;
-      e.preventDefault();
-      setPicker(true);
+      if (e.altKey || e.shiftKey) return;
+      if ((e.metaKey || e.ctrlKey) && (e.key === "n" || e.key === "N")) {
+        e.preventDefault();
+        setPicker(true);
+      } else if (e.metaKey && !e.ctrlKey && (e.key === "d" || e.key === "D")) {
+        e.preventDefault();
+        duplicateSession();
+      }
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
@@ -110,10 +161,16 @@ export function Rail() {
               const i = list.indexOf(s);
               const what = external ? "Claude Code, started outside Henry" : s.kind === "shell" ? (claude ? "terminal, Claude Code running in it" : "terminal") : "Claude Code";
               const state = on ? "running" : `exited${s.exitCode !== undefined ? ` (${s.exitCode})` : ""}${s.endedAt ? ` ${new Date(s.endedAt).toLocaleString()}` : ""}`;
-              const ago = on && s.activity ? since(s.activitySince, now) : "";
+              // Working: time in state. Waiting on you: time since you typed, which is what neglect is.
+              const ago = on && s.activity ? since(s.activity === "working" ? s.activitySince : s.lastInputAt ?? s.activitySince, now) : "";
+              const typed = on && claude ? since(s.lastInputAt, now) : "";
+              const nPrompts = on && claude ? bucketPrompts(s.prompts, now).reduce((a, b) => a + b, 0) : 0;
+              const yours = on && claude ? `\nyou: ${nPrompts} prompt${nPrompts === 1 ? "" : "s"} in the last 4 h${typed ? `, last typed ${typed} ago` : s.lastInputAt ? ", typing now" : ""}` : "";
+              const fade = neglect(s, now);
               return (
-                <div key={g.key + "\n" + s.id} className={"rail-item" + (s.id === active ? " active" : "") + (on ? "" : " off")} onClick={() => { setActive(s.id); showSession(s.id); }}
-                  title={`${what}, ${state}${on && s.activity ? ` — ${ACTIVITY_TEXT[s.activity]}${ago ? ` for ${ago}` : ""}` : ""}\n${s.cwd}${s.host ? `\non ${s.host}` : ""}${i >= 0 && i < 9 ? `\n⌘${i + 1}` : ""}`}>
+                <div key={g.key + "\n" + s.id} className={"rail-item" + (s.id === active ? " active" : "") + (on ? "" : " off") + (fade ? " neglect-" + fade : "")} onClick={() => { setActive(s.id); showSession(s.id); }}
+                  title={`${what}, ${state}${on && s.activity ? ` — ${ACTIVITY_TEXT[s.activity]}${ago && s.activity === "working" ? ` for ${ago}` : ""}` : ""}${yours}\n${s.cwd}${s.host ? `\non ${s.host}` : ""}${i >= 0 && i < 9 ? `\n⌘${i + 1}` : ""}`}>
+                  {on && claude && <Spark prompts={s.prompts} now={now} />}
                   {claude ? <ClaudeMark on={on} activity={on ? s.activity : undefined} /> : <ShellMark on={on} />}
                   <span className="title">{s.title}</span>
                   {s.title !== repo && <span className="sub">{repo}</span>}
@@ -131,6 +188,7 @@ export function Rail() {
           </div>
         ))}
       </div>
+      <FilesSection />
       <button className="rail-new" title={`new session (${inShell ? "⌘N" : "⌃N"})`} onClick={() => setPicker(true)}>+ new</button>
       <div className="rail-foot">
         <span title={`${working} working`}>

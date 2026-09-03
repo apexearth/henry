@@ -161,6 +161,28 @@ describe("git", () => {
     expect(diff).not.toContain("ignored.txt");
   });
 
+  test("changedFiles, listFiles and fileDiff see the same picture as the repo diff", async () => {
+    const changed = await git.changedFiles("s1", repo);
+    const byPath = Object.fromEntries(changed.map((f) => [f.path, f]));
+    expect(byPath["a.txt"].status).toBe("M");
+    expect(byPath["d.txt"].status).toBe("A"); // committed since baseline still counts
+    expect(byPath["untracked.txt"].status).toBe("?");
+    expect(byPath["untracked.txt"].mtime).toBeGreaterThan(0);
+    expect(byPath["ignored.txt"]).toBeUndefined();
+    const all = await git.listFiles(join(repo, "a.txt"));
+    expect(all).toContain("a.txt");
+    expect(all).toContain("untracked.txt");
+    expect(all).not.toContain("ignored.txt");
+    const d = await git.fileDiff("s1", join(repo, "a.txt"));
+    expect(d?.baseline).toBe(baselineSha);
+    expect(d?.diff).toContain("+two");
+    expect((await git.fileDiff("s1", join(repo, "untracked.txt")))?.diff).toContain("+new");
+    expect((await git.fileDiff("s1", join(repo, "ignored.txt")))?.diff).toBe("");
+    expect(await git.fileDiff("s1", "/")).toBeUndefined();
+    const sf = await git.sessionFiles("s1");
+    expect(sf.repos.find((r) => r.path === repo)?.files.length).toBe(changed.length);
+  });
+
   test("logSinceBaseline lists commits after the baseline", async () => {
     const { baseline, commits } = await git.logSinceBaseline("s1", repo);
     expect(baseline).toBe(baselineSha);
