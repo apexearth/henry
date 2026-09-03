@@ -36,3 +36,11 @@ export function getAllSessionRepos(): Record<string, RepoState[]> {
 export async function diffSinceBaseline(_sessionId: string, _repoPath: string): Promise<{ diff: string; baseline: string }> {
   return { diff: "", baseline: "" };
 }
+
+/**
+ * Called by hooks.ts whenever a session's hook event carries a cwd or file path.
+ * Milestone 3: resolve `absPath` to its repo (walk up to .git), record the
+ * session→repo association and baseline (db.upsertBaseline on first touch),
+ * then refresh and broadcast {type:"repos:update"} for that session.
+ */
+export function noteSessionPath(_sessionId: string, _absPath: string): void {}
