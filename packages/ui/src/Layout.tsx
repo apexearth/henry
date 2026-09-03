@@ -1,0 +1,195 @@
+// The dockable workspace. Every view (rail, each terminal, each tool) is a Dockview panel the
+// user can drag into tabs, splits, edges or floating windows. Layout is saved to localStorage.
+import { useEffect, useRef, useState } from "react";
+import { DockviewReact, type DockviewApi, type DockviewReadyEvent, type IDockviewPanelProps, type IWatermarkPanelProps } from "dockview-react";
+import { Rail } from "./Rail";
+import { TerminalView } from "./Terminal";
+import { ReposPanel } from "./panels/Repos";
+import { FlagsPanel } from "./panels/Flags";
+import { PlaybookPanel } from "./panels/Playbook";
+import { UsagePanel } from "./panels/Usage";
+import { markFlagsRead, requestDiff, requestPlaybook, setActive, useStore } from "./ws";
+import { buildDefaultLayout, ensureSessionPanel, henryTheme, isTerminalGroup, loadLayout, saveLayout, sessionTitle, setDockApi, styleTerminalGroup, TERM_PREFIX, termPanelId } from "./dock";
+
+function TerminalPanel({ api, params }: IDockviewPanelProps<{ sessionId: string }>) {
+  const [visible, setVisible] = useState(api.isVisible);
+  const [active, setPanelActive] = useState(api.isActive);
+  useEffect(() => {
+    const d1 = api.onDidVisibilityChange((e) => setVisible(e.isVisible));
+    const d2 = api.onDidActiveChange((e) => setPanelActive(e.isActive));
+    return () => {
+      d1.dispose();
+      d2.dispose();
+    };
+  }, [api]);
+  return (
+    <div className="term-host">
+      <TerminalView sessionId={params.sessionId} visible={visible} focused={visible && active} />
+    </div>
+  );
+}
+
+function SessionsPanel() {
+  return <Rail />;
+}
+
+function ReposDock() {
+  const active = useStore((s) => s.activeSessionId);
+  const repos = useStore((s) => s.repos);
+  const diffs = useStore((s) => s.diffs);
+  return (
+    <div className="dock-body">
+      <ReposPanel sessionId={active} repos={active ? repos[active] ?? [] : []} diffs={diffs}
+        onRequestDiff={(repoPath) => active && requestDiff(active, repoPath)} />
+    </div>
+  );
+}
+
+function FlagsDock({ api }: IDockviewPanelProps) {
+  const active = useStore((s) => s.activeSessionId);
+  const flags = useStore((s) => s.flags);
+  const events = useStore((s) => s.events);
+  const sessionFlags = flags.filter((f) => !active || f.sessionId === active);
+  const unread = sessionFlags.filter((f) => !f.read).length;
+  useEffect(() => {
+    api.setTitle(unread ? `Flags (${unread})` : "Flags");
+  }, [api, unread]);
+  return (
+    <div className="dock-body">
+      <FlagsPanel sessionId={active} flags={sessionFlags} events={events} onMarkRead={markFlagsRead} />
+    </div>
+  );
+}
+
+function PlaybookDock() {
+  const active = useStore((s) => s.activeSessionId);
+  const playbook = useStore((s) => s.playbook);
+  return (
+    <div className="dock-body">
+      <PlaybookPanel sessionId={active} entries={playbook.filter((p) => p.sessionId === active)} onRefresh={() => requestPlaybook(active)} />
+    </div>
+  );
+}
+
+function UsageDock() {
+  const active = useStore((s) => s.activeSessionId);
+  const usage = useStore((s) => s.usage);
+  return (
+    <div className="dock-body">
+      <UsagePanel sessionId={active} usage={usage} />
+    </div>
+  );
+}
+
+function Watermark({ group }: IWatermarkPanelProps) {
+  const sessions = useStore((s) => s.sessions);
+  const msg = group && !sessions.length ? "no sessions — press “+ new”" : "empty — pick a session in the rail, or drag a tool tab here";
+  return <div className="empty">{msg}</div>;
+}
+
+const components = {
+  terminal: TerminalPanel,
+  sessions: SessionsPanel,
+  repos: ReposDock,
+  flags: FlagsDock,
+  playbook: PlaybookDock,
+  usage: UsageDock,
+};
+
+export function Layout() {
+  const [api, setApi] = useState<DockviewApi | null>(null);
+  const hydrated = useStore((s) => s.hydrated);
+  const sessions = useStore((s) => s.sessions);
+  const activeId = useStore((s) => s.activeSessionId);
+  const restored = useRef(false);
+
+  const onReady = (e: DockviewReadyEvent) => {
+    setDockApi(e.api);
+    setApi(e.api);
+  };
+
+  // Restore (or build) the layout once sessions are known, so restored terminal tabs can be pruned.
+  useEffect(() => {
+    if (!api || !hydrated || restored.current) return;
+    restored.current = true;
+    const saved = loadLayout();
+    let ok = false;
+    if (saved) {
+      try {
+        api.fromJSON(saved);
+        ok = true;
+      } catch (err) {
+        console.warn("[henry] saved layout unusable, rebuilding", err);
+      }
+    }
+    if (!ok) buildDefaultLayout();
+    const live = new Set(sessions.map((s) => s.id));
+    for (const p of api.panels) {
+      if (p.id.startsWith(TERM_PREFIX) && !live.has(p.id.slice(TERM_PREFIX.length))) api.removePanel(p);
+    }
+    for (const s of sessions) ensureSessionPanel(s);
+    // Header visibility isn't serialized; re-apply it to every restored terminal group.
+    for (const g of api.groups) if (isTerminalGroup(g)) styleTerminalGroup(g);
+    if (activeId) api.getPanel(termPanelId(activeId))?.api.setActive();
+    saveLayout();
+  }, [api, hydrated]);
+
+  // Persist on every change, debounced; dock → store for the active session.
+  useEffect(() => {
+    if (!api) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const d1 = api.onDidLayoutChange(() => {
+      if (!restored.current) return;
+      clearTimeout(timer);
+      timer = setTimeout(saveLayout, 300);
+    });
+    const d2 = api.onDidActivePanelChange((e) => {
+      const id = e.panel?.id;
+      if (id?.startsWith(TERM_PREFIX)) setActive(id.slice(TERM_PREFIX.length));
+    });
+    return () => {
+      clearTimeout(timer);
+      d1.dispose();
+      d2.dispose();
+    };
+  }, [api]);
+
+  // Sessions come and go: new ones get a tab, killed ones lose theirs, titles track status.
+  const known = useRef(new Set<string>());
+  useEffect(() => {
+    if (!api || !restored.current) return;
+    const live = new Set(sessions.map((s) => s.id));
+    for (const p of api.panels) {
+      if (p.id.startsWith(TERM_PREFIX) && !live.has(p.id.slice(TERM_PREFIX.length))) api.removePanel(p);
+    }
+    for (const s of sessions) {
+      const p = api.getPanel(termPanelId(s.id));
+      if (p) {
+        const t = sessionTitle(s);
+        if (p.api.title !== t) p.api.setTitle(t);
+      } else if (!known.current.has(s.id)) {
+        ensureSessionPanel(s, s.id === activeId);
+      }
+      known.current.add(s.id);
+    }
+  }, [api, sessions, hydrated]);
+
+  // Store → dock: rail clicks and ⌘N bring the session's tab forward.
+  useEffect(() => {
+    if (!api || !activeId) return;
+    const p = api.getPanel(termPanelId(activeId));
+    if (p && !p.api.isActive) p.api.setActive();
+  }, [api, activeId]);
+
+  return (
+    <DockviewReact
+      className="dock"
+      theme={henryTheme}
+      components={components}
+      watermarkComponent={Watermark}
+      noPanelsOverlay="emptyGroup"
+      getTabContextMenuItems={() => ["maximize", "float"]}
+      onReady={onReady}
+    />
+  );
+}

@@ -95,8 +95,14 @@ if (!(db.prepare("PRAGMA table_info(playbook)").all() as { name: string }[]).som
   db.exec("ALTER TABLE playbook ADD COLUMN kind TEXT");
 }
 // sessions.host: which machine's daemon owns the session (groundwork for multi-machine).
-if (!(db.prepare("PRAGMA table_info(sessions)").all() as { name: string }[]).some((c) => c.name === "host")) {
-  db.exec("ALTER TABLE sessions ADD COLUMN host TEXT");
+// sessions.kind / claude_active: plain terminals next to Claude sessions.
+{
+  const cols = new Set((db.prepare("PRAGMA table_info(sessions)").all() as { name: string }[]).map((c) => c.name));
+  if (!cols.has("host")) db.exec("ALTER TABLE sessions ADD COLUMN host TEXT");
+  if (!cols.has("kind")) db.exec("ALTER TABLE sessions ADD COLUMN kind TEXT");
+  if (!cols.has("claude_active")) db.exec("ALTER TABLE sessions ADD COLUMN claude_active INTEGER");
+  // Set when the user closes an exited session: it stays for its events but never returns to the rail.
+  if (!cols.has("dismissed_at")) db.exec("ALTER TABLE sessions ADD COLUMN dismissed_at INTEGER");
 }
 
 // ---- sessions ----
@@ -111,8 +117,11 @@ interface SessionRow {
   created_at: number;
   status: Session["status"];
   exit_code: number | null;
+  ended_at: number | null;
   parent_session_id: string | null;
   host: string | null;
+  kind: Session["kind"] | null;
+  claude_active: number | null;
 }
 
 function rowToSession(r: SessionRow): Session {
@@ -121,14 +130,17 @@ function rowToSession(r: SessionRow): Session {
   if (r.command) s.command = r.command;
   if (r.pid != null) s.pid = r.pid;
   if (r.exit_code != null) s.exitCode = r.exit_code;
+  if (r.ended_at != null) s.endedAt = r.ended_at;
   if (r.parent_session_id) s.parentSessionId = r.parent_session_id;
   if (r.host) s.host = r.host;
+  if (r.kind) s.kind = r.kind;
+  if (r.claude_active != null) s.claudeActive = r.claude_active === 1;
   return s;
 }
 
 const qInsertSession = db.prepare(`
-  INSERT INTO sessions (id, claude_session_id, cwd, title, command, pid, created_at, status, exit_code, parent_session_id, host)
-  VALUES ($id, $claudeSessionId, $cwd, $title, $command, $pid, $createdAt, $status, $exitCode, $parentSessionId, $host)`);
+  INSERT INTO sessions (id, claude_session_id, cwd, title, command, pid, created_at, status, exit_code, parent_session_id, host, kind, claude_active)
+  VALUES ($id, $claudeSessionId, $cwd, $title, $command, $pid, $createdAt, $status, $exitCode, $parentSessionId, $host, $kind, $claudeActive)`);
 
 export function insertSession(s: Session): void {
   qInsertSession.run({
@@ -143,6 +155,8 @@ export function insertSession(s: Session): void {
     $exitCode: s.exitCode ?? null,
     $parentSessionId: s.parentSessionId ?? null,
     $host: s.host ?? null,
+    $kind: s.kind ?? null,
+    $claudeActive: s.claudeActive === undefined ? null : s.claudeActive ? 1 : 0,
   });
 }
 
@@ -154,8 +168,11 @@ const sessionColumns: Record<string, string> = {
   pid: "pid",
   status: "status",
   exitCode: "exit_code",
+  endedAt: "ended_at",
   parentSessionId: "parent_session_id",
   host: "host",
+  kind: "kind",
+  claudeActive: "claude_active",
 };
 
 export function updateSession(id: string, patch: Partial<Session>): void {
@@ -165,9 +182,9 @@ export function updateSession(id: string, patch: Partial<Session>): void {
     const col = sessionColumns[k];
     if (!col) continue;
     sets.push(`${col} = $${k}`);
-    params[`$${k}`] = v ?? null;
+    params[`$${k}`] = typeof v === "boolean" ? (v ? 1 : 0) : v ?? null;
   }
-  if (patch.status === "exited") {
+  if (patch.status === "exited" && patch.endedAt === undefined) {
     sets.push("ended_at = $endedAt");
     params.$endedAt = Date.now();
   }
@@ -185,11 +202,21 @@ export function getSessionByClaudeId(claudeSessionId: string): Session | undefin
   return r ? rowToSession(r) : undefined;
 }
 
+/** Sessions the user has not dismissed, newest first. */
 export function listSessions(opts: { status?: Session["status"]; limit?: number } = {}): Session[] {
   const rows = (opts.status
-    ? db.prepare("SELECT * FROM sessions WHERE status = ? ORDER BY created_at DESC LIMIT ?").all(opts.status, opts.limit ?? 1000)
-    : db.prepare("SELECT * FROM sessions ORDER BY created_at DESC LIMIT ?").all(opts.limit ?? 1000)) as SessionRow[];
+    ? db.prepare("SELECT * FROM sessions WHERE dismissed_at IS NULL AND status = ? ORDER BY created_at DESC LIMIT ?").all(opts.status, opts.limit ?? 1000)
+    : db.prepare("SELECT * FROM sessions WHERE dismissed_at IS NULL ORDER BY created_at DESC LIMIT ?").all(opts.limit ?? 1000)) as SessionRow[];
   return rows.map(rowToSession);
+}
+
+export function dismissSession(id: string): void {
+  db.prepare("UPDATE sessions SET dismissed_at = ? WHERE id = ?").run(Date.now(), id);
+}
+
+export function isDismissed(id: string): boolean {
+  const r = db.prepare("SELECT dismissed_at FROM sessions WHERE id = ?").get(id) as { dismissed_at: number | null } | null;
+  return r?.dismissed_at != null;
 }
 
 /** Sessions younger than this stay visible in the rail across a daemon restart. */

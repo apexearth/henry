@@ -1,5 +1,5 @@
 // WebSocket protocol (/ws) and REST shapes. Every frame is one JSON object with a `type`.
-import type { Flag, HenryConfig, HenryEvent, PlaybookEntry, RepoState, Session, Usage } from "./types";
+import type { Flag, HenryConfig, HenryEvent, PlaybookEntry, RepoState, Session, SessionKind, Usage } from "./types";
 
 export type ClientMessage =
   | { type: "attach"; sessionId: string }
@@ -10,7 +10,9 @@ export type ClientMessage =
       type: "session:create";
       cwd: string;
       title?: string;
-      /** Program to run; defaults to "claude". Tests pass a shell. */
+      /** "claude" (default) or "shell" (the user's $SHELL as a login shell). */
+      kind?: SessionKind;
+      /** Program to run; overrides `kind`. Tests pass a shell. */
       command?: string;
       args?: string[];
       /** Claude session id to resume (`claude --resume <id>`) instead of starting fresh. */
@@ -33,6 +35,8 @@ export interface StateMessage {
   usage: Usage;
   playbook: PlaybookEntry[];
   config: HenryConfig;
+  /** Identity of the ui/dist build the daemon serves (index.html mtime); windows reload when it changes. */
+  uiBuild?: string;
 }
 
 export type StateSnapshot = Omit<StateMessage, "type">;
@@ -48,7 +52,9 @@ export type ServerMessage =
   | { type: "repos:update"; sessionId: string; repos: RepoState[] }
   | { type: "usage:update"; usage: Usage }
   | { type: "playbook:update"; entry: PlaybookEntry }
-  | { type: "repo:diff"; sessionId: string; repoPath: string; diff: string; baseline: string };
+  | { type: "repo:diff"; sessionId: string; repoPath: string; diff: string; baseline: string }
+  /** ui/dist was rebuilt; windows served from the daemon reload themselves. */
+  | { type: "ui:build"; build: string };
 
 export type ServerMessageOf<T extends ServerMessage["type"]> = Extract<ServerMessage, { type: T }>;
 export type ClientMessageOf<T extends ClientMessage["type"]> = Extract<ClientMessage, { type: T }>;

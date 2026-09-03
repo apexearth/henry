@@ -130,6 +130,7 @@ function ingestHookInner(body: HookBody): IngestResult {
   if (hookEvent === "SessionEnd") {
     transcript.stopTailing(session.id);
     if (session.command === "external") sessions.kill(session.id);
+    else sessions.claudeEnded(session.id);
   } else if (transcriptPath || session.claudeSessionId) {
     // SessionStart is the designed trigger, but any event will do: the daemon may have
     // started (or `henry install` run) after the session did.
@@ -152,7 +153,7 @@ function resolveSession(henrySession: string | undefined, claudeId: string | und
   if (henrySession) {
     const live = sessions.get(henrySession);
     if (live) {
-      if (claudeId && live.claudeSessionId !== claudeId) sessions.bindClaudeSession(live.id, claudeId);
+      if (claudeId) sessions.bindClaudeSession(live.id, claudeId);
       return live;
     }
   }
@@ -340,7 +341,7 @@ function ingestStatuslineInner(body: StatuslineBody): StatuslineResult {
 
   const session = resolveStatuslineSession(str(body.henrySession), claudeId);
   if (session) {
-    if (claudeId && session.claudeSessionId !== claudeId) sessions.bindClaudeSession(session.id, claudeId);
+    if (claudeId) sessions.bindClaudeSession(session.id, claudeId);
     const model = isObj(p.model) ? (str(p.model.id) ?? str(p.model.display_name)) : undefined;
     const cost = isObj(p.cost) ? num(p.cost.total_cost_usd) : undefined;
     const cw = isObj(p.context_window) ? p.context_window : {};

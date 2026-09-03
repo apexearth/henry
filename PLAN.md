@@ -51,8 +51,28 @@ the design changes; do not let it drift into a changelog.
 - **Henry never edits `~/.claude/settings.json` on its own.** `henry install`
   merges hooks + statusLine idempotently and preserves everything else.
   `henry uninstall` removes only what it added.
-- **New tab defaults to `~/code/off-chain`** with a picker over `~/code/*` and
-  worktrees.
+- **New tab is a typed picker.** One text box filters rows; ↑↓ picks, Enter opens. Rows
+  are every repo under `~/code/*` (and worktrees) as a Claude session, then the same repos
+  and `~` as a plain terminal; a typed path offers both. `defaultRepo` sorts first.
+- **Plain terminals are sessions too.** `kind: "shell"` runs `$SHELL -l` in the same PTY
+  host with the same rail entry. The rail shows Clawd (orange, solid while running,
+  outline once exited) for Claude Code and `>_` (green, dim once exited) for a terminal,
+  decided by the session, not the user: a shell whose PATH-shimmed `claude`
+  (`~/.henry/bin/claude`, which adds the launch settings) posts hooks flips to Clawd for as
+  long as that Claude runs (`claudeActive`, set on the first hook with `HENRY_SESSION`,
+  cleared on SessionEnd), and its `claudeSessionId` stays for ↻ resume.
+- **The rail is one line per session, titled by the terminal.** The daemon watches each
+  PTY for OSC 0/2 title sequences and stores the latest as the session title, so `/rename`
+  in Claude Code (which retitles the terminal) renames the rail entry; the transcript's
+  `custom-title` line does the same for external sessions. A leading status glyph is
+  dropped. The repo name shows dimmed beside the title when they differ; cwd, host and
+  shortcut live in the tooltip. Running sessions come first (oldest first); exited ones
+  are hidden until the footer's "N closed" is opened, then listed below, newest exit
+  first. The exited session you are looking at stays listed. Closing an exited session
+  (×) sets `dismissed_at` in the DB: it never returns after a daemon restart, but its
+  events, flags and playbook stay. `⌘1..9` (or `Ctrl`) and `⌘↑/↓` follow the rail order.
+- **Shift+Enter is a newline in Claude Code.** The terminal sends ESC CR (what
+  `/terminal-setup` binds) when the session is running Claude; a plain shell gets Enter.
 - **Sessions outlive the daemon, terminal included.** After a daemon restart the
   sessions sessiond still holds are running in the rail with their scrollback; only
   sessions from before the last sessiond (last 24h) come back as exited with their
@@ -68,16 +88,31 @@ the design changes; do not let it drift into a changelog.
 ```
 ┌──────────┬──────────────────────────────────────┬──────────────────────┐
 │ sessions │                                      │ Repos│Flags│Play│Use │
-│ ● off-ch │                                      │                      │
-│   3 repos│         xterm.js (WebGL)             │  per-repo cards:     │
-│   ⚑ 2    │         one per session              │  branch, ↑↓ upstream │
-│ ○ arm    │                                      │  commits since base  │
-│ ○ squid  │                                      │  diff viewer         │
-│ + new    │                                      │                      │
+│ ▣ Rail fi│                                      │                      │
+│ ▣ Stealth│         xterm.js (WebGL)             │  per-repo cards:     │
+│ >_ henry │         one per session              │  branch, ↑↓ upstream │
+│ ▢ arm ⚑2 │                                      │  commits since base  │
+│ + new    │                                      │  diff viewer         │
+│ 3 running│                                      │                      │
 └──────────┴──────────────────────────────────────┴──────────────────────┘
 ```
 
-Right panel tabs:
+That is the default arrangement, not a fixed one. The workspace is a Dockview grid
+(`dockview-react`): the rail, every terminal and each tool tab is a panel. Drag a tool tab
+to split a group (top/bottom/left/right), stack it as a tab, dock it on a window edge, or
+float it; right-click a tab for maximize/float. Tabs have no close button and there is no
+view menu: tools are rearranged, never dismissed. The arrangement is saved to localStorage
+(`henry.layout.v1`) and restored on load; "reset layout" restores the picture above.
+
+**The centre is a stage, not a tab strip.** Sessions are processes you glance at, not
+documents you curate, so terminal groups hide their header: the rail (and ⌘1..9, ⌘↑/↓) is
+the only selector, and one session shows at a time. The centre group is locked: tools dock
+around its edges but cannot be dropped into it, and terminals are not dragged. Terminal
+panels whose session is gone are dropped; new sessions join the active terminal group (or
+the empty centre pane). Drag handles are tab headers only: dragging panel bodies would
+fight xterm's mouse handling and text selection.
+
+Tool tabs:
 - **Repos** — every repo this session has touched: branch, ahead/behind upstream,
   has-upstream, commits since session baseline, dirty count, worktree path.
   Click a repo → diff vs baseline (unified/split).
@@ -119,9 +154,12 @@ henry/
       src/protocol.ts          # wire types, PROTOCOL_VERSION; the daemon imports this file
       README.md                # why it stays boring; the protocol
     ui/
-      src/App.tsx              # rail | terminal | panel
+      src/App.tsx              # top bar (view buttons, reset) + Layout
+      src/Layout.tsx           # Dockview root; wraps rail, terminals and tools as panels
+      src/dock.ts              # default layout, localStorage persistence, open/focus helpers
       src/ws.ts                # client, reconnect, state store
       src/Terminal.tsx         # xterm + webgl addon
+      src/RepoPicker.tsx       # "+ new": typed picker over repos × {claude, terminal}
       src/panels/{Repos,Flags,Playbook,Usage}.tsx
       src/DiffView.tsx
 ```

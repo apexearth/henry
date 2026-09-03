@@ -100,6 +100,38 @@ export function writeLaunchSettings(dir: string): string {
   return path;
 }
 
+/**
+ * `<dir>/bin/claude`: a PATH shim for the shells Henry hosts. A `claude` typed into one
+ * gets Henry's launch settings (hooks + statusline) exactly like a Henry-launched Claude
+ * session, so the rail can tell the terminal now runs Claude without `henry install`.
+ * Subcommands (`claude mcp ...`) reject root options, so those pass through untouched.
+ * Returns the bin directory to prepend to PATH.
+ */
+export function writeLaunchBin(dir: string): string {
+  const bin = join(dir, "bin");
+  mkdirSync(bin, { recursive: true });
+  const shim = join(bin, "claude");
+  writeFileSync(
+    shim,
+    `#!/bin/sh
+# Henry's PATH shim (written by the daemon; safe to delete). Runs the real claude with
+# Henry's launch settings so hooks reach the daemon that hosts this terminal.
+self="$(cd "$(dirname "$0")" && pwd)"
+real="\${HENRY_CLAUDE:-}"
+if [ -z "$real" ] || [ ! -x "$real" ] || [ "$real" = "$self/claude" ]; then
+  real="$(PATH="$(printf '%s' "$PATH" | tr ':' '\n' | grep -vx "$self" | paste -sd: -)" command -v claude)"
+fi
+case "\${1:-}" in
+  mcp|plugin|install|update|upgrade|doctor|auth|login|logout|config|agents|setup-token|migrate-installer|remote-control|rc|help)
+    exec "$real" "$@" ;;
+  *) exec "$real" --settings "$self/../launch-settings.json" "$@" ;;
+esac
+`,
+  );
+  chmodSync(shim, 0o755);
+  return bin;
+}
+
 export async function install(): Promise<void> {
   const path = settingsPath();
   const settings = readSettings(path);

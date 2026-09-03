@@ -1,6 +1,7 @@
 // Milestone 3: per-repo cards (branch, ahead/behind, upstream, commits since baseline,
-// dirty count, worktree path); Diff button -> DiffView; "all sessions" toggle groups by session.
+// dirty count, worktree path); Diff button -> DiffView in a full-screen modal; "all sessions" toggle groups by session.
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import type { RepoState, Session } from "@henry/shared";
 import { DiffView } from "../DiffView";
 import { diffKey, requestDiff, useStore } from "../ws";
@@ -154,18 +155,51 @@ function RepoCard({ sessionId, repo, diff, onRequestDiff }: CardProps) {
         </div>
       )}
       {showDiff && (
-        diff ? (
-          <>
-            <div className="rc-diffbar">
-              <button className="rc-link" onClick={onRequestDiff} title="re-request the diff from the daemon">refresh diff</button>
-            </div>
-            <DiffView repoPath={repo.path} baseline={diff.baseline} diff={diff.diff} />
-          </>
-        ) : (
-          <div className="rc-dim rc-loading">{requested ? "loading diff…" : ""}</div>
-        )
+        <DiffModal repo={repo} diff={diff} requested={requested} onRefresh={onRequestDiff} onClose={() => setShowDiff(false)} />
       )}
     </div>
+  );
+}
+
+interface DiffModalProps {
+  repo: RepoState;
+  diff?: { diff: string; baseline: string };
+  requested: boolean;
+  onRefresh: () => void;
+  onClose: () => void;
+}
+
+// The side panel is too narrow for a diff, so it opens over the whole app. Portaled to
+// body so the panel's overflow/stacking cannot clip it.
+function DiffModal({ repo, diff, requested, onRefresh, onClose }: DiffModalProps) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return createPortal(
+    <div className="dm-bg" onMouseDown={onClose}>
+      <div className="dm" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="dm-head">
+          <span className="rc-name">{repo.name}</span>
+          <span className="rc-path dm-path" title={repo.path}>{shortPath(repo.path)}</span>
+          <span className="rc-spacer" />
+          <button className="rc-link" onClick={onRefresh} title="re-request the diff from the daemon">refresh</button>
+          <button className="dm-close" onClick={onClose} title="close (Esc)">×</button>
+        </div>
+        <div className="dm-body">
+          {diff ? (
+            <DiffView repoPath={repo.path} baseline={diff.baseline} diff={diff.diff} />
+          ) : (
+            <div className="rc-dim rc-loading">{requested ? "loading diff…" : ""}</div>
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -260,7 +294,15 @@ const REPOS_CSS = `
 .rc-subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rc-when { color: var(--fg-dim); white-space: nowrap; }
 .rc-err { color: var(--alarm); }
-.rc-diffbar { display: flex; justify-content: flex-end; border-top: 1px solid var(--border); padding-top: 4px; }
+.dm-bg { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 3vh 3vw; z-index: 10; }
+.dm { background: var(--bg-2); border: 1px solid var(--border); border-radius: 6px; width: 100%; height: 100%; display: flex; flex-direction: column; min-width: 0; }
+.dm-head { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+.dm-path { font-size: 11px; }
+.dm-close { background: none; border: none; padding: 0 4px; font-size: 18px; line-height: 1; color: var(--fg-dim); }
+.dm-close:hover { color: var(--fg); }
+.dm-body { flex: 1; overflow: auto; padding: 0 12px 12px; }
+.dm-body .diffview { font-size: 12px; margin-top: 0; }
+.dm-body .dv-bar { padding: 8px 0; }
 .rc-loading { padding: 4px 0; }
 .rc-empty { padding: 8px 0; line-height: 1.5; }
 `;

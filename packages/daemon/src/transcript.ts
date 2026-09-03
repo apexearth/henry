@@ -257,6 +257,8 @@ interface TranscriptLine {
   requestId?: string;
   isSidechain?: boolean;
   agentId?: string;
+  /** `/rename` writes {type:"custom-title", customTitle}. */
+  customTitle?: string;
   message?: {
     id?: string;
     model?: string;
@@ -279,6 +281,7 @@ function handleLine(tail: Tail, raw: string): boolean {
   }
   if (!line || typeof line !== "object") return false;
   noteSidechain(tail, line);
+  if (line.type === "custom-title" && typeof line.customTitle === "string") sessions.setTitle(tail.sessionId, line.customTitle);
   if (line.type !== "assistant") return false;
   const usage = line.message?.usage;
   if (!usage) return false;

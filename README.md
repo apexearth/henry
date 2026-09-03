@@ -17,7 +17,12 @@ bun install
 bun run dev        # daemon (bun --watch) on :4711 + Vite on :5173
 ```
 
-Open http://127.0.0.1:5173 in dev. For a production-style run:
+Open http://127.0.0.1:5173 in dev. The window is a dockable workspace: drag a tool tab
+(Sessions, Repos, Flags, ...) to split, stack, edge-dock or float it; the arrangement is
+saved per browser and "reset layout" in the top bar restores rail | terminal | tools. The
+terminal in the centre has no tabs: the rail picks which session is shown. To point
+the dev page at a private daemon, run Vite with `HENRY_PORT=<port>`. For a
+production-style run:
 
 ```sh
 bun run build      # typechecks every package, builds packages/ui/dist
@@ -25,10 +30,24 @@ bun run start      # daemon serves ui/dist at http://127.0.0.1:4711
 ```
 
 Several browser windows can open the same URL; they all attach to the one daemon and
-see the same sessions with live output. Editing daemon source under `bun run dev` restarts
+see the same sessions with live output. Only the Vite page hot-reloads on source edits;
+windows on :4711 show `ui/dist` and reload themselves as soon as `bun run build` writes a
+new one (the daemon polls `dist/index.html` and tells every window). Editing daemon source under `bun run dev` restarts
 only the daemon: sessions keep running in sessiond and the windows reconnect. `bun run
 sessiond` runs sessiond in the foreground for debugging (the daemon then attaches to it
-instead of starting its own). `Cmd+1..9` (or `Ctrl+1..9`, since Chrome on macOS reserves Cmd+digit) switches tabs.
+instead of starting its own). `Cmd+1..9` (or `Ctrl+1..9`, since Chrome on macOS reserves Cmd+digit) switches tabs in
+rail order; `Cmd+↑/↓` steps through them. `Shift+Enter` inserts a newline in Claude Code's
+prompt. The rail shows the terminal title (what `/rename` sets); exited sessions are hidden
+behind the footer's "N closed" toggle, and × on one drops it for good.
+
+`+ new` opens a picker: type to filter, `↑↓` to choose, Enter to open. Every repo under
+`reposRoot` is listed as a Claude session (Clawd) and again as a plain terminal (`>_`, your
+`$SHELL -l`); typing `terminal` or `$` narrows to the latter, and an absolute or `~` path
+offers both for that directory. The rail marks each session by what is actually running:
+a terminal in which you type `claude` shows Clawd while that Claude runs, because the shells
+Henry hosts get `~/.henry/bin/claude` first on PATH, a shim that adds Henry's launch
+settings (hooks + statusline) so no `henry install` is needed for it. Subcommands such as
+`claude mcp ...` pass through the shim untouched.
 
 Smoke test (boots a throwaway daemon, drives it over WebSocket with `/bin/sh` in place
 of `claude`):

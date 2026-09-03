@@ -3,6 +3,8 @@
 export type Severity = "info" | "notable" | "alarm";
 export type FlagSeverity = Exclude<Severity, "info">;
 export type SessionStatus = "running" | "exited";
+/** What Henry launched in the PTY: Claude Code, or the user's shell. */
+export type SessionKind = "claude" | "shell";
 
 export interface Session {
   id: string;
@@ -13,9 +15,16 @@ export interface Session {
   createdAt: number;
   status: SessionStatus;
   exitCode?: number;
+  /** When the process ended; orders closed sessions in the rail. */
+  endedAt?: number;
   parentSessionId?: string;
   /** Program spawned in the PTY. Defaults to "claude"; the smoke test passes a shell. */
   command?: string;
+  /** Missing on rows from before shells existed: treat as "claude" (or external). */
+  kind?: SessionKind;
+  /** A Claude Code process is posting hooks from this PTY right now. Shells set this when
+   * `claude` is started inside them and clear it on SessionEnd. */
+  claudeActive?: boolean;
   pid?: number;
   /** Short name of the machine whose daemon owns this session (config.host, default os.hostname()). */
   host?: string;
@@ -166,6 +175,13 @@ export const DEFAULT_CONFIG: HenryConfig = {
     maxSubagentsPer10m: 8,
   },
 };
+
+/** True when the rail should present this session as Claude Code (vs a plain terminal). */
+export function isClaudeSession(s: Pick<Session, "kind" | "command" | "claudeActive">): boolean {
+  // Rows from before `kind` existed: judge by the command (the smoke test's /bin/sh is a shell).
+  const kind = s.kind ?? (s.command && s.command !== "external" && !/(^|\/)claude$/.test(s.command) ? "shell" : "claude");
+  return kind === "shell" ? !!s.claudeActive : true;
+}
 
 /** One row of the new-tab repo picker (GET /api/repos). */
 export interface RepoPickerEntry {

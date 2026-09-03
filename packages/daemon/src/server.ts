@@ -1,6 +1,6 @@
 // HTTP + WS on 127.0.0.1:<port>. Serves packages/ui/dist, /api/*, /hook, /statusline, /ws.
 // Later milestones: import { broadcast } from "./server" to push ServerMessages to every window.
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { join, normalize } from "node:path";
 import type { ServerWebSocket } from "bun";
 import type { ClientMessage, ServerMessage, StateSnapshot, Usage } from "@henry/shared";
@@ -48,7 +48,30 @@ export function buildState(): StateSnapshot {
     usage,
     playbook: db.listPlaybook(undefined, 200),
     config,
+    uiBuild,
   };
+}
+
+// The Vite dev server (:5173) has HMR; windows on the daemon's own port see ui/dist, which
+// only changes on `bun run build`. Poll its index.html and tell every window to reload, so
+// a build is enough and nobody has to remember to refresh. Polling, not fs.watch: dist may
+// not exist yet, and vite empties and recreates it.
+let uiBuild: string | undefined = readUiBuild();
+function readUiBuild(): string | undefined {
+  try {
+    return String(Math.floor(statSync(join(uiDist, "index.html")).mtimeMs));
+  } catch {
+    return undefined;
+  }
+}
+let uiBuildTimer: ReturnType<typeof setInterval> | undefined;
+function watchUiBuild(): void {
+  uiBuildTimer = setInterval(() => {
+    const build = readUiBuild();
+    if (!build || build === uiBuild) return;
+    uiBuild = build;
+    broadcast({ type: "ui:build", build });
+  }, 1500);
 }
 
 sessions.on("data", (id, data) => publishSession(id, { type: "pty:data", sessionId: id, data }));
@@ -86,7 +109,7 @@ async function handleMessage(ws: Ws, msg: ClientMessage): Promise<void> {
     case "session:create": {
       // The manager's "update" listener broadcasts too; this direct send carries the requestId
       // so the creating window can select the new tab.
-      const session = await sessions.create({ cwd: msg.cwd, title: msg.title, command: msg.command, args: msg.args, resume: msg.resume });
+      const session = await sessions.create({ cwd: msg.cwd, title: msg.title, kind: msg.kind, command: msg.command, args: msg.args, resume: msg.resume });
       send(ws, { type: "session:update", session, requestId: msg.requestId });
       return;
     }
@@ -208,11 +231,13 @@ export async function startServer(): Promise<void> {
   });
   git.setBroadcast(broadcast);
   git.start();
+  watchUiBuild();
   console.log(`[henry] listening on http://127.0.0.1:${config.port} (db: ${db.dbPath})`);
 }
 
 /** Stops the daemon's own listeners. sessiond and the sessions in it keep running. */
 export function stopServer(): void {
+  clearInterval(uiBuildTimer);
   git.stop();
   sessions.shutdown();
   server?.stop(true);

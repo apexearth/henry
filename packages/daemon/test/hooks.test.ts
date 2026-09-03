@@ -2,7 +2,7 @@
 // POSTs realistic hook + statusline payloads, checks /api/state, /api/events and the WS feed,
 // and drives the transcript tailer (test/transcript-tail.ts, own process) on a fixture JSONL. Run: bun test
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ClientMessage, HenryEvent, ServerMessage, StateSnapshot } from "@henry/shared";
@@ -107,6 +107,69 @@ describe("hook ingest", () => {
     const ev = await next("event", (m) => m.event.sessionId === sessionId);
     expect(ev.event.summary).toBe("Session start (startup)");
     expect(ev.event.hookEvent).toBe("SessionStart");
+  });
+
+  test("a shell session turns into a Claude session while claude posts hooks from it", async () => {
+    sendMsg({ type: "session:create", cwd, kind: "shell", command: "/bin/sh", args: [], requestId: "r-shell" });
+    const created = (await next("session:update", (m) => m.requestId === "r-shell")).session;
+    expect(created.kind).toBe("shell");
+    expect(created.claudeActive).toBeUndefined();
+    expect(created.claudeSessionId).toBeUndefined();
+
+    // The shell's PATH starts with Henry's shim dir, so a typed `claude` carries the launch settings.
+    sendMsg({ type: "attach", sessionId: created.id });
+    await next("pty:scrollback", (m) => m.sessionId === created.id);
+    sendMsg({ type: "pty:input", sessionId: created.id, data: "echo PATH=$PATH; command -v claude; echo HC=$HENRY_CLAUDE\r" });
+    let out = "";
+    await waitFor("shell PATH echo", () => {
+      for (const m of inbox.splice(0)) if (m.type === "pty:data" && m.sessionId === created.id) out += m.data;
+      return out.includes("HC=") || undefined;
+    });
+    expect(out).toContain(`PATH=${join(home, "bin")}:`);
+    expect(out).toContain(join(home, "bin", "claude"));
+    const shim = readFileSync(join(home, "bin", "claude"), "utf8");
+    expect(shim).toContain("--settings");
+    expect(statSync(join(home, "bin", "claude")).mode & 0o111).toBeTruthy();
+
+    const inner = "cccccccc-dddd-4eee-8fff-000000000001";
+    await post("/hook", { henrySession: created.id, henryHookEvent: "SessionStart", payload: { ...hookPayload("SessionStart", { source: "startup" }), session_id: inner } });
+    const active = await next("session:update", (m) => m.session.id === created.id && m.session.claudeActive === true);
+    expect(active.session.claudeSessionId).toBe(inner);
+    expect(active.session.kind).toBe("shell");
+    expect(active.session.status).toBe("running");
+
+    await post("/hook", { henrySession: created.id, henryHookEvent: "SessionEnd", payload: { ...hookPayload("SessionEnd", { reason: "exit" }), session_id: inner } });
+    const idle = await next("session:update", (m) => m.session.id === created.id && m.session.claudeActive === false);
+    expect(idle.session.status).toBe("running");
+    expect(idle.session.claudeSessionId).toBe(inner);
+
+    // The same conversation resumed in the same shell marks it active again.
+    await post("/hook", { henrySession: created.id, henryHookEvent: "SessionStart", payload: { ...hookPayload("SessionStart", { source: "resume" }), session_id: inner } });
+    await next("session:update", (m) => m.session.id === created.id && m.session.claudeActive === true);
+
+    sendMsg({ type: "session:kill", sessionId: created.id });
+    await next("session:update", (m) => m.session.id === created.id && m.session.status === "exited");
+  });
+
+  test("the terminal title becomes the session title; closing an exited session dismisses it for good", async () => {
+    sendMsg({ type: "session:create", cwd, kind: "shell", command: "/bin/sh", args: [], requestId: "r-title" });
+    const created = (await next("session:update", (m) => m.requestId === "r-title")).session;
+    expect(created.title).toBe("repo");
+    sendMsg({ type: "attach", sessionId: created.id });
+    await next("pty:scrollback", (m) => m.sessionId === created.id);
+    // OSC 0 with BEL, then OSC 2 with ST split across two writes; a leading status glyph is dropped.
+    sendMsg({ type: "pty:input", sessionId: created.id, data: "printf '\\033]0;\\342\\234\\263 Rail fixes\\007'\r" });
+    await next("session:update", (m) => m.session.id === created.id && m.session.title === "Rail fixes");
+    sendMsg({ type: "pty:input", sessionId: created.id, data: "printf '\\033]2;Second'; sleep 0.3; printf ' half\\033\\\\'\r" });
+    await next("session:update", (m) => m.session.id === created.id && m.session.title === "Second half");
+    expect((await state()).sessions.find((s) => s.id === created.id)?.title).toBe("Second half");
+
+    sendMsg({ type: "session:kill", sessionId: created.id });
+    const exited = (await next("session:update", (m) => m.session.id === created.id && m.session.status === "exited")).session;
+    expect(exited.endedAt).toBeGreaterThan(exited.createdAt - 1);
+    sendMsg({ type: "session:kill", sessionId: created.id });
+    const st = await next("state", (m) => !m.sessions.some((s) => s.id === created.id));
+    expect(st.sessions.some((s) => s.id === created.id)).toBe(false);
   });
 
   test("PreToolUse Bash / PostToolUse Edit / UserPromptSubmit / Stop produce summarised events", async () => {
@@ -259,6 +322,10 @@ describe("hook ingest", () => {
     expect(u.cacheWrite).toBe(200);
     // Statusline cost is authoritative while present.
     expect(u.costUsd).toBeCloseTo(1.2345, 4);
+
+    // /rename writes a custom-title line; the session takes that name.
+    appendFileSync(transcriptPath, JSON.stringify({ type: "custom-title", customTitle: "Renamed via transcript", sessionId: CLAUDE_ID }) + "\n");
+    await next("session:update", (m) => m.session.id === sessionId && m.session.title === "Renamed via transcript", 8000);
   });
 });
 

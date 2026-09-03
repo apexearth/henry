@@ -6,17 +6,19 @@
 //   "data"   (sessionId, data: string) - live PTY output
 //   "exit"   (sessionId, exitCode)
 import { EventEmitter } from "node:events";
-import { hostname } from "node:os";
+import { homedir, hostname } from "node:os";
 import { basename } from "node:path";
-import type { Session } from "@henry/shared";
+import type { Session, SessionKind } from "@henry/shared";
 import { config, henryDir } from "./config";
 import * as db from "./db";
-import { writeLaunchSettings } from "./installer";
+import { writeLaunchBin, writeLaunchSettings } from "./installer";
 import { SessiondClient, type SessionSummary } from "./sessiond-client";
 
 export interface CreateOptions {
   cwd: string;
   title?: string;
+  /** "claude" (default) or "shell" ($SHELL as a login shell). `command` overrides. */
+  kind?: SessionKind;
   command?: string;
   args?: string[];
   /** Resume an existing Claude session id instead of starting a fresh one. */
@@ -76,7 +78,10 @@ class SessionManager extends EventEmitter<SessionEvents> {
       this.emit("update", l.session);
     });
     this.client.on("data", (id, data) => {
-      if (this.live.has(id)) this.emit("data", id, data);
+      const l = this.live.get(id);
+      if (!l) return;
+      this.noteTitle(l, data);
+      this.emit("data", id, data);
     });
     this.client.on("exit", (id, exitCode) => {
       const l = this.live.get(id);
@@ -128,6 +133,10 @@ class SessionManager extends EventEmitter<SessionEvents> {
         continue;
       }
       const row = db.getSession(sum.id);
+      if (row && sum.status === "exited" && db.isDismissed(row.id)) {
+        this.client.send({ op: "kill", id: sum.id });
+        continue;
+      }
       const session: Session = row ?? {
         id: sum.id,
         cwd: sum.cwd,
@@ -141,6 +150,7 @@ class SessionManager extends EventEmitter<SessionEvents> {
       if (session.pid !== sum.pid) patch.pid = sum.pid;
       if (session.status !== sum.status) patch.status = sum.status;
       if (sum.status === "exited" && session.exitCode !== sum.exitCode) patch.exitCode = sum.exitCode;
+      if (sum.status === "exited" && !session.endedAt) patch.endedAt = sum.endedAt ?? Date.now();
       Object.assign(session, patch);
       if (!row) db.insertSession(session);
       else if (Object.keys(patch).length) db.updateSession(session.id, patch);
@@ -202,20 +212,24 @@ class SessionManager extends EventEmitter<SessionEvents> {
     await this.start();
     if (!this.client.connected) await this.client.connect();
     const id = crypto.randomUUID();
-    const command = opts.command ?? resolveClaude();
+    const cwd = opts.cwd.replace(/^~(?=\/|$)/, homedir());
+    const command = opts.command ?? (opts.kind === "shell" ? resolveShell() : resolveClaude());
     const isClaude = basename(command) === "claude";
+    const kind: SessionKind = opts.kind ?? (isClaude ? "claude" : "shell");
     // Henry-launched claude: pin its session id to ours (no hook round-trip needed to
     // bind) and layer Henry's hooks + statusline on top of the user's settings.
     const claudeId = opts.resume ?? id;
-    const args = opts.args ?? (isClaude ? [opts.resume ? "--resume" : "--session-id", claudeId, "--settings", writeLaunchSettings(henryDir)] : []);
+    const args =
+      opts.args ?? (isClaude ? [opts.resume ? "--resume" : "--session-id", claudeId, "--settings", writeLaunchSettings(henryDir)] : kind === "shell" && !opts.command ? ["-l"] : []);
     const session: Session = {
       id,
       claudeSessionId: isClaude && !opts.args ? claudeId : undefined,
-      cwd: opts.cwd,
-      title: opts.title || basename(opts.cwd),
+      cwd,
+      title: opts.title || basename(cwd),
       createdAt: Date.now(),
       status: "running",
       command,
+      kind,
       parentSessionId: opts.parentSessionId,
       host: localHost(),
     };
@@ -229,7 +243,14 @@ class SessionManager extends EventEmitter<SessionEvents> {
       TERM: "xterm-256color",
       COLORTERM: "truecolor",
     });
-    this.client.send({ op: "spawn", id, command, args, cwd: opts.cwd, env, cols: opts.cols ?? 120, rows: opts.rows ?? 36 });
+    if (kind === "shell") {
+      // A `claude` typed into this shell goes through Henry's shim, which adds the launch
+      // settings; its first hook (HENRY_SESSION) then marks the terminal as running Claude.
+      writeLaunchSettings(henryDir);
+      env.PATH = `${writeLaunchBin(henryDir)}:${env.PATH ?? "/usr/local/bin:/usr/bin:/bin"}`;
+      env.HENRY_CLAUDE = resolveClaude();
+    }
+    this.client.send({ op: "spawn", id, command, args, cwd, env, cols: opts.cols ?? 120, rows: opts.rows ?? 36 });
     this.client.send({ op: "attach", id });
     this.emit("update", session);
     return session;
@@ -257,8 +278,39 @@ class SessionManager extends EventEmitter<SessionEvents> {
       }, 3000);
     } else {
       this.live.delete(id);
+      this.titleTail.delete(id);
+      db.dismissSession(id);
       if (l.local === undefined) this.client.send({ op: "kill", id });
     }
+  }
+
+  /** Rename a session (terminal title from the PTY, or /rename seen in the transcript). */
+  setTitle(id: string, title: string): void {
+    const l = this.live.get(id);
+    const t = title.trim();
+    if (!l || !t || l.session.title === t) return;
+    l.session.title = t;
+    db.updateSession(id, { title: t });
+    this.emit("update", l.session);
+  }
+
+  // The rail shows what the terminal's title bar would: OSC 0/2 from the PTY. Claude Code
+  // sets it to the /rename title (or its own summary), shells to whatever the user's rc does.
+  // A sequence may straddle two chunks, so an unterminated tail is kept for the next one.
+  private titleTail = new Map<string, string>();
+  private noteTitle(l: Live, data: string): void {
+    const id = l.session.id;
+    const tail = this.titleTail.get(id);
+    if (!tail && !data.includes("\x1b")) return;
+    const buf = (tail ?? "") + data;
+    let title: string | undefined;
+    for (const m of buf.matchAll(OSC_TITLE)) title = m[1];
+    if (title !== undefined) this.setTitle(id, title.replace(LEADING_GLYPH, ""));
+    const start = buf.lastIndexOf("\x1b]");
+    const rest = start >= 0 ? buf.slice(start) : "";
+    if (rest && !OSC_END.test(rest)) this.titleTail.set(id, rest.slice(0, 1024));
+    else if (buf.endsWith("\x1b")) this.titleTail.set(id, "\x1b");
+    else this.titleTail.delete(id);
   }
 
   /** Register a session Henry did not spawn (hooks.ts, for a claude started elsewhere). No PTY behind it. */
@@ -271,12 +323,25 @@ class SessionManager extends EventEmitter<SessionEvents> {
     this.emit("update", session);
   }
 
-  /** Bind Claude's own session_id to a PTY session (milestone 2 calls this from hooks.ts). */
+  /** Bind Claude's own session_id to a PTY session (hooks.ts). Also marks Claude as active in it. */
   bindClaudeSession(id: string, claudeSessionId: string): void {
     const l = this.live.get(id);
-    if (!l || l.session.claudeSessionId === claudeSessionId) return;
-    l.session.claudeSessionId = claudeSessionId;
-    db.updateSession(id, { claudeSessionId });
+    if (!l) return;
+    const patch: Partial<Session> = {};
+    if (l.session.claudeSessionId !== claudeSessionId) patch.claudeSessionId = claudeSessionId;
+    if (!l.session.claudeActive) patch.claudeActive = true;
+    if (!Object.keys(patch).length) return;
+    Object.assign(l.session, patch);
+    db.updateSession(id, patch);
+    this.emit("update", l.session);
+  }
+
+  /** Claude inside this PTY sent SessionEnd (hooks.ts). A shell goes back to being a plain terminal. */
+  claudeEnded(id: string): void {
+    const l = this.live.get(id);
+    if (!l || !l.session.claudeActive) return;
+    l.session.claudeActive = false;
+    db.updateSession(id, { claudeActive: false });
     this.emit("update", l.session);
   }
 
@@ -289,14 +354,25 @@ class SessionManager extends EventEmitter<SessionEvents> {
     if (l.session.status === "exited") return;
     l.session.status = "exited";
     l.session.exitCode = exitCode;
-    db.updateSession(l.session.id, { status: "exited", exitCode });
+    l.session.endedAt = Date.now();
+    this.titleTail.delete(l.session.id);
+    db.updateSession(l.session.id, { status: "exited", exitCode, endedAt: l.session.endedAt });
     this.emit("exit", l.session.id, exitCode);
     this.emit("update", l.session);
   }
 }
 
+const OSC_TITLE = /\x1b\](?:0|2);([^\x07\x1b]*)(?:\x07|\x1b\\)/g;
+const OSC_END = /\x07|\x1b\\/;
+/** Claude Code prefixes its title with a status glyph (✳ idle, ◔◑◕ spinner, braille); the rail has its own icon. */
+const LEADING_GLYPH = /^[\u2190-\u21ff\u2500-\u27bf\u2800-\u28ff\u2b00-\u2bff\u{1f300}-\u{1faff}]\ufe0f?\s*/u;
+
 function resolveClaude(): string {
   return Bun.which("claude") ?? "claude";
+}
+
+function resolveShell(): string {
+  return process.env.SHELL || "/bin/zsh";
 }
 
 export const sessions = new SessionManager();

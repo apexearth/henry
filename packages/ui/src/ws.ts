@@ -1,7 +1,7 @@
 // WebSocket client + tiny store (useSyncExternalStore). PTY traffic bypasses React state:
 // Terminal components subscribe per session via subscribePty.
 import { useSyncExternalStore } from "react";
-import type { ClientMessage, Flag, HenryConfig, HenryEvent, PlaybookEntry, RepoState, ServerMessage, Session, Usage } from "@henry/shared";
+import type { ClientMessage, Flag, HenryConfig, HenryEvent, PlaybookEntry, RepoState, ServerMessage, Session, SessionKind, Usage } from "@henry/shared";
 
 export type PtyMessage = Extract<ServerMessage, { type: "pty:data" | "pty:scrollback" | "pty:exit" }>;
 
@@ -9,6 +9,8 @@ export interface UiState {
   connected: boolean;
   /** Increments on every (re)connect; terminals re-attach when it changes. */
   connectionId: number;
+  /** True once the first full state snapshot has arrived; the layout waits for it. */
+  hydrated: boolean;
   sessions: Session[];
   repos: Record<string, RepoState[]>;
   flags: Flag[];
@@ -16,6 +18,8 @@ export interface UiState {
   playbook: PlaybookEntry[];
   config: HenryConfig | null;
   activeSessionId: string | null;
+  /** Rail: list exited sessions below the running ones (default: hidden). Persisted. */
+  showClosed: boolean;
   /** Raw event feed (capped), for the Flags/raw-events views. */
   events: HenryEvent[];
   /** Diffs by `${sessionId}\n${repoPath}`. */
@@ -25,6 +29,7 @@ export interface UiState {
 let state: UiState = {
   connected: false,
   connectionId: 0,
+  hydrated: false,
   sessions: [],
   repos: {},
   flags: [],
@@ -32,9 +37,18 @@ let state: UiState = {
   playbook: [],
   config: null,
   activeSessionId: null,
+  showClosed: readShowClosed(),
   events: [],
   diffs: {},
 };
+
+function readShowClosed(): boolean {
+  try {
+    return localStorage.getItem("henry.showClosed") === "1";
+  } catch {
+    return false;
+  }
+}
 
 const listeners = new Set<() => void>();
 function setState(patch: Partial<UiState>) {
@@ -83,6 +97,15 @@ export function connect(): void {
   ws.onerror = () => ws?.close();
 }
 
+// Served from the daemon (a build, not the Vite dev server): reload when ui/dist changes,
+// including a change that happened while the daemon was down (state carries the build too).
+let uiBuild: string | undefined;
+function noteUiBuild(build: string | undefined): void {
+  if (!build || import.meta.env.DEV) return;
+  if (uiBuild === undefined) uiBuild = build;
+  else if (uiBuild !== build) location.reload();
+}
+
 function pickActive(sessions: Session[], current: string | null): string | null {
   if (current && sessions.some((s) => s.id === current)) return current;
   return sessions.find((s) => s.status === "running")?.id ?? sessions[0]?.id ?? null;
@@ -91,6 +114,7 @@ function pickActive(sessions: Session[], current: string | null): string | null 
 function handle(m: ServerMessage): void {
   switch (m.type) {
     case "state":
+      noteUiBuild(m.uiBuild);
       setState({
         sessions: m.sessions,
         repos: m.repos,
@@ -99,6 +123,7 @@ function handle(m: ServerMessage): void {
         playbook: m.playbook,
         config: m.config,
         activeSessionId: pickActive(m.sessions, state.activeSessionId),
+        hydrated: true,
       });
       return;
     case "pty:data":
@@ -132,19 +157,47 @@ function handle(m: ServerMessage): void {
     case "repo:diff":
       setState({ diffs: { ...state.diffs, [`${m.sessionId}\n${m.repoPath}`]: { diff: m.diff, baseline: m.baseline } } });
       return;
+    case "ui:build":
+      noteUiBuild(m.build);
+      return;
   }
+}
+
+/** The rail's order: running sessions oldest first, then (when shown) exited ones newest first.
+ * The exited session you are looking at stays listed until you move on. ⌘1..9 and ⌘↑/↓ follow it. */
+// Memoised on its inputs: useSyncExternalStore needs the same array back until something
+// changes, or React sees an ever-new snapshot and throws "maximum update depth exceeded".
+let railCache: { sessions: Session[]; showClosed: boolean; activeSessionId: string | null; result: Session[] } | null = null;
+export function railOrder(s: UiState = state): Session[] {
+  const c = railCache;
+  if (c && c.sessions === s.sessions && c.showClosed === s.showClosed && c.activeSessionId === s.activeSessionId) return c.result;
+  const running = s.sessions.filter((x) => x.status === "running");
+  const closed = s.sessions
+    .filter((x) => x.status !== "running" && (s.showClosed || x.id === s.activeSessionId))
+    .sort((a, b) => (b.endedAt ?? b.createdAt) - (a.endedAt ?? a.createdAt));
+  const result = [...running, ...closed];
+  railCache = { sessions: s.sessions, showClosed: s.showClosed, activeSessionId: s.activeSessionId, result };
+  return result;
 }
 
 // ---- actions ----
 
-export function setActive(sessionId: string | null): void {
-  setState({ activeSessionId: sessionId });
+export function toggleShowClosed(): void {
+  const showClosed = !state.showClosed;
+  try {
+    localStorage.setItem("henry.showClosed", showClosed ? "1" : "0");
+  } catch {}
+  setState({ showClosed });
 }
 
-export function createSession(cwd: string, title?: string): void {
+export function setActive(sessionId: string | null): void {
+  if (sessionId !== state.activeSessionId) setState({ activeSessionId: sessionId });
+}
+
+export function createSession(cwd: string, title?: string, kind: SessionKind = "claude"): void {
   const requestId = crypto.randomUUID();
   pendingCreates.add(requestId);
-  send({ type: "session:create", cwd, title: title || undefined, requestId });
+  send({ type: "session:create", cwd, title: title || undefined, kind, requestId });
 }
 
 /** Start a new tab that resumes an exited session's Claude conversation, and drop the old tab. */

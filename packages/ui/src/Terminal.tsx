@@ -1,21 +1,25 @@
-// One xterm per session. Stays mounted while hidden so scroll position survives tab switches.
+// One xterm per session. Stays mounted while its dock tab is hidden so scroll position survives.
 import { useEffect, useRef } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
-import { send, subscribePty, useStore } from "./ws";
+import { isClaudeSession } from "@henry/shared";
+import { getState, send, subscribePty, useStore } from "./ws";
 
 interface Props {
   sessionId: string;
-  active: boolean;
+  /** On screen (the active tab of a visible group). Only visible terminals report their size. */
+  visible: boolean;
+  /** Visible and in the active group: takes keyboard focus. */
+  focused: boolean;
 }
 
-export function TerminalView({ sessionId, active }: Props) {
+export function TerminalView({ sessionId, visible, focused }: Props) {
   const box = useRef<HTMLDivElement>(null);
   const term = useRef<Terminal | null>(null);
   const fit = useRef<FitAddon | null>(null);
-  const activeRef = useRef(active);
-  activeRef.current = active;
+  const visibleRef = useRef(visible);
+  visibleRef.current = visible;
   const connectionId = useStore((s) => s.connectionId);
 
   useEffect(() => {
@@ -37,16 +41,30 @@ export function TerminalView({ sessionId, active }: Props) {
     } catch (e) {
       console.warn("[henry] WebGL renderer unavailable, using DOM renderer", e);
     }
-    // Let the window-level Cmd+1..9 handler own those keys.
-    t.attachCustomKeyEventHandler((ev) => !((ev.metaKey || ev.ctrlKey) && /^[1-9]$/.test(ev.key)));
+    t.attachCustomKeyEventHandler((ev) => {
+      // The window-level handler owns Cmd/Ctrl+1..9 and Cmd+↑/↓ (App.tsx).
+      if ((ev.metaKey || ev.ctrlKey) && !ev.altKey && (/^[1-9]$/.test(ev.key) || (ev.metaKey && (ev.key === "ArrowUp" || ev.key === "ArrowDown")))) return false;
+      // Shift+Enter inserts a newline in Claude Code's prompt: send ESC CR, the sequence its own
+      // /terminal-setup binds. Plain shells keep a normal Enter. keypress must be swallowed too or
+      // xterm still emits "\r" from it.
+      if (ev.key === "Enter" && ev.shiftKey && !ev.metaKey && !ev.ctrlKey && !ev.altKey) {
+        const s = getState().sessions.find((x) => x.id === sessionId);
+        if (!s || !isClaudeSession(s)) return true;
+        if (ev.type === "keydown") send({ type: "pty:input", sessionId, data: "\x1b\r" });
+        return false;
+      }
+      return true;
+    });
     t.onData((data) => send({ type: "pty:input", sessionId, data }));
 
     let last = "";
     const doFit = () => {
+      // A hidden dock tab has no size; fitting to it would shrink the PTY to nothing.
+      if (!box.current?.clientWidth || !box.current.clientHeight) return;
       f.fit();
       const dims = `${t.cols}x${t.rows}`;
-      // Only the visible terminal reports its size; the daemon takes the latest report.
-      if (activeRef.current && dims !== last) {
+      // Hidden terminals stay quiet; the daemon takes the latest report.
+      if (visibleRef.current && dims !== last) {
         last = dims;
         send({ type: "pty:resize", sessionId, cols: t.cols, rows: t.rows });
       }
@@ -81,20 +99,13 @@ export function TerminalView({ sessionId, active }: Props) {
   }, [sessionId, connectionId]);
 
   useEffect(() => {
-    if (!active) return;
+    if (!visible) return;
     const id = requestAnimationFrame(() => {
       (term.current as unknown as { _henryFit?: () => void } | null)?._henryFit?.();
-      term.current?.focus();
+      if (focused) term.current?.focus();
     });
     return () => cancelAnimationFrame(id);
-  }, [active]);
+  }, [visible, focused]);
 
-  return (
-    <div
-      ref={box}
-      className="term"
-      style={{ visibility: active ? "visible" : "hidden" }}
-      onMouseDown={() => term.current?.focus()}
-    />
-  );
+  return <div ref={box} className="term" onMouseDown={() => term.current?.focus()} />;
 }
