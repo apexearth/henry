@@ -16,8 +16,14 @@ export function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      // Esc closes the file peek in view (modals handle their own Esc).
-      if (e.key === "Escape" && !e.metaKey && !e.ctrlKey && !document.querySelector(".modal-bg, .dm-bg, .pop-bg")) {
+      if (e.key === "Escape" && !e.metaKey && !e.ctrlKey) {
+        // Modals close themselves on Esc; consume the key so it does not reach the
+        // native window, where macOS reads an unhandled Esc as "exit full screen".
+        if (document.querySelector(".modal-bg, .dm-bg, .pop-bg")) {
+          e.preventDefault();
+          return;
+        }
+        // Otherwise Esc closes the file peek in view.
         const p = getDockApi()?.activePanel;
         if (p && isFilePanel(p.id)) {
           e.preventDefault();

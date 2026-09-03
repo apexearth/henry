@@ -192,7 +192,10 @@ Tool tabs:
 - **Flags** — feed of `notable`/`alarm` events with unread badge; each links back
   to the tool call and the rule that fired.
 - **Playbook** — the overseer's running log for this session, newest first, plus a
-  one-paragraph "right now" summary at the top. A global playbook view across all
+  "right now" summary at the top. Entries are written in a labeled shape (HEADLINE,
+  DOING, CHANGED/REPOS, CAREFUL, NEXT; `code` for repo/branch/file names) that
+  `parsePlaybookText` in shared turns into a headline, colored sections and bullets;
+  older entries collapse to their headline. A global playbook view across all
   sessions lives on the rail footer.
 - **Usage** — 5h and 7d utilization bars with reset times; per-session token and
   cost totals.
