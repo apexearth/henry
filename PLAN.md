@@ -43,6 +43,13 @@ the design changes; do not let it drift into a changelog.
   `henry uninstall` removes only what it added.
 - **New tab defaults to `~/code/off-chain`** with a picker over `~/code/*` and
   worktrees.
+- **Sessions outlive the daemon in the rail, not in the terminal.** Sessions from the
+  last 24h come back as exited after a restart with their repos, flags and playbook;
+  terminal output is gone with the old PTY host. An exited Claude session has a ↻
+  button that opens a new tab with `claude --resume <id>`.
+- **The overseer runs once per real turn.** Stops with `stop_hook_active` (Claude sent
+  back by another Stop hook) are ignored, and Stop-triggered runs for one session are
+  at least `overseer.stopMinIntervalSec` (60) apart. Flags still run immediately.
 
 ## Layout
 

@@ -79,7 +79,7 @@ async function handleMessage(ws: Ws, msg: ClientMessage): Promise<void> {
     case "session:create": {
       // The manager's "update" listener broadcasts too; this direct send carries the requestId
       // so the creating window can select the new tab.
-      const session = await sessions.create({ cwd: msg.cwd, title: msg.title, command: msg.command, args: msg.args });
+      const session = await sessions.create({ cwd: msg.cwd, title: msg.title, command: msg.command, args: msg.args, resume: msg.resume });
       send(ws, { type: "session:update", session, requestId: msg.requestId });
       return;
     }

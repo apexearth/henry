@@ -20,6 +20,8 @@ export interface CreateOptions {
   title?: string;
   command?: string;
   args?: string[];
+  /** Resume an existing Claude session id instead of starting a fresh one. */
+  resume?: string;
   cols?: number;
   rows?: number;
   parentSessionId?: string;
@@ -76,10 +78,11 @@ class SessionManager extends EventEmitter<SessionEvents> {
     const isClaude = basename(command) === "claude";
     // Henry-launched claude: pin its session id to ours (no hook round-trip needed to
     // bind) and layer Henry's hooks + statusline on top of the user's settings.
-    const args = opts.args ?? (isClaude ? ["--session-id", id, "--settings", writeLaunchSettings(henryDir)] : []);
+    const claudeId = opts.resume ?? id;
+    const args = opts.args ?? (isClaude ? [opts.resume ? "--resume" : "--session-id", claudeId, "--settings", writeLaunchSettings(henryDir)] : []);
     const session: Session = {
       id,
-      claudeSessionId: isClaude && !opts.args ? id : undefined,
+      claudeSessionId: isClaude && !opts.args ? claudeId : undefined,
       cwd: opts.cwd,
       title: opts.title || basename(opts.cwd),
       createdAt: Date.now(),

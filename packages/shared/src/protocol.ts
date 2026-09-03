@@ -13,6 +13,8 @@ export type ClientMessage =
       /** Program to run; defaults to "claude". Tests pass a shell. */
       command?: string;
       args?: string[];
+      /** Claude session id to resume (`claude --resume <id>`) instead of starting fresh. */
+      resume?: string;
       /** Echoed back on the resulting session:update so the creator can select it. */
       requestId?: string;
     }

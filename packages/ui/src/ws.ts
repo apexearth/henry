@@ -147,6 +147,15 @@ export function createSession(cwd: string, title?: string): void {
   send({ type: "session:create", cwd, title: title || undefined, requestId });
 }
 
+/** Start a new tab that resumes an exited session's Claude conversation, and drop the old tab. */
+export function resumeSession(s: Session): void {
+  if (!s.claudeSessionId) return;
+  const requestId = crypto.randomUUID();
+  pendingCreates.add(requestId);
+  send({ type: "session:create", cwd: s.cwd, title: s.title, resume: s.claudeSessionId, requestId });
+  killSession(s.id);
+}
+
 export function killSession(sessionId: string): void {
   send({ type: "session:kill", sessionId });
 }

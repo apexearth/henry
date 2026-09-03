@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { Session } from "@henry/shared";
 import { RepoPicker } from "./RepoPicker";
-import { killSession, setActive, useStore } from "./ws";
+import { killSession, resumeSession, setActive, useStore } from "./ws";
 
 function base(p: string) {
   return p.replace(/\/+$/, "").split("/").pop() || p;
@@ -35,6 +35,10 @@ export function Rail() {
                 <div className="title">{s.title}</div>
                 <div className="sub">{base(s.cwd)}{s.status === "exited" ? ` · exited ${s.exitCode ?? ""}` : ""}</div>
               </div>
+              {s.status === "exited" && s.claudeSessionId && s.command !== "external" && (
+                <button className="close" title="resume this Claude session in a new tab"
+                  onClick={(e) => { e.stopPropagation(); resumeSession(s); }}>↻</button>
+              )}
               <button className="close" title={s.status === "running" ? "kill session" : "close"}
                 onClick={(e) => { e.stopPropagation(); killSession(s.id); }}>×</button>
               <div className="badges">
