@@ -698,7 +698,8 @@ export function start(): void {
   const rows = db.db.prepare("SELECT session_id, repo_path FROM repo_baselines").all() as { session_id: string; repo_path: string }[];
   for (const r of rows) {
     const s = db.getSession(r.session_id);
-    if (s && s.status === "exited") continue;
+    // Exited sessions still in the rail keep their repo cards; older ones are dropped.
+    if (!s || (s.status === "exited" && s.createdAt < Date.now() - db.SESSION_RESTORE_WINDOW_MS)) continue;
     const info = resolveRepo(r.repo_path);
     if (info) associate(r.session_id, info);
   }

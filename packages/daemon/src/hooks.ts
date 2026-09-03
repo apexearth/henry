@@ -118,7 +118,9 @@ function ingestHookInner(body: HookBody): IngestResult {
     if (config.overseer.onFlag) fireAndForget("overseer.onFlag", () => overseer.onFlag(flag));
   }
 
-  if (hookEvent === "Stop" && config.overseer.onStop) {
+  // stop_hook_active means Claude is only stopping again because another Stop hook
+  // sent it back for more; the turn the user cares about ends with the plain Stop.
+  if (hookEvent === "Stop" && config.overseer.onStop && !payload.stop_hook_active) {
     fireAndForget("overseer.onStop", () => overseer.onStop(session.id));
   }
 

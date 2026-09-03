@@ -69,7 +69,15 @@ interface Deferred {
   resolve: (e?: PlaybookEntry) => void;
 }
 
-const timing = { stopDebounceMs: 5_000, globalIntervalMs: 10 * 60_000, timeoutMs: 120_000, promptChars: 22_000 /* ~6k tokens */ };
+const timing = {
+  stopDebounceMs: 5_000,
+  /** Floor between two Stop-triggered runs for one session; config.overseer.stopMinIntervalSec overrides. */
+  stopMinIntervalMs: 60_000,
+  globalIntervalMs: 10 * 60_000,
+  timeoutMs: 120_000,
+  promptChars: 22_000 /* ~6k tokens */,
+};
+const lastRunFor = new Map<string, number>();
 const running = new Set<string>();
 const queue = new Map<string, { req: RunRequest; d: Deferred }[]>();
 const stopTimers = new Map<string, { timer: ReturnType<typeof setTimeout>; d: Deferred }>();
@@ -144,6 +152,7 @@ export function resetForTests(): void {
   lastGlobalAt = 0;
   lastError = undefined;
   lastRunAt = undefined;
+  lastRunFor.clear();
   for (const { timer } of stopTimers.values()) clearTimeout(timer);
   stopTimers.clear();
   queue.clear();
@@ -165,10 +174,15 @@ export function onStop(sessionId: string): Promise<PlaybookEntry | undefined> {
   const existing = stopTimers.get(sessionId);
   if (existing) clearTimeout(existing.timer);
   const d = existing?.d ?? deferred();
+  // Debounce, then hold off until the per-session floor since the last run has passed;
+  // Stops that land in the meantime just move this one timer.
+  const minInterval = (config.overseer.stopMinIntervalSec ?? timing.stopMinIntervalMs / 1000) * 1000;
+  const notBefore = (lastRunFor.get(sessionId) ?? 0) + minInterval;
+  const delay = Math.max(timing.stopDebounceMs, notBefore - Date.now());
   const timer = setTimeout(() => {
     stopTimers.delete(sessionId);
     enqueue(sessionId, { trigger: "stop" }).then(d.resolve, () => d.resolve(undefined));
-  }, timing.stopDebounceMs);
+  }, delay);
   stopTimers.set(sessionId, { timer, d });
   return d.promise;
 }
@@ -221,6 +235,7 @@ async function execute(key: string, req: RunRequest): Promise<PlaybookEntry | un
   running.add(key);
   let entry: PlaybookEntry | undefined;
   try {
+    if (req.trigger !== "manual") lastRunFor.set(key, Date.now());
     entry = await runOnce(key, req);
   } catch (e) {
     recordError(e);

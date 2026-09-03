@@ -131,6 +131,8 @@ export interface HenryConfig {
     onFlag: boolean;
     /** Optional; ANTHROPIC_API_KEY in the environment takes precedence. */
     apiKey?: string;
+    /** Floor in seconds between two Stop-triggered playbook runs for one session (default 60). */
+    stopMinIntervalSec?: number;
   };
   rules: {
     protectedBranches: string[];

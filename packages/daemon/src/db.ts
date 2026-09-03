@@ -184,6 +184,9 @@ export function listSessions(opts: { status?: Session["status"]; limit?: number 
   return rows.map(rowToSession);
 }
 
+/** Sessions younger than this stay visible in the rail across a daemon restart. */
+export const SESSION_RESTORE_WINDOW_MS = 24 * 60 * 60_000;
+
 /** Called once at daemon start: PTYs did not survive the previous process. */
 export function markAllSessionsExited(): void {
   db.prepare("UPDATE sessions SET status = 'exited', ended_at = COALESCE(ended_at, ?) WHERE status = 'running'").run(Date.now());

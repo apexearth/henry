@@ -47,6 +47,15 @@ class SessionManager extends EventEmitter<SessionEvents> {
   constructor() {
     super();
     db.markAllSessionsExited();
+    // Recent sessions stay in the rail across a restart: their terminal output died with
+    // the old PTY host, but their repos, flags and playbook are still in the DB. Kill
+    // (dismiss) drops them like any other exited session.
+    const cutoff = Date.now() - db.SESSION_RESTORE_WINDOW_MS;
+    for (const s of db.listSessions({ limit: 20 })) {
+      if (s.createdAt < cutoff) continue;
+      const note = "\x1b[2m[henry] session from a previous daemon run; terminal output was not retained\x1b[0m\r\n";
+      this.live.set(s.id, { session: s, chunks: [note], bytes: note.length, external: s.command === "external" });
+    }
   }
 
   list(): Session[] {

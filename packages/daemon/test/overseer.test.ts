@@ -68,7 +68,7 @@ beforeEach(async () => {
     // Same shape as git.logSinceBaseline (milestone 3).
     logSinceBaseline: async () => ({ baseline: "0123456789abcdef", commits: [{ sha: "a1b2c3d", ts: Date.now(), subject: "Add overseer prompt builder (COMMIT_MARKER)" }, { sha: "e4f5a6b", ts: Date.now(), subject: "Wire playbook endpoints" }] }),
   });
-  overseer.setTimingForTests({ stopDebounceMs: 30, globalIntervalMs: Infinity, timeoutMs: 5_000, promptChars: 22_000 });
+  overseer.setTimingForTests({ stopDebounceMs: 30, stopMinIntervalMs: 0, globalIntervalMs: Infinity, timeoutMs: 5_000, promptChars: 22_000 });
   overseer.setBackendForTests(async (req) => {
     calls.push(req);
     return reply(`Entry ${calls.length}.`);
@@ -208,6 +208,28 @@ describe("debounce and coalescing", () => {
     expect(e1?.id).toBe(e2?.id);
     expect(e2?.id).toBe(e3?.id);
     expect(e1?.trigger).toBe("stop");
+  });
+
+  test("Stop-triggered runs respect the per-session floor, and a flag still runs at once", async () => {
+    overseer.setTimingForTests({ stopMinIntervalMs: 400 });
+    try {
+      const s = makeSession();
+      await overseer.onStop(s.id);
+      expect(calls).toHaveLength(1);
+      const t0 = Date.now();
+      const second = overseer.onStop(s.id); // lands well inside the floor
+      overseer.onStop(s.id); // folds into the same timer
+      await Bun.sleep(150);
+      expect(calls).toHaveLength(1); // still held
+      await second;
+      expect(calls).toHaveLength(2);
+      expect(Date.now() - t0).toBeGreaterThanOrEqual(350);
+      const flag: Flag = { id: "f-floor", eventId: "e", sessionId: s.id, ts: Date.now(), severity: "notable", rule: "branch-churn", summary: "Bash: git stash", read: false };
+      await overseer.onFlag(flag);
+      expect(calls).toHaveLength(3); // flags ignore the floor
+    } finally {
+      overseer.setTimingForTests({ stopMinIntervalMs: 0 });
+    }
   });
 
   test("a Stop and a flag arriving during a run coalesce into one follow-up run led by the flag", async () => {

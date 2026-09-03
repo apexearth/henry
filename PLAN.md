@@ -127,7 +127,7 @@ path resolves into it), record `HEAD` as that session's baseline for that repo.
   "port": 4711,
   "reposRoot": "~/code",
   "defaultRepo": "~/code/off-chain",
-  "overseer": { "backend": "auto", "model": "claude-opus-5", "onStop": true, "onFlag": true },
+  "overseer": { "backend": "auto", "model": "claude-opus-5", "onStop": true, "onFlag": true, "stopMinIntervalSec": 60 },
   "rules": {
     "protectedBranches": ["main", "master"],
     "alarm": ["git push --force", "git push -f", "git reset --hard", "rm -rf", "git branch -D", "git checkout -- ."],
