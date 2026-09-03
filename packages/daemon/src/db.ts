@@ -90,6 +90,12 @@ CREATE TABLE IF NOT EXISTS session_usage (
 );
 `);
 
+for (const col of ["context_tokens", "context_window"]) {
+  if (!(db.prepare("PRAGMA table_info(session_usage)").all() as { name: string }[]).some((c) => c.name === col)) {
+    db.exec(`ALTER TABLE session_usage ADD COLUMN ${col} INTEGER`);
+  }
+}
+
 // Milestone 5: playbook.kind ("entry" | "summary"); added as a migration so existing databases keep working.
 if (!(db.prepare("PRAGMA table_info(playbook)").all() as { name: string }[]).some((c) => c.name === "kind")) {
   db.exec("ALTER TABLE playbook ADD COLUMN kind TEXT");
@@ -351,19 +357,22 @@ export function latestUsageSnapshot<T = unknown>(): { ts: number; json: T } | un
 }
 
 export function upsertSessionUsage(sessionId: string, u: SessionUsage): void {
-  db.prepare(`INSERT INTO session_usage (session_id, input_tokens, output_tokens, cache_read, cache_write, cost_usd, model)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+  db.prepare(`INSERT INTO session_usage (session_id, input_tokens, output_tokens, cache_read, cache_write, cost_usd, model, context_tokens, context_window)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(session_id) DO UPDATE SET input_tokens = excluded.input_tokens, output_tokens = excluded.output_tokens,
-      cache_read = excluded.cache_read, cache_write = excluded.cache_write, cost_usd = excluded.cost_usd, model = excluded.model`)
-    .run(sessionId, u.inputTokens, u.outputTokens, u.cacheRead, u.cacheWrite, u.costUsd, u.model ?? null);
+      cache_read = excluded.cache_read, cache_write = excluded.cache_write, cost_usd = excluded.cost_usd, model = excluded.model,
+      context_tokens = excluded.context_tokens, context_window = excluded.context_window`)
+    .run(sessionId, u.inputTokens, u.outputTokens, u.cacheRead, u.cacheWrite, u.costUsd, u.model ?? null, u.contextTokens ?? null, u.contextWindow ?? null);
 }
 
 export function listSessionUsage(): Record<string, SessionUsage> {
   const rows = db.prepare("SELECT * FROM session_usage").all() as
-    { session_id: string; input_tokens: number; output_tokens: number; cache_read: number; cache_write: number; cost_usd: number; model: string | null }[];
+    { session_id: string; input_tokens: number; output_tokens: number; cache_read: number; cache_write: number; cost_usd: number; model: string | null; context_tokens: number | null; context_window: number | null }[];
   const out: Record<string, SessionUsage> = {};
   for (const r of rows) {
     out[r.session_id] = { inputTokens: r.input_tokens, outputTokens: r.output_tokens, cacheRead: r.cache_read, cacheWrite: r.cache_write, costUsd: r.cost_usd, model: r.model ?? undefined };
+    if (r.context_tokens != null) out[r.session_id].contextTokens = r.context_tokens;
+    if (r.context_window != null) out[r.session_id].contextWindow = r.context_window;
   }
   return out;
 }

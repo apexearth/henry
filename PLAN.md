@@ -81,7 +81,9 @@ the design changes; do not let it drift into a changelog.
   buckets sessions on `cwd`, "by repo" on the repos the git watcher has seen the session
   touch, so a session working across two repos is listed under both (one that has touched
   none falls into a last "no repo" bucket). Order within a group, and the keyboard order,
-  stay the running-then-exited rail order.
+  stay the running-then-exited rail order. The active *row* is the one you picked (session
+  plus group): it alone gets the full highlight, the same session's rows under other repos
+  get a half-strength bar, and `⌘↑/↓` step from the picked row, not its first echo.
 - **Activity is derived, never polled.** Every Claude session carries `activity`:
   `working` (a turn is running), `needsInput` (blocked on a permission prompt), `waiting`
   (the turn ended, the next move is mine) or `idle` (waiting >10 min, or silent >15 min
@@ -197,8 +199,11 @@ Tool tabs:
   `parsePlaybookText` in shared turns into a headline, colored sections and bullets;
   older entries collapse to their headline. A global playbook view across all
   sessions lives on the rail footer.
-- **Usage** — 5h and 7d utilization bars with reset times; per-session token and
-  cost totals.
+- **Usage** — 5h and 7d utilization bars with reset times; the active session's
+  context bar (occupancy vs. window); per-session token, context and cost totals.
+  Context costs nothing extra: it is the last main-chain assistant message's input +
+  cache tokens, which the transcript tailer already parses (statusline
+  `context_window` fills in until the first turn and supplies the window size).
 
 ## Repo layout
 

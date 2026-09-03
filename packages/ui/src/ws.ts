@@ -23,6 +23,10 @@ export interface UiState {
   config: HenryConfig | null;
   /** Persisted, so a refresh reopens the session (or at least the repo) you were in. */
   activeSessionId: string | null;
+  /** Which rail row of the active session is "here": under "by repo" a session is listed
+   * once per repo, and ⌘↑/↓ must step from the row you picked, not its first echo. Not
+   * persisted; unknown (null) or stale means the first row. */
+  activeGroup: string | null;
   /** Rail: list exited sessions below the running ones (default: hidden). Persisted. */
   showClosed: boolean;
   /** Rail: grouping of the session list. Persisted. */
@@ -44,6 +48,7 @@ let state: UiState = {
   playbook: [],
   config: null,
   activeSessionId: readLastActive()?.id ?? null,
+  activeGroup: null,
   showClosed: readShowClosed(),
   groupBy: readGroupBy(),
   events: [],
@@ -287,8 +292,8 @@ function basename(p: string): string {
 
 // Memoised on its inputs: useSyncExternalStore needs the same array back until something
 // changes, or React sees an ever-new snapshot and throws "maximum update depth exceeded".
-let groupCache: { s: UiState; groups: RailGroup[]; flat: Session[] } | null = null;
-function railCache(s: UiState): { groups: RailGroup[]; flat: Session[] } {
+let groupCache: { s: UiState; groups: RailGroup[]; flat: Session[]; rows: RailRow[] } | null = null;
+function railCache(s: UiState): { groups: RailGroup[]; flat: Session[]; rows: RailRow[] } {
   const c = groupCache;
   if (
     c &&
@@ -301,7 +306,8 @@ function railCache(s: UiState): { groups: RailGroup[]; flat: Session[] } {
     return c;
   const groups = buildGroups(baseOrder(s), s);
   const flat = groups.length === 1 ? groups[0]!.sessions : groups.flatMap((g) => g.sessions);
-  groupCache = { s, groups, flat };
+  const rows = groups.flatMap((g) => g.sessions.map((session) => ({ group: g.key, session })));
+  groupCache = { s, groups, flat, rows };
   return groupCache;
 }
 
@@ -313,6 +319,25 @@ export function railGroups(s: UiState = state): RailGroup[] {
  * so ⌘1..9 and ⌘↑/↓ walk exactly what is on screen. */
 export function railOrder(s: UiState = state): Session[] {
   return railCache(s).flat;
+}
+
+export interface RailRow {
+  group: string;
+  session: Session;
+}
+
+/** Same rows, each with the group it sits in, for stepping and for telling the row you are on
+ * from its echoes. */
+export function railRows(s: UiState = state): RailRow[] {
+  return railCache(s).rows;
+}
+
+/** Index of the row that is "here": the active session in its picked group, or its first
+ * row when the group is unknown or no longer lists it. -1 with no active session. */
+export function activeRowIndex(s: UiState = state): number {
+  const rows = railCache(s).rows;
+  const here = rows.findIndex((r) => r.session.id === s.activeSessionId && r.group === s.activeGroup);
+  return here >= 0 ? here : rows.findIndex((r) => r.session.id === s.activeSessionId);
 }
 
 // ---- actions ----
@@ -332,8 +357,12 @@ export function setGroupBy(groupBy: GroupBy): void {
   setState({ groupBy });
 }
 
-export function setActive(sessionId: string | null): void {
-  if (sessionId !== state.activeSessionId) setState({ activeSessionId: sessionId });
+/** `group` is the rail row that was picked; callers that only know the session (a terminal
+ * panel getting focus) leave it, and the row falls back to the picked group if it still lists
+ * the session, else the first one. */
+export function setActive(sessionId: string | null, group?: string): void {
+  const activeGroup = group ?? (sessionId === state.activeSessionId ? state.activeGroup : null);
+  if (sessionId !== state.activeSessionId || activeGroup !== state.activeGroup) setState({ activeSessionId: sessionId, activeGroup });
 }
 
 export function createSession(cwd: string, title?: string, kind: SessionKind = "claude"): void {

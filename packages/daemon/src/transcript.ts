@@ -61,6 +61,8 @@ interface Tail {
   base: Totals;
   totals: Totals;
   model?: string;
+  /** Context occupancy after the latest main-chain assistant message (subagent lines excluded). */
+  context?: number;
   seen: Set<string>;
   inSidechain: boolean;
   reading: boolean;
@@ -83,6 +85,8 @@ interface StatuslineHint {
   inputTokens?: number;
   outputTokens?: number;
   model?: string;
+  contextTokens?: number;
+  contextWindow?: number;
 }
 const hints = new Map<string, StatuslineHint>();
 
@@ -180,7 +184,8 @@ function writeUsage(sessionId: string): void {
   const hint = hints.get(sessionId);
   const totals = tail ? sum(tail.base, tail.totals) : undefined;
   const hasTranscript = !!totals && (totals.inputTokens || totals.outputTokens || totals.cacheRead || totals.cacheWrite);
-  const model = tail?.model ?? hint?.model ?? db.listSessionUsage()[sessionId]?.model;
+  const prev = db.listSessionUsage()[sessionId];
+  const model = tail?.model ?? hint?.model ?? prev?.model;
   const row: SessionUsage = hasTranscript
     ? { ...totals!, costUsd: 0, model }
     : {
@@ -192,6 +197,11 @@ function writeUsage(sessionId: string): void {
         model,
       };
   row.costUsd = hint?.costUsd ?? estimateCost(row, model);
+  // The transcript sees every turn; the statusline fills in until the first one lands (and after /clear).
+  const context = tail?.context ?? hint?.contextTokens;
+  if (context !== undefined) row.contextTokens = context;
+  const window = hint?.contextWindow ?? prev?.contextWindow;
+  if (window !== undefined) row.contextWindow = window;
   db.upsertSessionUsage(sessionId, row);
 }
 
@@ -224,6 +234,7 @@ function tick(tail: Tail): void {
       tail.offset = 0;
       tail.partial = "";
       tail.totals = zero();
+      tail.context = undefined;
       tail.seen.clear();
     }
     if (size === tail.offset) return;
@@ -285,6 +296,9 @@ function handleLine(tail: Tail, raw: string): boolean {
   if (line.type !== "assistant") return false;
   const usage = line.message?.usage;
   if (!usage) return false;
+  if (line.isSidechain !== true) {
+    tail.context = (usage.input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0);
+  }
   const key = line.message?.id ?? line.requestId ?? line.uuid;
   if (key) {
     if (tail.seen.has(key)) return false;

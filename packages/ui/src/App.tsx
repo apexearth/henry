@@ -4,9 +4,8 @@ import { ThemeMenu } from "./ThemeMenu";
 import { FilePicker } from "./FilePicker";
 import { Layout } from "./Layout";
 import { closePeek, getDockApi, isFilePanel, resetLayout, showSession, stageStep } from "./dock";
-import type { Session } from "@henry/shared";
 import { onMenu } from "./shell";
-import { getState, railOrder, setActive, useStore } from "./ws";
+import { activeRowIndex, railRows, setActive, useStore, type RailRow } from "./ws";
 
 export function App() {
   const connected = useStore((s) => s.connected);
@@ -44,19 +43,20 @@ export function App() {
         stageStep(e.key === "ArrowLeft" ? -1 : 1);
         return;
       }
-      const list = railOrder();
-      let s: Session | undefined;
+      const rows = railRows();
+      let r: RailRow | undefined;
       // Cmd+N is reserved by Chrome on macOS (browser tab switch); Ctrl+N works there. Both are bound.
-      if (/^[1-9]$/.test(e.key)) s = list[Number(e.key) - 1];
-      // Cmd+↑/↓ step through the rail, wrapping. Ctrl+↑/↓ stay with the terminal.
-      else if (e.metaKey && (e.key === "ArrowUp" || e.key === "ArrowDown") && list.length) {
-        const i = list.findIndex((x) => x.id === getState().activeSessionId);
-        s = list[(i + (e.key === "ArrowUp" ? -1 : 1) + list.length) % list.length];
+      if (/^[1-9]$/.test(e.key)) r = rows[Number(e.key) - 1];
+      // Cmd+↑/↓ step through the rail's rows, wrapping, from the row you are on (a session
+      // listed under several repos is several rows). Ctrl+↑/↓ stay with the terminal.
+      else if (e.metaKey && (e.key === "ArrowUp" || e.key === "ArrowDown") && rows.length) {
+        const i = activeRowIndex();
+        r = rows[(i + (e.key === "ArrowUp" ? -1 : 1) + rows.length) % rows.length];
       }
-      if (!s) return;
+      if (!r) return;
       e.preventDefault();
-      setActive(s.id);
-      showSession(s.id);
+      setActive(r.session.id, r.group);
+      showSession(r.session.id);
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);

@@ -294,7 +294,7 @@ describe("hook ingest", () => {
     const res = await post("/statusline", { henrySession: sessionId, payload });
     expect(res.status).toBe(200);
     const text = await res.text();
-    expect(text).toMatch(/^henry · 5h 42% ↻2h10m · 7d 17% ↻3d · \$1\.23$/);
+    expect(text).toMatch(/^henry · 5h 42% ↻2h10m · 7d 17% ↻3d · ctx 23% · \$1\.23$/);
 
     const upd = await next("usage:update", (m) => m.usage.fiveHour !== undefined);
     expect(upd.usage.fiveHour?.utilization).toBeCloseTo(0.42, 5);
@@ -303,6 +303,9 @@ describe("hook ingest", () => {
     expect(upd.usage.updatedAt).toBeGreaterThan(0);
     expect(upd.usage.perSession[sessionId]?.costUsd).toBeCloseTo(1.2345, 4);
     expect(upd.usage.perSession[sessionId]?.model).toBe("claude-opus-5");
+    // No transcript yet: context comes from used_percentage × context_window_size.
+    expect(upd.usage.perSession[sessionId]?.contextTokens).toBe(46000);
+    expect(upd.usage.perSession[sessionId]?.contextWindow).toBe(200000);
 
     const st = await state();
     expect(st.usage.fiveHour?.utilization).toBeCloseTo(0.42, 5);
@@ -313,7 +316,7 @@ describe("hook ingest", () => {
       henrySession: sessionId,
       payload: { ...payload, rate_limits: { five_hour: { utilization: 0.91, resets_at: new Date((now + 600) * 1000).toISOString() }, seven_day: { utilization: 55 } } },
     });
-    expect(await res2.text()).toMatch(/^henry · 5h 91% ↻10m · 7d 55% · \$1\.23$/);
+    expect(await res2.text()).toMatch(/^henry · 5h 91% ↻10m · 7d 55% · ctx 23% · \$1\.23$/);
     const st2 = await state();
     expect(st2.usage.fiveHour?.utilization).toBeCloseTo(0.91, 5);
     expect(st2.usage.sevenDay?.utilization).toBeCloseTo(0.55, 5);
@@ -330,13 +333,18 @@ describe("hook ingest", () => {
     appendFileSync(transcriptPath, line("msg_1", { input_tokens: 100, output_tokens: 50, cache_read_input_tokens: 1000, cache_creation_input_tokens: 200 }, { apiBlockIndex: 1 }));
     appendFileSync(transcriptPath, "{ this line is broken\n");
     appendFileSync(transcriptPath, line("msg_2", { input_tokens: 10, output_tokens: 5 }));
+    // Subagent turns carry their own context and must not overwrite the main chain's.
+    appendFileSync(transcriptPath, line("msg_3", { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 90000 }, { isSidechain: true }));
 
-    const upd = await next("usage:update", (m) => m.usage.perSession[sessionId]?.inputTokens === 110, 8000);
+    const upd = await next("usage:update", (m) => m.usage.perSession[sessionId]?.inputTokens === 111, 8000);
     const u = upd.usage.perSession[sessionId];
-    expect(u.inputTokens).toBe(110);
-    expect(u.outputTokens).toBe(55);
-    expect(u.cacheRead).toBe(1000);
+    expect(u.inputTokens).toBe(111);
+    expect(u.outputTokens).toBe(56);
+    expect(u.cacheRead).toBe(91000);
     expect(u.cacheWrite).toBe(200);
+    // Context = the latest main-chain message's input + cache read + cache write; window from the statusline.
+    expect(u.contextTokens).toBe(10);
+    expect(u.contextWindow).toBe(200000);
     // Statusline cost is authoritative while present.
     expect(u.costUsd).toBeCloseTo(1.2345, 4);
 

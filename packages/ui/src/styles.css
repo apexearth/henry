@@ -43,6 +43,8 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 .rail-item { padding: 0 8px 0 6px; height: 26px; cursor: pointer; border-left: 2px solid transparent; display: flex; gap: 6px; align-items: center; white-space: nowrap; }
 .rail-item:hover { background: var(--bg-3); }
 .rail-item.active { background: var(--bg-3); border-left-color: var(--accent); }
+/* The active session listed again under another repo: the bar only, at half strength. */
+.rail-item.echo { border-left-color: color-mix(in srgb, var(--accent) 50%, transparent); }
 .rail-item.off .title { color: var(--fg-dim); }
 .rail-item .title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .rail-item .sub { flex: 0 1 auto; max-width: 40%; color: var(--fg-dim); font-size: 11px; overflow: hidden; text-overflow: ellipsis; }
@@ -261,3 +263,6 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 .peek-line.del { background: rgba(248, 81, 73, 0.12); color: var(--fg-dim); text-decoration: line-through; }
 .peek-diffstat .a { color: var(--ok); margin-right: 6px; }
 .peek-diffstat .d { color: var(--alarm); }
+
+/* Pixel size of each group, shown at its centre while a sash is dragged (Layout.tsx SizeOverlay). */
+.size-badge { position: fixed; transform: translate(-50%, -50%); pointer-events: none; z-index: 50; font-size: 12px; padding: 2px 8px; border-radius: 4px; background: var(--bg); color: var(--fg); border: 1px solid var(--accent); white-space: nowrap; }

@@ -91,6 +91,48 @@ function UsageDock() {
   );
 }
 
+/** While a sash is being dragged, every group shows its size in pixels at its centre. */
+function SizeOverlay({ api }: { api: DockviewApi }) {
+  const [boxes, setBoxes] = useState<{ id: string; r: DOMRect }[] | null>(null);
+  useEffect(() => {
+    let raf = 0;
+    const measure = () => setBoxes(api.groups.map((g) => ({ id: g.id, r: g.element.getBoundingClientRect() })));
+    const move = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(measure);
+    };
+    const end = () => {
+      cancelAnimationFrame(raf);
+      setBoxes(null);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+    };
+    const down = (e: PointerEvent) => {
+      if (!(e.target instanceof Element) || !e.target.closest(".dv-sash")) return;
+      measure();
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", end);
+      window.addEventListener("pointercancel", end);
+    };
+    window.addEventListener("pointerdown", down, true);
+    return () => {
+      window.removeEventListener("pointerdown", down, true);
+      end();
+    };
+  }, [api]);
+  if (!boxes) return null;
+  return (
+    <>
+      {boxes.map((b) => (
+        <div key={b.id} className="size-badge" style={{ left: b.r.left + b.r.width / 2, top: b.r.top + b.r.height / 2 }}>
+          {Math.round(b.r.width)} × {Math.round(b.r.height)}
+        </div>
+      ))}
+    </>
+  );
+}
+
 function Watermark({ group }: IWatermarkPanelProps) {
   const sessions = useStore((s) => s.sessions);
   const msg = group && !sessions.length ? "no sessions — press “+ new”" : "empty — pick a session in the rail, or drag a tool tab here";
@@ -195,13 +237,16 @@ export function Layout() {
   }, [api, activeId]);
 
   return (
-    <DockviewReact
-      className="dock"
-      theme={henryTheme}
-      components={components}
-      watermarkComponent={Watermark}
-      noPanelsOverlay="emptyGroup"
-      onReady={onReady}
-    />
+    <>
+      <DockviewReact
+        className="dock"
+        theme={henryTheme}
+        components={components}
+        watermarkComponent={Watermark}
+        noPanelsOverlay="emptyGroup"
+        onReady={onReady}
+      />
+      {api && <SizeOverlay api={api} />}
+    </>
   );
 }

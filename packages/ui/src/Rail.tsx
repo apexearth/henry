@@ -4,7 +4,7 @@ import { FilesSection } from "./RailFiles";
 import { RepoPicker } from "./RepoPicker";
 import { inShell, onMenu } from "./shell";
 import { showSession } from "./dock";
-import { duplicateSession, killSession, railGroups, railOrder, resumeSession, setActive, setGroupBy, toggleShowClosed, useStore, type GroupBy } from "./ws";
+import { activeRowIndex, duplicateSession, killSession, railGroups, railRows, resumeSession, setActive, setGroupBy, toggleShowClosed, useStore, type GroupBy } from "./ws";
 
 function base(p: string) {
   return p.replace(/\/+$/, "").split("/").pop() || p;
@@ -103,7 +103,8 @@ const GROUP_LABEL: Record<GroupBy, string> = {
 };
 
 export function Rail() {
-  const list = useStore(railOrder);
+  const rows = useStore(railRows);
+  const here = useStore(activeRowIndex);
   const groups = useStore(railGroups);
   const groupBy = useStore((s) => s.groupBy);
   const sessions = useStore((s) => s.sessions);
@@ -158,7 +159,10 @@ export function Rail() {
               const external = s.command === "external";
               const on = s.status === "running";
               const repo = base(s.cwd);
-              const i = list.indexOf(s);
+              const i = rows.findIndex((r) => r.group === g.key && r.session === s);
+              // The row you are on gets the full mark; the same session listed under another
+              // repo is an echo, marked at half strength so ⌘↑/↓ has one obvious "here".
+              const mark = i === here ? " active" : s.id === active ? " echo" : "";
               const what = external ? "Claude Code, started outside Henry" : s.kind === "shell" ? (claude ? "terminal, Claude Code running in it" : "terminal") : "Claude Code";
               const state = on ? "running" : `exited${s.exitCode !== undefined ? ` (${s.exitCode})` : ""}${s.endedAt ? ` ${new Date(s.endedAt).toLocaleString()}` : ""}`;
               // Working: time in state. Waiting on you: time since you typed, which is what neglect is.
@@ -168,7 +172,7 @@ export function Rail() {
               const yours = on && claude ? `\nyou: ${nPrompts} prompt${nPrompts === 1 ? "" : "s"} in the last 4 h${typed ? `, last typed ${typed} ago` : s.lastInputAt ? ", typing now" : ""}` : "";
               const fade = neglect(s, now);
               return (
-                <div key={g.key + "\n" + s.id} className={"rail-item" + (s.id === active ? " active" : "") + (on ? "" : " off") + (fade ? " neglect-" + fade : "")} onClick={() => { setActive(s.id); showSession(s.id); }}
+                <div key={g.key + "\n" + s.id} className={"rail-item" + mark + (on ? "" : " off") + (fade ? " neglect-" + fade : "")} onClick={() => { setActive(s.id, g.key); showSession(s.id); }}
                   title={`${what}, ${state}${on && s.activity ? ` — ${ACTIVITY_TEXT[s.activity]}${ago && s.activity === "working" ? ` for ${ago}` : ""}` : ""}${yours}\n${s.cwd}${s.host ? `\non ${s.host}` : ""}${i >= 0 && i < 9 ? `\n⌘${i + 1}` : ""}`}>
                   {on && claude && <Spark prompts={s.prompts} now={now} />}
                   {claude ? <ClaudeMark on={on} activity={on ? s.activity : undefined} /> : <ShellMark on={on} />}

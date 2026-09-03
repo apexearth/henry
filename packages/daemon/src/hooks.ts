@@ -295,6 +295,7 @@ interface StatuslineBody {
 }
 
 let loggedShape = false;
+const DEFAULT_CONTEXT_WINDOW = 200_000;
 
 export interface StatuslineResult {
   usage: Usage;
@@ -355,6 +356,8 @@ function ingestStatuslineInner(body: StatuslineBody): StatuslineResult {
       inputTokens: num(cw.total_input_tokens),
       outputTokens: num(cw.total_output_tokens),
       model,
+      contextTokens: contextTokensOf(cw),
+      contextWindow: num(cw.context_window_size),
     });
     const transcriptPath = str(p.transcript_path);
     if (transcriptPath || session.claudeSessionId) transcript.startTailing(session, transcriptPath);
@@ -363,6 +366,19 @@ function ingestStatuslineInner(body: StatuslineBody): StatuslineResult {
   const usage = transcript.currentUsage();
   transcript.scheduleBroadcast(true);
   return { usage, text: statuslineText(usage, session?.id) };
+}
+
+/** Live context size: `current_usage` (newer builds) or `used_percentage` of the window. */
+function contextTokensOf(cw: Dict): number | undefined {
+  const cur = isObj(cw.current_usage) ? cw.current_usage : undefined;
+  if (cur) {
+    const parts = [num(cur.input_tokens), num(cur.cache_read_input_tokens), num(cur.cache_creation_input_tokens)];
+    if (parts.some((n) => n !== undefined)) return parts.reduce<number>((a, n) => a + (n ?? 0), 0);
+  }
+  const pct = num(cw.used_percentage);
+  const size = num(cw.context_window_size);
+  if (pct !== undefined && size) return Math.round((pct / 100) * size);
+  return undefined;
 }
 
 function resolveStatuslineSession(henrySession: string | undefined, claudeId: string | undefined): Session | undefined {
@@ -419,6 +435,7 @@ export function statuslineText(usage: Usage | undefined, sessionId?: string): st
   win("5h", usage.fiveHour);
   win("7d", usage.sevenDay);
   const s = sessionId ? usage.perSession[sessionId] : undefined;
+  if (s?.contextTokens !== undefined) parts.push(`ctx ${Math.round((s.contextTokens / (s.contextWindow || DEFAULT_CONTEXT_WINDOW)) * 100)}%`);
   if (s && s.costUsd > 0) parts.push(`$${s.costUsd.toFixed(2)}`);
   return parts.join(" · ");
 }

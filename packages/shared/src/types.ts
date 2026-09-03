@@ -136,6 +136,10 @@ export interface SessionUsage {
   cacheWrite: number;
   costUsd: number;
   model?: string;
+  /** Live context occupancy: the last main-chain API call's input + cache read + cache write. */
+  contextTokens?: number;
+  /** Model context window in tokens (statusline `context_window_size`); UI assumes 200k when absent. */
+  contextWindow?: number;
 }
 
 export interface Usage {
