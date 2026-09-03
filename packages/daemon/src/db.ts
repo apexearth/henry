@@ -94,6 +94,10 @@ CREATE TABLE IF NOT EXISTS session_usage (
 if (!(db.prepare("PRAGMA table_info(playbook)").all() as { name: string }[]).some((c) => c.name === "kind")) {
   db.exec("ALTER TABLE playbook ADD COLUMN kind TEXT");
 }
+// sessions.host: which machine's daemon owns the session (groundwork for multi-machine).
+if (!(db.prepare("PRAGMA table_info(sessions)").all() as { name: string }[]).some((c) => c.name === "host")) {
+  db.exec("ALTER TABLE sessions ADD COLUMN host TEXT");
+}
 
 // ---- sessions ----
 
@@ -108,6 +112,7 @@ interface SessionRow {
   status: Session["status"];
   exit_code: number | null;
   parent_session_id: string | null;
+  host: string | null;
 }
 
 function rowToSession(r: SessionRow): Session {
@@ -117,12 +122,13 @@ function rowToSession(r: SessionRow): Session {
   if (r.pid != null) s.pid = r.pid;
   if (r.exit_code != null) s.exitCode = r.exit_code;
   if (r.parent_session_id) s.parentSessionId = r.parent_session_id;
+  if (r.host) s.host = r.host;
   return s;
 }
 
 const qInsertSession = db.prepare(`
-  INSERT INTO sessions (id, claude_session_id, cwd, title, command, pid, created_at, status, exit_code, parent_session_id)
-  VALUES ($id, $claudeSessionId, $cwd, $title, $command, $pid, $createdAt, $status, $exitCode, $parentSessionId)`);
+  INSERT INTO sessions (id, claude_session_id, cwd, title, command, pid, created_at, status, exit_code, parent_session_id, host)
+  VALUES ($id, $claudeSessionId, $cwd, $title, $command, $pid, $createdAt, $status, $exitCode, $parentSessionId, $host)`);
 
 export function insertSession(s: Session): void {
   qInsertSession.run({
@@ -136,6 +142,7 @@ export function insertSession(s: Session): void {
     $status: s.status,
     $exitCode: s.exitCode ?? null,
     $parentSessionId: s.parentSessionId ?? null,
+    $host: s.host ?? null,
   });
 }
 
@@ -148,6 +155,7 @@ const sessionColumns: Record<string, string> = {
   status: "status",
   exitCode: "exit_code",
   parentSessionId: "parent_session_id",
+  host: "host",
 };
 
 export function updateSession(id: string, patch: Partial<Session>): void {
@@ -187,10 +195,6 @@ export function listSessions(opts: { status?: Session["status"]; limit?: number 
 /** Sessions younger than this stay visible in the rail across a daemon restart. */
 export const SESSION_RESTORE_WINDOW_MS = 24 * 60 * 60_000;
 
-/** Called once at daemon start: PTYs did not survive the previous process. */
-export function markAllSessionsExited(): void {
-  db.prepare("UPDATE sessions SET status = 'exited', ended_at = COALESCE(ended_at, ?) WHERE status = 'running'").run(Date.now());
-}
 
 // ---- events ----
 

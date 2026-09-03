@@ -8,7 +8,8 @@
     "build": "bun run --filter '*' build",
     "start": "bun run --cwd packages/daemon start",
     "typecheck": "bun run --filter '*' typecheck",
-    "smoke": "bun run --cwd packages/daemon smoke"
+    "smoke": "bun run --cwd packages/daemon smoke",
+    "sessiond": "bun run --cwd packages/sessiond start"
   },
   "trustedDependencies": ["node-pty"],
   "devDependencies": {

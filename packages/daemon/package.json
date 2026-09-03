@@ -16,8 +16,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.123.0",
-    "@henry/shared": "workspace:*",
-    "node-pty": "^1.0.0"
+    "@henry/shared": "workspace:*"
   },
   "devDependencies": {
     "@types/bun": "^1.2.0",

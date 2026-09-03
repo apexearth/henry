@@ -10,9 +10,17 @@ the design changes; do not let it drift into a changelog.
 
 ## Decisions already made
 
-- **Daemon owns the sessions, windows are clients.** PTYs live in the daemon (like
+- **Daemon owns the sessions, windows are clients.** PTYs live server-side (like
   tmux). Closing a window never kills a session. Several windows can attach to the
   same daemon and see the same tabs.
+- **PTYs live in `henry-sessiond`, not in the daemon.** A separate, long-lived Node
+  process (`packages/sessiond`, node-pty its only dependency, no imports from the rest
+  of the repo) owns the terminals and a 2 MB scrollback per session. The daemon finds it
+  through `~/.henry/sessiond.json` (loopback TCP port + random token, NDJSON, one
+  sessiond per `HENRY_HOME`), starts one when none answers, and reconnects after every
+  restart. Kept boring on purpose: it changes twice a year; a protocol version in the
+  hello lets the daemon warn, and `henry sessiond restart` drains it (exit once no
+  session runs) or `--now` hangs everything up. Stopping the daemon never stops it.
 - **TypeScript end to end.** Bun runtime for the daemon, Vite + React + xterm.js for
   the UI. Agentic-first: the stack Claude writes and tests fastest.
 - **Browser first, native later.** The daemon serves the UI at `http://127.0.0.1:4711`.
@@ -34,19 +42,23 @@ the design changes; do not let it drift into a changelog.
   round-trip) and `--settings ~/.henry/launch-settings.json`, which layers Henry's
   hooks and statusline over the user's settings for that process only. `henry install`
   is only needed for sessions started elsewhere (a terminal, Zed).
-- **Spawned sessions never inherit `CLAUDE_CODE_*` / `CLAUDECODE` env.** A daemon
-  started from inside a Claude Code session would otherwise pass the child-session
-  marker through, which turns transcript saving off and breaks transcript-based
-  plugin hooks (verified 2026-09-02: claude-mem's Stop hook looped on it).
+- **Nothing Henry spawns inherits `CLAUDE_CODE_*` / `CLAUDECODE` env**: not sessiond,
+  not the sessions it starts on the daemon's behalf (`sessions.ts` strips the
+  environment for both). A daemon started from inside a Claude Code session would
+  otherwise pass the child-session marker through, which turns transcript saving off
+  and breaks transcript-based plugin hooks (verified 2026-09-02: claude-mem's Stop hook
+  looped on it).
 - **Henry never edits `~/.claude/settings.json` on its own.** `henry install`
   merges hooks + statusLine idempotently and preserves everything else.
   `henry uninstall` removes only what it added.
 - **New tab defaults to `~/code/off-chain`** with a picker over `~/code/*` and
   worktrees.
-- **Sessions outlive the daemon in the rail, not in the terminal.** Sessions from the
-  last 24h come back as exited after a restart with their repos, flags and playbook;
-  terminal output is gone with the old PTY host. An exited Claude session has a ↻
-  button that opens a new tab with `claude --resume <id>`.
+- **Sessions outlive the daemon, terminal included.** After a daemon restart the
+  sessions sessiond still holds are running in the rail with their scrollback; only
+  sessions from before the last sessiond (last 24h) come back as exited with their
+  repos, flags and playbook and no output. An exited Claude session has a ↻ button that
+  opens a new tab with `claude --resume <id>`. Every session carries `host` (config
+  `host`, default short hostname), groundwork for daemons on several machines.
 - **The overseer runs once per real turn.** Stops with `stop_hook_active` (Claude sent
   back by another Stop hook) are ignored, and Stop-triggered runs for one session are
   at least `overseer.stopMinIntervalSec` (60) apart. Flags still run immediately.
@@ -88,9 +100,11 @@ henry/
       src/protocol.ts          # WS message union, REST shapes
       src/types.ts             # Session, RepoState, Flag, PlaybookEntry, Usage
     daemon/
-      src/index.ts             # cli: start | install | uninstall | status
+      src/index.ts             # cli: start | install | uninstall | status | sessiond status|restart
       src/server.ts            # HTTP + WS on 127.0.0.1:4711, serves ui/dist
-      src/sessions.ts          # PTY manager (node-pty), scrollback, attach/detach
+      src/sessions.ts          # session records, reconciliation with sessiond, attach/detach
+      src/sessiond-client.ts   # finds/starts sessiond, NDJSON over loopback TCP, reconnect
+      src/sessiond-cli.ts      # henry sessiond status | restart [--now]
       src/db.ts                # bun:sqlite schema + queries (~/.henry/henry.db)
       src/hooks.ts             # POST /hook, POST /statusline ingest
       src/transcript.ts        # tail ~/.claude/projects/**/<session>.jsonl
@@ -100,6 +114,10 @@ henry/
       src/installer.ts         # settings.json merge/unmerge
       hooks/henry-hook.sh      # tiny script installed into settings.json
       hooks/henry-statusline.sh
+    sessiond/                  # henry-sessiond: owns the PTYs, outlives the daemon (Node, node-pty only)
+      src/main.ts              # TCP server, spawn/attach/kill, 2MB scrollback ring, drain/shutdown
+      src/protocol.ts          # wire types, PROTOCOL_VERSION; the daemon imports this file
+      README.md                # why it stays boring; the protocol
     ui/
       src/App.tsx              # rail | terminal | panel
       src/ws.ts                # client, reconnect, state store
@@ -115,6 +133,7 @@ claude (in PTY) ──hooks──▶ henry-hook.sh ──POST /hook──▶ dae
                  ──status──▶ henry-statusline.sh ──POST /statusline──▶ daemon
 ~/.claude/projects/**.jsonl ──tail──▶ daemon (usage, tool detail, subagents)
 ~/code/*/.git ──watch+poll──▶ daemon (repo state, baseline diffs)
+sessiond (owns PTYs) ◀──TCP 127.0.0.1, token──▶ daemon (spawn, write, attach, scrollback)
 daemon ──WS──▶ every attached window (pty data, state deltas)
 daemon ──on Stop / on flag──▶ overseer ──▶ playbook rows ──WS──▶ windows
 ```
@@ -132,6 +151,7 @@ path resolves into it), record `HEAD` as that session's baseline for that repo.
 ```json
 {
   "port": 4711,
+  "host": "mbp",
   "reposRoot": "~/code",
   "defaultRepo": "~/code/off-chain",
   "overseer": { "backend": "auto", "model": "claude-opus-5", "onStop": true, "onFlag": true, "stopMinIntervalSec": 60 },

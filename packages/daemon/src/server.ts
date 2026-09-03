@@ -58,12 +58,19 @@ sessions.on("update", (session) => broadcast({ type: "session:update", session }
 async function handleMessage(ws: Ws, msg: ClientMessage): Promise<void> {
   switch (msg.type) {
     case "attach": {
-      if (!sessions.get(msg.sessionId)) return;
-      ws.data.attached.add(msg.sessionId);
-      ws.subscribe(topic(msg.sessionId));
-      send(ws, { type: "pty:scrollback", sessionId: msg.sessionId, data: sessions.scrollback(msg.sessionId) });
-      const s = sessions.get(msg.sessionId);
-      if (s?.status === "exited") send(ws, { type: "pty:exit", sessionId: msg.sessionId, exitCode: s.exitCode ?? 0 });
+      const id = msg.sessionId;
+      if (!sessions.get(id)) return;
+      ws.data.attached.add(id);
+      // Scrollback comes from sessiond. Subscribe to live output inside the callback, which
+      // runs before any later data event is published, so the window never sees output
+      // that is also in the scrollback, nor output from before it out of order.
+      sessions.withScrollback(id, (data) => {
+        if (ws.readyState !== 1 || !ws.data.attached.has(id)) return;
+        ws.subscribe(topic(id));
+        send(ws, { type: "pty:scrollback", sessionId: id, data });
+        const s = sessions.get(id);
+        if (s?.status === "exited") send(ws, { type: "pty:exit", sessionId: id, exitCode: s.exitCode ?? 0 });
+      });
       return;
     }
     case "detach":
@@ -130,7 +137,9 @@ async function serveStatic(pathname: string): Promise<Response> {
   return new Response(Bun.file(join(uiDist, "index.html")));
 }
 
-export function startServer(): void {
+export async function startServer(): Promise<void> {
+  // Reconcile with sessiond before answering anyone, so the first /api/state is right.
+  await sessions.start();
   server = Bun.serve<WsData>({
     hostname: "127.0.0.1",
     port: config.port,
@@ -202,6 +211,7 @@ export function startServer(): void {
   console.log(`[henry] listening on http://127.0.0.1:${config.port} (db: ${db.dbPath})`);
 }
 
+/** Stops the daemon's own listeners. sessiond and the sessions in it keep running. */
 export function stopServer(): void {
   git.stop();
   sessions.shutdown();

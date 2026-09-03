@@ -5,6 +5,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Flag, HenryEvent, PlaybookEntry, RepoState, ServerMessage, Session } from "@henry/shared";
+import { stopSessiond } from "./sessiond-helper";
 
 const home = mkdtempSync(join(tmpdir(), "henry-overseer-test-"));
 process.env.HENRY_HOME = home;
@@ -14,7 +15,10 @@ const overseer = await import("../src/overseer");
 const db = await import("../src/db");
 type BackendRequest = import("../src/overseer").BackendRequest;
 
-afterAll(() => rmSync(home, { recursive: true, force: true }));
+afterAll(async () => {
+  await stopSessiond(home);
+  rmSync(home, { recursive: true, force: true });
+});
 
 // ---- fixtures ----
 

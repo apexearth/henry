@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { stopSessiond } from "./sessiond-helper";
 
 const daemonDir = join(import.meta.dir, "..");
 const root = mkdtempSync(join(tmpdir(), "henry-install-"));
@@ -44,7 +45,10 @@ beforeAll(() => {
   require("node:fs").mkdirSync(claudeDir, { recursive: true });
   writeFileSync(settings, JSON.stringify(fixture, null, 2) + "\n");
 });
-afterAll(() => rmSync(root, { recursive: true, force: true }));
+afterAll(async () => {
+  await stopSessiond(home);
+  rmSync(root, { recursive: true, force: true });
+});
 
 describe("henry install / uninstall / status", () => {
   test("install merges hooks, keeps foreign content, skips a foreign statusLine", async () => {

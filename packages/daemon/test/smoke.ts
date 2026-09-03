@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ClientMessage, ServerMessage } from "@henry/shared";
+import { stopSessiond } from "./sessiond-helper";
 
 const PORT = 47110 + Math.floor(Math.random() * 100);
 const home = mkdtempSync(join(tmpdir(), "henry-smoke-"));
@@ -17,13 +18,16 @@ const daemon = Bun.spawn(["bun", "src/index.ts", "start"], {
 });
 
 const log = (...a: unknown[]) => console.log("[smoke]", ...a);
-const fail = (why: string): never => {
+const fail = async (why: string): Promise<never> => {
   log("FAIL:", why);
-  cleanup();
+  await cleanup();
   process.exit(1);
 };
-function cleanup() {
+async function cleanup() {
   daemon.kill();
+  await daemon.exited;
+  // The daemon leaves sessiond running by design; the smoke test must not.
+  await stopSessiond(home);
   rmSync(home, { recursive: true, force: true });
 }
 
@@ -104,6 +108,6 @@ const repos = await fetch(`http://127.0.0.1:${PORT}/api/repos`).then((r) => r.js
 log("/api/repos:", repos.length, "repos");
 
 ws.close();
-cleanup();
+await cleanup();
 log("PASS");
 process.exit(0);

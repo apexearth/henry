@@ -1,8 +1,14 @@
 # Henry
 
-Hosts Claude Code sessions in PTYs owned by a local daemon and shows what they do:
-sessions as tabs, terminal in the middle, repos / flags / playbook / usage on the right.
-`PLAN.md` is the contract.
+Hosts Claude Code sessions in PTYs and shows what they do: sessions as tabs, terminal
+in the middle, repos / flags / playbook / usage on the right. `PLAN.md` is the contract.
+
+Three processes: **henry-sessiond** (`packages/sessiond`, Node) owns the PTYs and their
+scrollback and is meant to run for weeks; the **daemon** (`packages/daemon`, Bun) owns
+the DB, HTTP/WS, hooks, git and the overseer, and talks to sessiond over loopback TCP;
+the **UI** (`packages/ui`) is a browser window attached to the daemon. The daemon can
+restart as often as it likes (it does, under `bun --watch`, on every source edit) and
+reconnects to the same live sessions with their scrollback intact.
 
 ## Run
 
@@ -19,7 +25,10 @@ bun run start      # daemon serves ui/dist at http://127.0.0.1:4711
 ```
 
 Several browser windows can open the same URL; they all attach to the one daemon and
-see the same sessions with live output. `Cmd+1..9` (or `Ctrl+1..9`, since Chrome on macOS reserves Cmd+digit) switches tabs.
+see the same sessions with live output. Editing daemon source under `bun run dev` restarts
+only the daemon: sessions keep running in sessiond and the windows reconnect. `bun run
+sessiond` runs sessiond in the foreground for debugging (the daemon then attaches to it
+instead of starting its own). `Cmd+1..9` (or `Ctrl+1..9`, since Chrome on macOS reserves Cmd+digit) switches tabs.
 
 Smoke test (boots a throwaway daemon, drives it over WebSocket with `/bin/sh` in place
 of `claude`):
@@ -29,9 +38,19 @@ bun run smoke
 ```
 
 Config lives in `~/.henry/config.json` (defaults in `packages/shared/src/types.ts`);
-the database is `~/.henry/henry.db`. `HENRY_HOME` and `HENRY_PORT` override both for tests.
+the database is `~/.henry/henry.db`; sessiond writes `~/.henry/sessiond.json` (port, token,
+pid) and `~/.henry/sessiond.log`. `HENRY_HOME` and `HENRY_PORT` override all of it for tests.
+`config.host` (default: short `os.hostname()`) is stamped on every session the daemon
+creates, groundwork for running daemons on several machines.
 
-CLI: `henry start | install | uninstall | status` (`packages/daemon/src/index.ts`).
+CLI (`packages/daemon/src/index.ts`): `henry start | install | uninstall | status`, plus
+
+- `henry sessiond status` — prints `sessiond.json`, whether that process answers a ping,
+  its protocol version against the daemon's, and how many sessions it holds.
+- `henry sessiond restart [--now]` — asks sessiond to exit once every session has ended
+  (the daemon starts a fresh one on its next connect), or with `--now` hangs up every
+  session and exits immediately. This is how a new sessiond version gets picked up; the
+  daemon warns at startup when the two protocol versions differ.
 
 ## Install hooks
 
@@ -68,28 +87,36 @@ sessions with events and usage but no terminal output. Per-session tokens and co
 tailing `~/.claude/projects/<slug>/<session_id>.jsonl`; the cost shown prefers Claude Code's
 own `total_cost_usd` from the status line and falls back to a list-price estimate.
 
-Tests (`bun test` in `packages/daemon`) exercise all of this against a throwaway daemon and
-a scratch `CLAUDE_CONFIG_DIR`; they never touch `~/.claude` or `~/.henry`.
+Tests (`bun run test`, which runs each file in `packages/daemon/test` in its own process)
+exercise all of this against throwaway daemons and a scratch `CLAUDE_CONFIG_DIR`; they never
+touch `~/.claude` or `~/.henry`, and every test stops the sessiond it started (by pid, via
+`test/sessiond-helper.ts`). `test/survival.test.ts` is the daemon-restart proof: create a
+shell, SIGTERM the daemon, start another one, find the same shell running with its scrollback.
 
 ## Requirements
 
 - bun ≥ 1.3 (daemon runtime, `bun:sqlite`, `Bun.serve` WebSockets)
-- node ≥ 22 on `PATH` (PTY host, see below)
+- node ≥ 22 on `PATH` (runs sessiond, see below)
 - `claude` on `PATH`
 
-## node-pty and Bun
+## sessiond, node-pty and Bun
 
 The daemon runs on Bun, but node-pty does not work under Bun 1.3.3: the PTY spawns, but
 Bun cannot read the pty master through `net.Socket`, so no data or exit ever arrives
 (verified with a direct probe). Bun's own `Bun.Terminal` / `Bun.spawn({ terminal })`
 exists in newer bun-types but is not in 1.3.3.
 
-Choice: keep the daemon on Bun (so the DB, HTTP and WS contracts stay as planned) and
-run node-pty in a small Node child process, `packages/daemon/src/pty-host.ts`, which
-speaks newline-delimited JSON over stdin/stdout. `sessions.ts` is the only module that
-knows about it. When the project moves to a Bun with `Bun.Terminal`, replace the host
-with `Bun.spawn({ terminal })` inside `sessions.ts` and delete `pty-host.ts`.
+So the PTYs live in `henry-sessiond` (`packages/sessiond`, Node, node-pty is its only
+dependency), which doubles as the thing that keeps sessions alive across daemon restarts.
+The daemon (`packages/daemon/src/sessiond-client.ts`, driven by `sessions.ts`) reads
+`sessiond.json`, connects with the token, and on a missing, stale or unresponsive file
+starts `node packages/sessiond/src/main.ts --daemon` and waits for a fresh file. On start
+the daemon reconciles: sessions sessiond still holds are running in the rail (attached, with
+scrollback fetched from sessiond on every window attach); sessions from the last 24h that
+sessiond does not have come back as exited with a note. Stopping the daemon never stops
+sessiond; `henry sessiond restart` does. sessiond ignores SIGHUP and refuses SIGTERM while
+a session runs. Protocol and lifecycle: `packages/sessiond/README.md`.
 
-Two install details: node-pty's `postinstall` is what marks its `spawn-helper` binary
+Install detail: node-pty's `postinstall` is what marks its `spawn-helper` binary
 executable, and bun only runs it for `trustedDependencies` (set in the root
-`package.json`). The pty host also fixes the bit at startup in case it was skipped.
+`package.json`). sessiond also fixes the bit at startup in case it was skipped.

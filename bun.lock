@@ -17,10 +17,19 @@
       "dependencies": {
         "@anthropic-ai/sdk": "^0.123.0",
         "@henry/shared": "workspace:*",
-        "node-pty": "^1.0.0",
       },
       "devDependencies": {
         "@types/bun": "^1.2.0",
+        "@types/node": "^22.0.0",
+      },
+    },
+    "packages/sessiond": {
+      "name": "@henry/sessiond",
+      "version": "0.1.0",
+      "dependencies": {
+        "node-pty": "^1.0.0",
+      },
+      "devDependencies": {
         "@types/node": "^22.0.0",
       },
     },
@@ -140,6 +149,8 @@
     "@esbuild/win32-x64": ["@esbuild/win32-x64@0.21.5", "", { "os": "win32", "cpu": "x64" }, "sha512-tQd/1efJuzPC6rCFwEvLtci/xNFcTZknmXs98FYDfGE4wP9ClFV98nyKrzJKVPMhdDnjzLhdUyMX4PsQAPjwIw=="],
 
     "@henry/daemon": ["@henry/daemon@workspace:packages/daemon"],
+
+    "@henry/sessiond": ["@henry/sessiond@workspace:packages/sessiond"],
 
     "@henry/shared": ["@henry/shared@workspace:packages/shared"],
 

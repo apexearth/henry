@@ -29,7 +29,7 @@ export function Rail() {
           const hasAlarm = u.some((f) => f.severity === "alarm");
           return (
             <div key={s.id} className={"rail-item" + (s.id === active ? " active" : "")} onClick={() => setActive(s.id)}
-              title={`${s.cwd}\n⌘${i + 1}`}>
+              title={`${s.cwd}${s.host ? `\non ${s.host}` : ""}\n⌘${i + 1}`}>
               <span className={"dot " + s.status} />
               <div style={{ minWidth: 0 }}>
                 <div className="title">{s.title}</div>

@@ -6,6 +6,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { HenryConfig, HenryEvent } from "@henry/shared";
+import { stopSessiond } from "./sessiond-helper";
 
 const scratch = mkdtempSync(join(tmpdir(), "henry-rules-"));
 process.env.HENRY_HOME = join(scratch, "home");
@@ -73,7 +74,8 @@ beforeAll(() => {
   rules.deps.getSession = (id) => (id === "s1" ? { cwd: repoA } : id === "s-feature" ? { cwd: repoB } : undefined);
 });
 
-afterAll(() => {
+afterAll(async () => {
+  await stopSessiond(join(scratch, "home"));
   rmSync(scratch, { recursive: true, force: true });
 });
 

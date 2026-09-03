@@ -6,6 +6,7 @@ import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "n
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ClientMessage, HenryEvent, ServerMessage, StateSnapshot } from "@henry/shared";
+import { stopSessiond } from "./sessiond-helper";
 
 const PORT = 47200 + Math.floor(Math.random() * 300);
 const home = mkdtempSync(join(tmpdir(), "henry-hooks-"));
@@ -82,11 +83,13 @@ beforeAll(async () => {
   await next("state");
 });
 
-afterAll(() => {
+afterAll(async () => {
   try {
     ws?.close();
   } catch {}
   daemon?.kill();
+  await daemon?.exited;
+  await stopSessiond(home);
   rmSync(home, { recursive: true, force: true });
 });
 

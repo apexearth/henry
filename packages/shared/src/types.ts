@@ -17,6 +17,8 @@ export interface Session {
   /** Program spawned in the PTY. Defaults to "claude"; the smoke test passes a shell. */
   command?: string;
   pid?: number;
+  /** Short name of the machine whose daemon owns this session (config.host, default os.hostname()). */
+  host?: string;
 }
 
 export interface RepoState {
@@ -120,6 +122,8 @@ export type OverseerBackend = "auto" | "api" | "claude-cli";
 
 export interface HenryConfig {
   port: number;
+  /** Name stamped on sessions this daemon creates; default: short os.hostname(). */
+  host?: string;
   /** Absolute after load (config.ts expands "~"). */
   reposRoot: string;
   /** Absolute after load. */

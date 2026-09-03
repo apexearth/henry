@@ -1,12 +1,12 @@
 #!/usr/bin/env bun
-// henry CLI: start (default) | install | uninstall | status
+// henry CLI: start (default) | install | uninstall | status | sessiond status|restart [--now]
 const cmd = process.argv[2] ?? "start";
 
 async function main(): Promise<void> {
   switch (cmd) {
     case "start": {
       const { startServer, stopServer } = await import("./server");
-      startServer();
+      await startServer();
       const stop = () => {
         stopServer();
         process.exit(0);
@@ -22,10 +22,21 @@ async function main(): Promise<void> {
       await installer[cmd]();
       return;
     }
+    case "sessiond": {
+      const sub = process.argv[3];
+      const sessiond = await import("./sessiond-cli");
+      if (sub === "status") await sessiond.status();
+      else if (sub === "restart") await sessiond.restart(process.argv.includes("--now"));
+      else {
+        console.error("usage: henry sessiond status | restart [--now]");
+        process.exit(2);
+      }
+      return;
+    }
     case "-h":
     case "--help":
     case "help":
-      console.log("usage: henry [start|install|uninstall|status]");
+      console.log("usage: henry [start|install|uninstall|status|sessiond status|sessiond restart [--now]]");
       return;
     default:
       console.error(`unknown command: ${cmd}`);
