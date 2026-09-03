@@ -5,6 +5,9 @@ import type { ClientMessage, Flag, HenryConfig, HenryEvent, PlaybookEntry, RepoS
 
 export type PtyMessage = Extract<ServerMessage, { type: "pty:data" | "pty:scrollback" | "pty:exit" }>;
 
+/** How the rail buckets sessions: not at all, by working directory, or by every repo touched. */
+export type GroupBy = "none" | "cwd" | "repos";
+
 export interface UiState {
   connected: boolean;
   /** Increments on every (re)connect; terminals re-attach when it changes. */
@@ -17,9 +20,12 @@ export interface UiState {
   usage: Usage;
   playbook: PlaybookEntry[];
   config: HenryConfig | null;
+  /** Persisted, so a refresh reopens the session (or at least the repo) you were in. */
   activeSessionId: string | null;
   /** Rail: list exited sessions below the running ones (default: hidden). Persisted. */
   showClosed: boolean;
+  /** Rail: grouping of the session list. Persisted. */
+  groupBy: GroupBy;
   /** Raw event feed (capped), for the Flags/raw-events views. */
   events: HenryEvent[];
   /** Diffs by `${sessionId}\n${repoPath}`. */
@@ -36,8 +42,9 @@ let state: UiState = {
   usage: { perSession: {}, updatedAt: 0 },
   playbook: [],
   config: null,
-  activeSessionId: null,
+  activeSessionId: readLastActive()?.id ?? null,
   showClosed: readShowClosed(),
+  groupBy: readGroupBy(),
   events: [],
   diffs: {},
 };
@@ -50,9 +57,48 @@ function readShowClosed(): boolean {
   }
 }
 
+function readGroupBy(): GroupBy {
+  try {
+    const v = localStorage.getItem("henry.groupBy");
+    return v === "cwd" || v === "repos" ? v : "none";
+  } catch {
+    return "none";
+  }
+}
+
+/** The session you last looked at, with its cwd so a gone session can fall back to its repo. */
+interface LastActive {
+  id: string;
+  cwd: string;
+}
+
+function readLastActive(): LastActive | null {
+  try {
+    const raw = localStorage.getItem("henry.active");
+    const v = raw ? (JSON.parse(raw) as Partial<LastActive>) : null;
+    return v?.id ? { id: v.id, cwd: v.cwd ?? "" } : null;
+  } catch {
+    return null;
+  }
+}
+
+let lastActive = readLastActive();
+
+function rememberActive(id: string | null): void {
+  // The cwd is only known once sessions have arrived; keep the stored one until then.
+  const cwd = state.sessions.find((s) => s.id === id)?.cwd ?? (id === lastActive?.id ? lastActive.cwd : "");
+  if (lastActive?.id === id && lastActive.cwd === cwd) return;
+  lastActive = id ? { id, cwd } : null;
+  try {
+    if (lastActive) localStorage.setItem("henry.active", JSON.stringify(lastActive));
+    else localStorage.removeItem("henry.active");
+  } catch {}
+}
+
 const listeners = new Set<() => void>();
 function setState(patch: Partial<UiState>) {
   state = { ...state, ...patch };
+  if (patch.activeSessionId !== undefined || patch.sessions) rememberActive(state.activeSessionId);
   for (const l of listeners) l();
 }
 export function getState() {
@@ -108,7 +154,15 @@ function noteUiBuild(build: string | undefined): void {
 
 function pickActive(sessions: Session[], current: string | null): string | null {
   if (current && sessions.some((s) => s.id === current)) return current;
-  return sessions.find((s) => s.status === "running")?.id ?? sessions[0]?.id ?? null;
+  // The remembered session is gone (killed while away, or a restart): stay in its repo if we can.
+  const inRepo = lastActive?.cwd ? sessions.filter((s) => s.cwd === lastActive!.cwd) : [];
+  return (
+    inRepo.find((s) => s.status === "running")?.id ??
+    sessions.find((s) => s.status === "running")?.id ??
+    inRepo[0]?.id ??
+    sessions[0]?.id ??
+    null
+  );
 }
 
 function handle(m: ServerMessage): void {
@@ -165,19 +219,79 @@ function handle(m: ServerMessage): void {
 
 /** The rail's order: running sessions oldest first, then (when shown) exited ones newest first.
  * The exited session you are looking at stays listed until you move on. ⌘1..9 and ⌘↑/↓ follow it. */
-// Memoised on its inputs: useSyncExternalStore needs the same array back until something
-// changes, or React sees an ever-new snapshot and throws "maximum update depth exceeded".
-let railCache: { sessions: Session[]; showClosed: boolean; activeSessionId: string | null; result: Session[] } | null = null;
-export function railOrder(s: UiState = state): Session[] {
-  const c = railCache;
-  if (c && c.sessions === s.sessions && c.showClosed === s.showClosed && c.activeSessionId === s.activeSessionId) return c.result;
+function baseOrder(s: UiState): Session[] {
   const running = s.sessions.filter((x) => x.status === "running");
   const closed = s.sessions
     .filter((x) => x.status !== "running" && (s.showClosed || x.id === s.activeSessionId))
     .sort((a, b) => (b.endedAt ?? b.createdAt) - (a.endedAt ?? a.createdAt));
-  const result = [...running, ...closed];
-  railCache = { sessions: s.sessions, showClosed: s.showClosed, activeSessionId: s.activeSessionId, result };
-  return result;
+  return [...running, ...closed];
+}
+
+export interface RailGroup {
+  key: string;
+  /** Empty when the rail should list the rows with no header (groupBy "none"). */
+  label: string;
+  title: string;
+  sessions: Session[];
+}
+
+const NO_REPO = "\u0000no-repo";
+
+function buildGroups(order: Session[], s: UiState): RailGroup[] {
+  if (s.groupBy === "none") return [{ key: "all", label: "", title: "", sessions: order }];
+  const groups = new Map<string, RailGroup>();
+  const add = (key: string, label: string, title: string, session: Session) => {
+    let g = groups.get(key);
+    if (!g) groups.set(key, (g = { key, label, title, sessions: [] }));
+    g.sessions.push(session);
+  };
+  for (const session of order) {
+    if (s.groupBy === "cwd") {
+      add(session.cwd, basename(session.cwd), session.cwd, session);
+      continue;
+    }
+    // "repos involved": a session is listed under every repo it has touched, so a session
+    // working across two repos shows up in both. One that has touched none gets its own bucket.
+    const repos = s.repos[session.id] ?? [];
+    if (!repos.length) add(NO_REPO, "no repo", "no repo activity seen yet", session);
+    else for (const r of repos) add(r.path, r.name, r.path, session);
+  }
+  // First-appearance order (running sessions first), except the catch-all which goes last.
+  return [...groups.values()].sort((a, b) => Number(a.key === NO_REPO) - Number(b.key === NO_REPO));
+}
+
+function basename(p: string): string {
+  return p.replace(/\/+$/, "").split("/").pop() || p;
+}
+
+// Memoised on its inputs: useSyncExternalStore needs the same array back until something
+// changes, or React sees an ever-new snapshot and throws "maximum update depth exceeded".
+let groupCache: { s: UiState; groups: RailGroup[]; flat: Session[] } | null = null;
+function railCache(s: UiState): { groups: RailGroup[]; flat: Session[] } {
+  const c = groupCache;
+  if (
+    c &&
+    c.s.sessions === s.sessions &&
+    c.s.showClosed === s.showClosed &&
+    c.s.activeSessionId === s.activeSessionId &&
+    c.s.groupBy === s.groupBy &&
+    c.s.repos === s.repos
+  )
+    return c;
+  const groups = buildGroups(baseOrder(s), s);
+  const flat = groups.length === 1 ? groups[0]!.sessions : groups.flatMap((g) => g.sessions);
+  groupCache = { s, groups, flat };
+  return groupCache;
+}
+
+export function railGroups(s: UiState = state): RailGroup[] {
+  return railCache(s).groups;
+}
+
+/** The rail's rows in display order. Under "repos" a session appears once per repo it touched,
+ * so ⌘1..9 and ⌘↑/↓ walk exactly what is on screen. */
+export function railOrder(s: UiState = state): Session[] {
+  return railCache(s).flat;
 }
 
 // ---- actions ----
@@ -188,6 +302,13 @@ export function toggleShowClosed(): void {
     localStorage.setItem("henry.showClosed", showClosed ? "1" : "0");
   } catch {}
   setState({ showClosed });
+}
+
+export function setGroupBy(groupBy: GroupBy): void {
+  try {
+    localStorage.setItem("henry.groupBy", groupBy);
+  } catch {}
+  setState({ groupBy });
 }
 
 export function setActive(sessionId: string | null): void {

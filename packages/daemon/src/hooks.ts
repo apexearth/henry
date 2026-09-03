@@ -6,6 +6,7 @@
 // must answer fast and Claude Code must never see a failing hook.
 import { basename, isAbsolute, resolve } from "node:path";
 import type { Flag, HenryEvent, RateWindow, Session, Usage } from "@henry/shared";
+import * as activity from "./activity";
 import { config } from "./config";
 import * as db from "./db";
 import * as git from "./git";
@@ -99,6 +100,7 @@ function ingestHookInner(body: HookBody): IngestResult {
 
   db.insertEvent(event);
   broadcast({ type: "event", event });
+  activity.note(session.id, hookEvent, payload, event.ts);
   const result: IngestResult = { event };
 
   if (event.severity !== "info") {
@@ -342,6 +344,7 @@ function ingestStatuslineInner(body: StatuslineBody): StatuslineResult {
   const session = resolveStatuslineSession(str(body.henrySession), claudeId);
   if (session) {
     if (claudeId) sessions.bindClaudeSession(session.id, claudeId);
+    activity.seen(session.id, now);
     const model = isObj(p.model) ? (str(p.model.id) ?? str(p.model.display_name)) : undefined;
     const cost = isObj(p.cost) ? num(p.cost.total_cost_usd) : undefined;
     const cw = isObj(p.context_window) ? p.context_window : {};

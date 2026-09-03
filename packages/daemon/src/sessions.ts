@@ -341,7 +341,22 @@ class SessionManager extends EventEmitter<SessionEvents> {
     const l = this.live.get(id);
     if (!l || !l.session.claudeActive) return;
     l.session.claudeActive = false;
+    l.session.activity = undefined;
+    l.session.activitySince = undefined;
     db.updateSession(id, { claudeActive: false });
+    this.emit("update", l.session);
+  }
+
+  /**
+   * Working / needsInput / waiting / idle, decided by activity.ts. Not persisted: it
+   * describes this moment, and a restart re-derives it from the event log. `undefined`
+   * clears it (Claude ended, session exited).
+   */
+  setActivity(id: string, activity: Session["activity"], since = Date.now()): void {
+    const l = this.live.get(id);
+    if (!l || l.session.activity === activity) return;
+    l.session.activity = activity;
+    l.session.activitySince = activity ? since : undefined;
     this.emit("update", l.session);
   }
 
@@ -355,6 +370,8 @@ class SessionManager extends EventEmitter<SessionEvents> {
     l.session.status = "exited";
     l.session.exitCode = exitCode;
     l.session.endedAt = Date.now();
+    l.session.activity = undefined;
+    l.session.activitySince = undefined;
     this.titleTail.delete(l.session.id);
     db.updateSession(l.session.id, { status: "exited", exitCode, endedAt: l.session.endedAt });
     this.emit("exit", l.session.id, exitCode);

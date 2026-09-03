@@ -101,6 +101,15 @@ describe("git", () => {
     expect(Object.keys(git.getAllSessionRepos())).toContain("s1");
   });
 
+  test("remoteWebUrl turns hosted remote URLs into browser links", () => {
+    const out = (u: string) => `origin\t${u} (fetch)\norigin\t${u} (push)\n`;
+    expect(git.remoteWebUrl(out("git@github.com:apexearth/henry.git"), "origin")).toBe("https://github.com/apexearth/henry");
+    expect(git.remoteWebUrl(out("https://github.com/apexearth/henry.git"), "origin")).toBe("https://github.com/apexearth/henry");
+    expect(git.remoteWebUrl(out("ssh://git@gitlab.example.com:2222/group/sub/repo.git"), "origin")).toBe("https://gitlab.example.com/group/sub/repo");
+    expect(git.remoteWebUrl(out("/tmp/some/bare.git"), "origin")).toBeUndefined();
+    expect(git.remoteWebUrl(out("git@github.com:a/b.git"), "upstream")).toBeUndefined();
+  });
+
   test("repoForPath resolves the repo and branch synchronously", () => {
     expect(git.repoForPath(join(repo, "deep", "missing", "file.ts"))).toMatchObject({ path: repo, branch: "main", isWorktree: false });
     expect(git.repoForPath(wt)).toMatchObject({ path: wt, branch: "feat", isWorktree: true, worktreeOf: repo });

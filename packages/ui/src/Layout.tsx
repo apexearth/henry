@@ -4,12 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import { DockviewReact, type DockviewApi, type DockviewReadyEvent, type IDockviewPanelProps, type IWatermarkPanelProps } from "dockview-react";
 import { Rail } from "./Rail";
 import { TerminalView } from "./Terminal";
+import { FileView } from "./FileView";
 import { ReposPanel } from "./panels/Repos";
 import { FlagsPanel } from "./panels/Flags";
 import { PlaybookPanel } from "./panels/Playbook";
 import { UsagePanel } from "./panels/Usage";
 import { markFlagsRead, requestDiff, requestPlaybook, setActive, useStore } from "./ws";
-import { buildDefaultLayout, ensureSessionPanel, henryTheme, isTerminalGroup, loadLayout, saveLayout, sessionTitle, setDockApi, styleTerminalGroup, TERM_PREFIX, termPanelId } from "./dock";
+import { buildDefaultLayout, ensureSessionPanel, henryTheme, isFilePanel, isTerminalGroup, loadLayout, noteActivePanel, saveLayout, sessionTitle, setDockApi, styleTerminalGroup, TERM_PREFIX, termPanelId } from "./dock";
 
 function TerminalPanel({ api, params }: IDockviewPanelProps<{ sessionId: string }>) {
   const [visible, setVisible] = useState(api.isVisible);
@@ -27,6 +28,15 @@ function TerminalPanel({ api, params }: IDockviewPanelProps<{ sessionId: string 
       <TerminalView sessionId={params.sessionId} visible={visible} focused={visible && active} />
     </div>
   );
+}
+
+function FilePanel({ api, params }: IDockviewPanelProps<{ path: string; line?: number }>) {
+  const [active, setPanelActive] = useState(api.isActive);
+  useEffect(() => {
+    const d = api.onDidActiveChange((e) => setPanelActive(e.isActive));
+    return () => d.dispose();
+  }, [api]);
+  return <FileView path={params.path} line={params.line} active={active} />;
 }
 
 function SessionsPanel() {
@@ -89,6 +99,7 @@ function Watermark({ group }: IWatermarkPanelProps) {
 
 const components = {
   terminal: TerminalPanel,
+  file: FilePanel,
   sessions: SessionsPanel,
   repos: ReposDock,
   flags: FlagsDock,
@@ -125,7 +136,8 @@ export function Layout() {
     if (!ok) buildDefaultLayout();
     const live = new Set(sessions.map((s) => s.id));
     for (const p of api.panels) {
-      if (p.id.startsWith(TERM_PREFIX) && !live.has(p.id.slice(TERM_PREFIX.length))) api.removePanel(p);
+      // Peeks are for the moment; they don't come back with the layout.
+      if (isFilePanel(p.id) || (p.id.startsWith(TERM_PREFIX) && !live.has(p.id.slice(TERM_PREFIX.length)))) api.removePanel(p);
     }
     for (const s of sessions) ensureSessionPanel(s);
     // Header visibility isn't serialized; re-apply it to every restored terminal group.
@@ -144,8 +156,9 @@ export function Layout() {
       timer = setTimeout(saveLayout, 300);
     });
     const d2 = api.onDidActivePanelChange((e) => {
-      const id = e.panel?.id;
-      if (id?.startsWith(TERM_PREFIX)) setActive(id.slice(TERM_PREFIX.length));
+      if (!e.panel) return;
+      noteActivePanel(e.panel);
+      if (e.panel.id.startsWith(TERM_PREFIX)) setActive(e.panel.id.slice(TERM_PREFIX.length));
     });
     return () => {
       clearTimeout(timer);
@@ -188,7 +201,6 @@ export function Layout() {
       components={components}
       watermarkComponent={Watermark}
       noPanelsOverlay="emptyGroup"
-      getTabContextMenuItems={() => ["maximize", "float"]}
       onReady={onReady}
     />
   );

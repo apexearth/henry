@@ -2,6 +2,7 @@
 // Hand-rolled unified-diff parser + renderer. Files past the first 20 (and very large
 // files) start collapsed so a big diff does not freeze the panel.
 import { useMemo, useState } from "react";
+import { openPeek } from "./FileView";
 
 export interface DiffViewProps {
   repoPath: string;
@@ -200,13 +201,14 @@ function SplitHunk({ hunk }: { hunk: Hunk }) {
   );
 }
 
-function FileBlock({ file, open, onToggle, split }: { file: DiffFile; open: boolean; onToggle: () => void; split: boolean }) {
+function FileBlock({ file, open, onToggle, split, repoPath }: { file: DiffFile; open: boolean; onToggle: () => void; split: boolean; repoPath: string }) {
   const label = statusLabel(file);
   return (
     <div className={`df ${open ? "open" : ""}`}>
       <div className="df-head" onClick={onToggle} title={open ? "collapse" : "expand"}>
         <span className="df-caret">{open ? "▾" : "▸"}</span>
-        <span className="df-path">{fileTitle(file)}</span>
+        <span className="df-path" title="⌘-click to peek at the file"
+          onClick={(e) => { if (!e.metaKey && !e.ctrlKey) return; e.stopPropagation(); openPeek(`${repoPath}/${file.newPath || file.oldPath}`); }}>{fileTitle(file)}</span>
         {label && <span className={`df-status df-${file.status}`}>{label}</span>}
         <span className="df-counts">
           {file.adds > 0 && <span className="df-adds">+{file.adds}</span>}
@@ -270,7 +272,7 @@ export function DiffView({ repoPath, baseline, diff }: DiffViewProps) {
       </div>
       {parsed.files.length === 0 && <div className="df-note">{diff.trim() ? "nothing parseable in this diff" : "no changes since baseline"}</div>}
       {parsed.files.map((f, i) => (
-        <FileBlock key={keyOf(f, i)} file={f} open={isOpen(f, i)} onToggle={() => toggle(f, i)} split={split} />
+        <FileBlock key={keyOf(f, i)} file={f} open={isOpen(f, i)} onToggle={() => toggle(f, i)} split={split} repoPath={repoPath} />
       ))}
       {parsed.notes.length > 0 && <div className="df-note">{parsed.notes.join(" ")}</div>}
     </div>

@@ -122,7 +122,15 @@ function RepoCard({ sessionId, repo, diff, onRequestDiff }: CardProps) {
         <span className="rc-spacer" />
         <button className={`rc-diffbtn ${showDiff ? "on" : ""}`} onClick={toggleDiff}>{showDiff ? "hide diff" : "diff"}</button>
       </div>
-      <div className="rc-path" title={repo.path}>{shortPath(repo.path)}</div>
+      <div className="rc-head">
+        <span className="rc-path" title={repo.path}>{shortPath(repo.path)}</span>
+        <span className="rc-spacer" />
+        {repo.remoteUrl && (
+          <a className="rc-diffbtn rc-link" href={repo.remoteUrl} target="_blank" rel="noopener noreferrer" title={`open ${repo.remoteUrl}`}>
+            {repo.upstream?.split("/")[0] ?? "origin"}
+          </a>
+        )}
+      </div>
       <div className="rc-row">
         <span className={`rc-branch ${repo.branch === "(detached)" ? "rc-detached" : ""}`} title="current branch">
           {repo.branch || "?"}
@@ -267,6 +275,8 @@ const REPOS_CSS = `
 .rc { border: 1px solid var(--border); border-radius: 6px; background: var(--bg-3); padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .rc-head { display: flex; align-items: center; gap: 8px; }
 .rc-name { font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+a.rc-link { background: var(--bg-3); border: 1px solid var(--border); border-radius: 4px; padding: 1px 8px; color: inherit; text-decoration: none; line-height: 1.4; }
+a.rc-link:hover { border-color: var(--accent); }
 .rc-wt { font-size: 10px; color: var(--warn); border: 1px solid var(--warn); border-radius: 3px; padding: 0 4px; white-space: nowrap; }
 .rc-spacer { flex: 1; }
 .rc-diffbtn { padding: 1px 8px; font-size: 11px; }

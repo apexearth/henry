@@ -214,6 +214,23 @@ describe("hook ingest", () => {
     expect((bash.payload as { tool_input: { command: string } }).tool_input.command).toBe("git push origin main");
   });
 
+  test("activity follows the hook stream: working, needs input, waiting", async () => {
+    const activityOf = async () => (await state()).sessions.find((x) => x.id === sessionId)?.activity;
+
+    await post("/hook", { henrySession: sessionId, henryHookEvent: "PreToolUse", payload: hookPayload("PreToolUse", { tool_name: "Read", tool_input: { file_path: join(cwd, "a.ts") } }) });
+    expect(await waitFor("working", async () => (await activityOf()) === "working" || undefined)).toBe(true);
+
+    await post("/hook", { henrySession: sessionId, henryHookEvent: "Notification", payload: hookPayload("Notification", { message: "Claude needs your permission to use Bash" }) });
+    expect(await waitFor("needsInput", async () => (await activityOf()) === "needsInput" || undefined)).toBe(true);
+
+    await post("/hook", { henrySession: sessionId, henryHookEvent: "Stop", payload: hookPayload("Stop", { stop_hook_active: false }) });
+    const s = await waitFor("waiting", async () => {
+      const found = (await state()).sessions.find((x) => x.id === sessionId);
+      return found?.activity === "waiting" ? found : undefined;
+    });
+    expect(s.activitySince).toBeGreaterThan(0);
+  });
+
   test("flags follow non-info classifications", async () => {
     // Whether the rules engine flags "git push" depends on milestone 4; assert consistency either way.
     const st = await state();

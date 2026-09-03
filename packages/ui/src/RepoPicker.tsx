@@ -17,7 +17,7 @@ function base(p: string) {
   return p.replace(/\/+$/, "").split("/").pop() || p;
 }
 
-function buildRows(repos: RepoPickerEntry[], defaultRepo: string, query: string): Row[] {
+function buildRows(repos: RepoPickerEntry[], preferred: string, query: string): Row[] {
   const rows: Row[] = [];
   const q = query.trim();
   // A typed path (absolute or ~) is offered as-is, ahead of the repo list.
@@ -25,7 +25,11 @@ function buildRows(repos: RepoPickerEntry[], defaultRepo: string, query: string)
     rows.push({ key: `claude:${q}`, kind: "claude", path: q, label: base(q), search: `claude ${q}` });
     rows.push({ key: `shell:${q}`, kind: "shell", path: q, label: base(q), search: `terminal shell $ ${q}` });
   }
-  const sorted = [...repos].sort((a, b) => (a.path === defaultRepo ? -1 : b.path === defaultRepo ? 1 : a.name.localeCompare(b.name)));
+  const sorted = [...repos].sort((a, b) => (a.path === preferred ? -1 : b.path === preferred ? 1 : a.name.localeCompare(b.name)));
+  // The repo you are already in may live outside reposRoot; offer it anyway, first.
+  if (preferred && !repos.some((r) => r.path === preferred)) {
+    sorted.unshift({ path: preferred, name: base(preferred), isWorktree: false });
+  }
   for (const r of sorted) {
     const label = r.name + (r.isWorktree ? " (worktree)" : "");
     rows.push({ key: `claude:${r.path}`, kind: "claude", path: r.path, label, search: `claude ${r.name} ${r.path}` });
@@ -43,7 +47,8 @@ function buildRows(repos: RepoPickerEntry[], defaultRepo: string, query: string)
 }
 
 export function RepoPicker({ onClose }: { onClose: () => void }) {
-  const defaultRepo = useStore((s) => s.config?.defaultRepo ?? "");
+  // Start on the repo of the session you are in; fall back to the configured default.
+  const preferred = useStore((s) => s.sessions.find((x) => x.id === s.activeSessionId)?.cwd ?? s.config?.defaultRepo ?? "");
   const [repos, setRepos] = useState<RepoPickerEntry[]>([]);
   const [query, setQuery] = useState("");
   const [index, setIndex] = useState(0);
@@ -56,7 +61,7 @@ export function RepoPicker({ onClose }: { onClose: () => void }) {
       .catch(() => setRepos([]));
   }, []);
 
-  const rows = useMemo(() => buildRows(repos, defaultRepo, query), [repos, defaultRepo, query]);
+  const rows = useMemo(() => buildRows(repos, preferred, query), [repos, preferred, query]);
   const sel = Math.min(index, Math.max(rows.length - 1, 0));
 
   useEffect(() => {

@@ -1,15 +1,34 @@
 import { useEffect } from "react";
+import { HenryMark } from "./HenryMark";
 import { Layout } from "./Layout";
-import { resetLayout, showSession } from "./dock";
+import { closePeek, getDockApi, isFilePanel, resetLayout, showSession, stageStep } from "./dock";
 import type { Session } from "@henry/shared";
+import { onMenu } from "./shell";
 import { getState, railOrder, setActive, useStore } from "./ws";
 
 export function App() {
   const connected = useStore((s) => s.connected);
 
+  useEffect(() => onMenu("reset-layout", resetLayout), []);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Esc closes the file peek in view (modals handle their own Esc).
+      if (e.key === "Escape" && !e.metaKey && !e.ctrlKey && !document.querySelector(".modal-bg, .dm-bg")) {
+        const p = getDockApi()?.activePanel;
+        if (p && isFilePanel(p.id)) {
+          e.preventDefault();
+          closePeek(p.id);
+        }
+        return;
+      }
       if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+      // Cmd+←/→ walk the stage: the session, then its peeks.
+      if (e.metaKey && !e.ctrlKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+        e.preventDefault();
+        stageStep(e.key === "ArrowLeft" ? -1 : 1);
+        return;
+      }
       const list = railOrder();
       let s: Session | undefined;
       // Cmd+N is reserved by Chrome on macOS (browser tab switch); Ctrl+N works there. Both are bound.
@@ -31,6 +50,7 @@ export function App() {
   return (
     <div className="app">
       <div className="topbar">
+        <HenryMark />
         <span className="brand">henry</span>
         <span className={"conn" + (connected ? " on" : "")} title={connected ? "connected" : "reconnecting"}>●</span>
         <span style={{ flex: 1 }} />

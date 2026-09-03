@@ -4,9 +4,11 @@ import { existsSync, statSync } from "node:fs";
 import { join, normalize } from "node:path";
 import type { ServerWebSocket } from "bun";
 import type { ClientMessage, ServerMessage, StateSnapshot, Usage } from "@henry/shared";
+import * as activity from "./activity";
 import { config } from "./config";
 import * as db from "./db";
 import * as git from "./git";
+import * as files from "./files";
 import * as hooks from "./hooks";
 import * as overseer from "./overseer";
 import { sessions } from "./sessions";
@@ -163,6 +165,8 @@ async function serveStatic(pathname: string): Promise<Response> {
 export async function startServer(): Promise<void> {
   // Reconcile with sessiond before answering anyone, so the first /api/state is right.
   await sessions.start();
+  // Re-derives each running session's activity from its last hook, then ages it on a tick.
+  activity.start();
   server = Bun.serve<WsData>({
     hostname: "127.0.0.1",
     port: config.port,
@@ -202,6 +206,10 @@ export async function startServer(): Promise<void> {
         const repoPath = url.searchParams.get("repoPath") ?? "";
         return json(await git.logSinceBaseline(sessionId, repoPath));
       }
+      if (pathname === "/api/file") {
+        const peek = files.readPeek(url.searchParams.get("path") ?? "", url.searchParams.get("cwd") ?? undefined);
+        return peek ? json(peek) : json({ error: "not found" }, 404);
+      }
       if (pathname.startsWith("/api/")) return json({ error: "not found" }, 404);
       if (req.method !== "GET") return new Response("method not allowed", { status: 405 });
       return serveStatic(pathname);
@@ -238,6 +246,7 @@ export async function startServer(): Promise<void> {
 /** Stops the daemon's own listeners. sessiond and the sessions in it keep running. */
 export function stopServer(): void {
   clearInterval(uiBuildTimer);
+  activity.stop();
   git.stop();
   sessions.shutdown();
   server?.stop(true);

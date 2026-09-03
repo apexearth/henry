@@ -1,5 +1,7 @@
 # Henry
 
+<img src="packages/ui/public/henry.svg" alt="" width="72" align="right">
+
 Hosts Claude Code sessions in PTYs and shows what they do: sessions as tabs, terminal
 in the middle, repos / flags / playbook / usage on the right. `PLAN.md` is the contract.
 
@@ -36,7 +38,11 @@ new one (the daemon polls `dist/index.html` and tells every window). Editing dae
 only the daemon: sessions keep running in sessiond and the windows reconnect. `bun run
 sessiond` runs sessiond in the foreground for debugging (the daemon then attaches to it
 instead of starting its own). `Cmd+1..9` (or `Ctrl+1..9`, since Chrome on macOS reserves Cmd+digit) switches tabs in
-rail order; `Cmd+↑/↓` steps through them. `Shift+Enter` inserts a newline in Claude Code's
+rail order; `Cmd+↑/↓` steps through them; `Ctrl+N` (Cmd+N is Chrome's new window) opens "+ new".
+`bun run app` opens the same UI in a native window instead, where the Cmd keys are yours:
+`Cmd+N` is File > New Session and `Cmd+1..9` reach the page. It needs a Rust toolchain and
+attaches to whatever daemon is already running (`HENRY_URL` or `HENRY_PORT` to point it
+elsewhere); `bun run app:bundle` writes Henry.app. `Shift+Enter` inserts a newline in Claude Code's
 prompt. The rail shows the terminal title (what `/rename` sets); exited sessions are hidden
 behind the footer's "N closed" toggle, and × on one drops it for good.
 

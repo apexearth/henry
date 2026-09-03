@@ -3,6 +3,12 @@
 export type Severity = "info" | "notable" | "alarm";
 export type FlagSeverity = Exclude<Severity, "info">;
 export type SessionStatus = "running" | "exited";
+/**
+ * What a Claude session is doing right now, derived from the hook stream (see daemon/activity.ts):
+ * `working` a turn is running, `needsInput` it is blocked on a permission prompt, `waiting` the
+ * turn ended and the next move is yours, `idle` it has been waiting a while.
+ */
+export type SessionActivity = "working" | "needsInput" | "waiting" | "idle";
 /** What Henry launched in the PTY: Claude Code, or the user's shell. */
 export type SessionKind = "claude" | "shell";
 
@@ -28,6 +34,10 @@ export interface Session {
   pid?: number;
   /** Short name of the machine whose daemon owns this session (config.host, default os.hostname()). */
   host?: string;
+  /** Derived, never persisted: undefined for terminals and for Claude sessions yet to post a hook. */
+  activity?: SessionActivity;
+  /** When the session entered `activity`; the rail shows the time since. */
+  activitySince?: number;
 }
 
 export interface RepoState {
@@ -36,6 +46,8 @@ export interface RepoState {
   branch: string;
   head: string;
   upstream?: string;
+  /** Web URL of the upstream's remote (origin when the branch has none), when it is a hosted git URL. */
+  remoteUrl?: string;
   ahead: number;
   behind: number;
   /** Number of dirty (modified/untracked) paths. */
@@ -189,4 +201,17 @@ export interface RepoPickerEntry {
   name: string;
   isWorktree: boolean;
   worktreeOf?: string;
+}
+
+/** One file, read for a peek (GET /api/file). `content` is text, capped; see `truncated`. */
+export interface FilePeek {
+  /** Absolute, realpath'd. */
+  path: string;
+  /** Working-tree root and path within it, when the file sits in a known repo. */
+  repoPath?: string;
+  rel?: string;
+  size: number;
+  truncated: boolean;
+  binary: boolean;
+  content: string;
 }

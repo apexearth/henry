@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Henry, a bearded woodcutter shouldering an axe">
+  <title>Henry</title>
+  <!-- Flat and geometric so it survives 16px: the brim, the beard and the axe carry the silhouette.
+       Palette follows the UI - bg #161a21, flannel is the Claude rust, beard is the foreground gray. -->
+  <defs>
+    <clipPath id="h-card"><rect width="64" height="64" rx="14"/></clipPath>
+    <path id="h-torso" d="M5 64 L11 50 L21 46 H35 L45 50 L51 64 Z"/>
+    <clipPath id="h-torso-clip"><use href="#h-torso"/></clipPath>
+    <path id="h-crown" d="M18 17 L20 6 Q20.5 4 23 4 H33 Q35.5 4 36 6 L38 17 Z"/>
+    <clipPath id="h-crown-clip"><use href="#h-crown"/></clipPath>
+  </defs>
+  <g clip-path="url(#h-card)">
+    <rect width="64" height="64" fill="#161a21"/>
+    <g transform="translate(2.6 2.6) scale(0.92)">
+
+      <!-- Axe over the shoulder: handle runs behind the flannel, bit turned away from the head. -->
+      <g transform="translate(53 27) rotate(15)">
+        <rect x="-1.7" y="-3.5" width="3.4" height="38" rx="1.7" fill="#9a6b3f"/>
+        <path d="M-5 -3.5 H2 L5 -7.5 C9.5 -4.5 9.5 4.5 5 7.5 L2 3.5 H-5 Z" fill="#98a2b0"/>
+        <path d="M5 -7.5 C9.5 -4.5 9.5 4.5 5 7.5 L4.4 6.9 C8 4.2 8 -4.2 4.4 -6.9 Z" fill="#d7dee7"/>
+        <rect x="-1.9" y="-3.5" width="3.8" height="7" fill="#7c8593"/>
+      </g>
+
+      <!-- Flannel shoulders, checked, with suspenders. -->
+      <use href="#h-torso" fill="#d97757"/>
+      <g clip-path="url(#h-torso-clip)">
+        <g fill="#a8492f" opacity=".45">
+          <rect x="10" y="46" width="1.6" height="18"/><rect x="17" y="46" width="1.6" height="18"/>
+          <rect x="24" y="46" width="1.6" height="18"/><rect x="31" y="46" width="1.6" height="18"/>
+          <rect x="38" y="46" width="1.6" height="18"/><rect x="45" y="46" width="1.6" height="18"/>
+          <rect x="5" y="50" width="46" height="1.6"/><rect x="5" y="57" width="46" height="1.6"/>
+        </g>
+        <g fill="#4a3320"><rect x="16" y="46" width="3.4" height="18"/><rect x="36.6" y="46" width="3.4" height="18"/></g>
+      </g>
+
+      <!-- Head. The beard opens along a cheek line and closes under the mouth: a flat white band
+           across the lower face would read as a mask, not a beard. -->
+      <rect x="17" y="18" width="22" height="20" fill="#e8b98f"/>
+      <rect x="27" y="23.5" width="2" height="5" rx="1" fill="#d79a6f"/>
+      <rect x="20.5" y="22" width="3.2" height="3.6" rx="1.4" fill="#2b2118"/>
+      <rect x="32.3" y="22" width="3.2" height="3.6" rx="1.4" fill="#2b2118"/>
+      <path d="M15 20 H20 V25.5 C20.5 31 22 35 24.5 36.5 Q28 38.4 31.5 36.5 C34 35 35.5 31 36 25.5 V20 H41 C41 36 36 46 28 47.5 C20 46 15 36 15 20 Z" fill="#d8dde5"/>
+      <path d="M25.6 33.4 H30.4 C30 35 26 35 25.6 33.4 Z" fill="#a2503c"/>
+      <path d="M28 29.6 C26.4 27.9 23 27.5 20.8 29.2 C21.6 32.1 24.8 32.9 28 31.5 C31.2 32.9 34.4 32.1 35.2 29.2 C33 27.5 29.6 27.9 28 29.6 Z" fill="#f2f5f8"/>
+
+      <!-- Slouch hat. -->
+      <use href="#h-crown" fill="#7d5934"/>
+      <g clip-path="url(#h-crown-clip)"><rect x="17" y="12" width="22" height="4" fill="#43301e"/></g>
+      <path d="M8 16.5 H48 A2.5 2.5 0 0 1 48 21.5 H8 A2.5 2.5 0 0 1 8 16.5 Z" fill="#6b4a2f"/>
+    </g>
+  </g>
+</svg>

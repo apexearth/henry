@@ -1,6 +1,6 @@
 // Layout state for the dockable UI: the Dockview API singleton, the default arrangement,
 // localStorage persistence, and the "show this session" helper the rail uses.
-import type { DockviewApi, DockviewGroupPanel, DockviewTheme, SerializedDockview } from "dockview-react";
+import type { DockviewApi, DockviewGroupPanel, DockviewTheme, IDockviewPanel, SerializedDockview } from "dockview-react";
 import type { Session } from "@henry/shared";
 import { isClaudeSession } from "@henry/shared";
 import { getState } from "./ws";
@@ -17,6 +17,9 @@ export const TOOLS: { id: ToolId; title: string }[] = [
 const STORAGE_KEY = "henry.layout.v1";
 export const TERM_PREFIX = "term:";
 export const termPanelId = (sessionId: string) => TERM_PREFIX + sessionId;
+export const FILE_PREFIX = "file:";
+export const filePanelId = (path: string) => FILE_PREFIX + path;
+export const isFilePanel = (id: string) => id.startsWith(FILE_PREFIX);
 
 // Variables live in styles.css under this class; dockview only needs the name and drag behaviour.
 export const henryTheme: DockviewTheme = {
@@ -42,7 +45,7 @@ export function styleTerminalGroup(g: DockviewGroupPanel) {
   g.locked = true;
 }
 export function isTerminalGroup(g: DockviewGroupPanel) {
-  return g.id === "center" || g.panels.some((p) => p.id.startsWith(TERM_PREFIX));
+  return g.id === "center" || g.panels.some((p) => p.id.startsWith(TERM_PREFIX) || isFilePanel(p.id));
 }
 
 export function sessionTitle(s: Session): string {
@@ -134,3 +137,57 @@ export function showSession(sessionId: string) {
   if (s) ensureSessionPanel(s, true);
 }
 
+
+// ---- file peeks ----
+// A peek is a file panel in the stage (terminal) group, to the right of the session. The
+// session sits at position 0 of the strip; ⌘←/→ walk it, Esc closes the peek in view.
+
+/** Last terminal shown in each stage group: where closing the last peek lands. */
+const lastTerm = new Map<string, string>();
+export function noteActivePanel(p: IDockviewPanel) {
+  if (p.id.startsWith(TERM_PREFIX)) lastTerm.set(p.group.id, p.id);
+}
+
+/** The active session's group, else any terminal group. */
+function stageGroup(): DockviewGroupPanel | undefined {
+  if (!api) return;
+  const active = getState().activeSessionId;
+  const p = active ? api.getPanel(termPanelId(active)) : undefined;
+  return p?.group ?? api.groups.find(isTerminalGroup);
+}
+
+function stageStrip(g: DockviewGroupPanel): IDockviewPanel[] {
+  const term = g.panels.find((p) => p.id === lastTerm.get(g.id)) ?? g.panels.find((p) => p.id.startsWith(TERM_PREFIX));
+  return [...(term ? [term] : []), ...g.panels.filter((p) => isFilePanel(p.id))];
+}
+
+export function peekFile(path: string, line?: number) {
+  const g = stageGroup();
+  if (!api || !g) return;
+  const id = filePanelId(path);
+  const existing = api.getPanel(id);
+  if (existing) {
+    existing.api.updateParameters({ path, line });
+    existing.api.setActive();
+    return;
+  }
+  api.addPanel({ id, component: "file", title: path.split("/").pop() || path, params: { path, line }, position: { referenceGroup: g.id, direction: "within" } });
+}
+
+export function closePeek(id?: string) {
+  if (!api) return;
+  const p = id ? api.getPanel(id) : api.activePanel;
+  if (!p || !isFilePanel(p.id)) return;
+  const g = p.group;
+  api.removePanel(p);
+  // Last peek gone: back to the session that was showing, not whichever tab Dockview picks.
+  if (!g.panels.some((x) => isFilePanel(x.id))) stageStrip(g)[0]?.api.setActive();
+}
+
+export function stageStep(dir: -1 | 1) {
+  const g = stageGroup();
+  if (!g) return;
+  const strip = stageStrip(g);
+  const i = strip.findIndex((p) => p === g.activePanel);
+  strip[Math.max(0, i) + dir]?.api.setActive();
+}

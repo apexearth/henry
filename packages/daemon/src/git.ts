@@ -40,6 +40,7 @@ interface RepoBase {
   branch: string;
   head: string;
   upstream?: string;
+  remoteUrl?: string;
   ahead: number;
   behind: number;
   dirty: number;
@@ -323,14 +324,36 @@ function parseStatus(out: string): Pick<RepoBase, "branch" | "head" | "upstream"
   return { branch, head, upstream, ahead, behind, dirty };
 }
 
+/**
+ * Browser URL for a remote, from `git remote -v` output: scp-style (git@host:o/r.git), ssh://
+ * and http(s):// forms all become https://host/o/r. Local paths and anything else: undefined.
+ */
+export function remoteWebUrl(remotesOut: string, remote: string): string | undefined {
+  let url: string | undefined;
+  for (const line of remotesOut.split("\n")) {
+    const m = /^(\S+)\t(\S+) \((fetch|push)\)$/.exec(line);
+    if (m && m[1] === remote && (m[3] === "fetch" || !url)) url = m[2];
+  }
+  if (!url) return undefined;
+  let m = /^(?:ssh|git|https?):\/\/(?:[^@/]+@)?([^/:]+)(?::\d+)?\/(.+)$/.exec(url) ?? /^(?:[^@/]+@)?([^/:]+):(?!\/)(.+)$/.exec(url);
+  if (!m) return undefined;
+  const path = m[2].replace(/\.git$/, "").replace(/\/+$/, "");
+  return path ? `https://${m[1]}/${path}` : undefined;
+}
+
 async function readBase(info: RepoInfo): Promise<RepoBase | undefined> {
-  const [status, log] = await Promise.all([
+  const [status, log, remotes] = await Promise.all([
     run(info.path, ["status", "--porcelain=v2", "--branch", "--untracked-files=all"]),
     run(info.path, ["log", "-1", "--format=%ct%x09%s"]),
+    run(info.path, ["remote", "-v"]),
   ]);
   if (status.code !== 0) return undefined;
   const parsed = parseStatus(status.out);
   const base: RepoBase = { ...parsed, at: Date.now() };
+  if (remotes.code === 0) {
+    const url = remoteWebUrl(remotes.out, parsed.upstream?.split("/")[0] ?? "origin");
+    if (url) base.remoteUrl = url;
+  }
   if (log.code === 0 && log.out.trim()) {
     const tab = log.out.indexOf("\t");
     base.lastCommitAt = Number(log.out.slice(0, tab)) * 1000;
@@ -363,6 +386,7 @@ function toState(info: RepoInfo, base: RepoBase | undefined, sessionId?: string)
     commitsSinceBaseline: 0,
   };
   if (base?.upstream) state.upstream = base.upstream;
+  if (base?.remoteUrl) state.remoteUrl = base.remoteUrl;
   if (info.worktreeOf) state.worktreeOf = info.worktreeOf;
   if (base?.lastCommitAt) state.lastCommitAt = base.lastCommitAt;
   if (sessionId) {

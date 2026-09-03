@@ -23,6 +23,13 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 .app { display: flex; flex-direction: column; height: 100%; }
 .topbar { display: flex; align-items: center; gap: 6px; padding: 0 8px; height: 28px; border-bottom: 1px solid var(--border); background: var(--bg-2); font-size: 12px; flex: none; }
 .topbar .brand { font-weight: bold; margin-right: 2px; }
+.henry-mark { flex: none; }
+.henry-mark .shirt { fill: var(--claude); }
+.henry-mark .skin { fill: #e8b98f; }
+.henry-mark .eye { fill: #2b2118; }
+.henry-mark .beard { fill: #d8dde5; }
+.henry-mark .mouth { fill: #a2503c; }
+.henry-mark .hat, .henry-mark .brim { fill: #6b4a2f; }
 .topbar-btn { background: none; border: none; padding: 2px 6px; color: var(--fg-dim); border-radius: 3px; }
 .topbar-btn:hover { color: var(--fg); background: var(--bg-3); }
 .dock { flex: 1; min-height: 0; }
@@ -40,14 +47,32 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 .mark { flex: none; width: 14px; text-align: center; }
 .mark.shell { font-size: 10px; font-weight: bold; letter-spacing: -1px; color: var(--fg-dim); }
 .mark.shell.on { color: var(--ok); }
-.mark.claude .body, .mark.claude .leg { fill: var(--claude); }
+.mark.claude { --mark: var(--claude); }
+.mark.claude .body, .mark.claude .leg { fill: var(--mark); }
 .mark.claude .eye { fill: var(--bg-2); }
 .rail-item:hover .mark.claude .eye, .rail-item.active .mark.claude .eye { fill: var(--bg-3); }
-.mark.claude:not(.on) .body, .mark.claude:not(.on) .leg { fill: none; stroke: var(--claude); stroke-width: 1; }
-.mark.claude:not(.on) .eye { fill: var(--claude); }
+.mark.claude:not(.on) .body, .mark.claude:not(.on) .leg { fill: none; stroke: var(--mark); stroke-width: 1; }
+.mark.claude:not(.on) .eye { fill: var(--mark); }
+
+/* Activity (daemon/activity.ts): orange pulsing = running a turn, amber = blocked on an
+   answer, green = turn over and it is your move, dim = waiting a long while. */
+.mark.claude.act-working { animation: mark-pulse 1.8s ease-in-out infinite; }
+.mark.claude.act-needsInput { --mark: var(--warn); animation: mark-blink 1s steps(1, end) infinite; }
+.mark.claude.act-waiting { --mark: var(--ok); }
+.mark.claude.act-idle { --mark: var(--fg-dim); }
+@keyframes mark-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+@keyframes mark-blink { 0%, 60% { opacity: 1; } 61%, 100% { opacity: 0.25; } }
+.rail-item .act { flex: none; font-size: 10px; color: var(--fg-dim); }
+.rail-item .act.act-needsInput { color: var(--warn); }
+.rail-foot .needs { color: var(--warn); }
 .badge { padding: 0 5px; border-radius: 8px; background: var(--bg); border: 1px solid var(--border); }
 .badge.flag { color: var(--warn); }
 .badge.alarm { color: var(--alarm); }
+.rail-group-h { position: sticky; top: 0; z-index: 1; display: flex; gap: 6px; align-items: center; padding: 6px 8px 2px; background: var(--bg-2); color: var(--fg-dim); font-size: 10px; letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; }
+.rail-group-h .name { overflow: hidden; text-overflow: ellipsis; }
+.rail-group-h .n { flex: none; margin-left: auto; color: #4b515b; }
+.rail-groupby { background: none; border: none; padding: 0; color: var(--fg-dim); font: inherit; font-size: 11px; }
+.rail-groupby:hover { color: var(--fg); }
 .rail-new { margin: 8px 10px; }
 .rail-foot { padding: 6px 10px; border-top: 1px solid var(--border); color: var(--fg-dim); font-size: 11px; display: flex; justify-content: space-between; align-items: center; }
 .rail-toggle { background: none; border: none; padding: 0; color: var(--fg-dim); font-size: 11px; }
@@ -147,3 +172,20 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 .dockview-theme-henry .dv-active-group .dv-tab.dv-active-tab { box-shadow: inset 0 2px 0 var(--accent); }
 /* Tabs stay open: no close glyph. Tools are rearranged, never dismissed. */
 .dockview-theme-henry .dv-default-tab .dv-default-tab-action { display: none !important; }
+
+/* File peek: a read-only file over the session, with its own slim header since the stage has none. */
+.peek { display: flex; flex-direction: column; height: 100%; background: var(--bg); min-width: 0; }
+.peek-head { display: flex; align-items: center; gap: 8px; padding: 0 10px; height: 28px; border-bottom: 1px solid var(--border); background: var(--bg-2); font-size: 12px; white-space: nowrap; flex: none; }
+.peek-back { background: none; border: none; padding: 0 4px; color: var(--fg-dim); }
+.peek-back:hover { color: var(--fg); }
+.peek-path { color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; direction: rtl; text-align: left; }
+.peek-path b { color: var(--fg); font-weight: 600; }
+.peek-meta { color: var(--fg-dim); font-size: 11px; margin-left: auto; }
+.peek-close { background: none; border: none; padding: 0 4px; color: var(--fg-dim); font-size: 14px; }
+.peek-close:hover { color: var(--fg); }
+.peek-body { flex: 1; overflow: auto; outline: none; font-size: 12px; line-height: 1.5; }
+.peek-body pre { margin: 0; font: inherit; }
+.peek-line { display: flex; white-space: pre; }
+.peek-line.hit { background: rgba(110, 168, 254, 0.15); }
+.peek-no { flex: none; width: 5ch; text-align: right; padding-right: 1ch; margin-right: 1ch; color: #4b515b; user-select: none; border-right: 1px solid var(--border); }
+.peek-note { padding: 16px; color: var(--fg-dim); }

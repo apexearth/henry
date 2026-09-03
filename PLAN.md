@@ -23,8 +23,11 @@ the design changes; do not let it drift into a changelog.
   session runs) or `--now` hangs everything up. Stopping the daemon never stops it.
 - **TypeScript end to end.** Bun runtime for the daemon, Vite + React + xterm.js for
   the UI. Agentic-first: the stack Claude writes and tests fastest.
-- **Browser first, native later.** The daemon serves the UI at `http://127.0.0.1:4711`.
-  A Tauri shell that loads that page is a later add, not part of this plan.
+- **Browser or native, same page.** The daemon serves the UI at `http://127.0.0.1:4711`.
+  `packages/shell` is a Tauri window on that URL and nothing else: no IPC, no state, no
+  bundled frontend. It exists for the macOS menu, since a browser tab never sees ⌘N or
+  ⌘1..9. Menu items reach the page as `henry:menu` CustomEvents. Both front ends run at
+  once against the one daemon.
 - **Observe and flag, never block.** Henry's safeguard rules classify tool calls and
   git events as `info`, `notable`, or `alarm`. They never return a hook deny.
 - **3–4 top-level sessions** is the design point. Subagents show under their parent.
@@ -70,7 +73,23 @@ the design changes; do not let it drift into a changelog.
   are hidden until the footer's "N closed" is opened, then listed below, newest exit
   first. The exited session you are looking at stays listed. Closing an exited session
   (×) sets `dismissed_at` in the DB: it never returns after a daemon restart, but its
-  events, flags and playbook stay. `⌘1..9` (or `Ctrl`) and `⌘↑/↓` follow the rail order.
+  events, flags and playbook stay. `⌘1..9` (or `Ctrl`) and `⌘↑/↓` follow the rail order;
+  `⌃N` (⌘N where the browser frees it) opens the "+ new" picker.
+- **Grouping is a rail-footer choice, persisted per browser.** Off by default; "by folder"
+  buckets sessions on `cwd`, "by repo" on the repos the git watcher has seen the session
+  touch, so a session working across two repos is listed under both (one that has touched
+  none falls into a last "no repo" bucket). Order within a group, and the keyboard order,
+  stay the running-then-exited rail order.
+- **Activity is derived, never polled.** Every Claude session carries `activity`:
+  `working` (a turn is running), `needsInput` (blocked on a permission prompt), `waiting`
+  (the turn ended, the next move is mine) or `idle` (waiting >10 min, or silent >15 min
+  mid-turn). It falls out of the hook stream Henry already ingests — `UserPromptSubmit` /
+  `Pre|PostToolUse` mean working, a plain `Stop` means waiting, a `Notification` says which
+  kind — so it costs one switch per event plus a 10 s tick, with the statusline POST as the
+  heartbeat that keeps a long tool call from ageing out. It is not persisted: a restarted
+  daemon re-derives each running session's state from its last hook event, because a session
+  waiting for me sends nothing until I type. The rail says it on Clawd: orange pulsing =
+  working, amber = wants an answer, green = my move, dim = idle, time-in-state beside it.
 - **Shift+Enter is a newline in Claude Code.** The terminal sends ESC CR (what
   `/terminal-setup` binds) when the session is running Claude; a plain shell gets Enter.
 - **Sessions outlive the daemon, terminal included.** After a daemon restart the
@@ -100,9 +119,11 @@ the design changes; do not let it drift into a changelog.
 That is the default arrangement, not a fixed one. The workspace is a Dockview grid
 (`dockview-react`): the rail, every terminal and each tool tab is a panel. Drag a tool tab
 to split a group (top/bottom/left/right), stack it as a tab, dock it on a window edge, or
-float it; right-click a tab for maximize/float. Tabs have no close button and there is no
-view menu: tools are rearranged, never dismissed. The arrangement is saved to localStorage
+float it. Tabs have no close button and there is no view menu: tools are rearranged, never
+dismissed. The arrangement is saved to localStorage
 (`henry.layout.v1`) and restored on load; "reset layout" restores the picture above.
+The selected session is saved too (`henry.active`, id + cwd), so a refresh reopens where you
+were; if that session is gone, Henry falls back to a running session in the same repo.
 
 **The centre is a stage, not a tab strip.** Sessions are processes you glance at, not
 documents you curate, so terminal groups hide their header: the rail (and ⌘1..9, ⌘↑/↓) is
@@ -112,9 +133,21 @@ panels whose session is gone are dropped; new sessions join the active terminal 
 the empty centre pane). Drag handles are tab headers only: dragging panel bodies would
 fight xterm's mouse handling and text selection.
 
+**File peeks.** Files are things you glance at, not documents you keep open. ⌘-click a
+path in terminal output (relative paths resolve against the session's cwd) or a file header
+in a diff and the file opens read-only over the session, in the same stage group, with its
+own slim header (path, repo, size, ×). A `path:line` reference scrolls to and tints that
+line. The stage is a strip: the session at position 0, its peeks to the right; ⌘←/→ walk
+it, Esc (or ×) closes the peek in view, and closing the last one lands on the session that
+was showing. Peeks are per window, never restored with the layout, served by
+`GET /api/file?path=&cwd=` (1 MB cap, binary detection). Next: a Files list in the rail
+from per-session dirty state, ⌘K fuzzy file search over the session's repos, and changed
+lines tinted against the session baseline.
+
 Tool tabs:
 - **Repos** — every repo this session has touched: branch, ahead/behind upstream,
-  has-upstream, commits since session baseline, dirty count, worktree path.
+  has-upstream, commits since session baseline, dirty count, worktree path, and a ↗
+  link to the upstream remote's web page (scp/ssh/https git URLs become https).
   Click a repo → diff vs baseline (unified/split).
 - **Flags** — feed of `notable`/`alarm` events with unread badge; each links back
   to the tool call and the rule that fired.
@@ -145,6 +178,7 @@ henry/
       src/transcript.ts        # tail ~/.claude/projects/**/<session>.jsonl
       src/git.ts               # repo discovery, worktrees, status, ahead/behind, diff
       src/rules.ts             # ~/.henry/config.json rules → classify events
+      src/activity.ts          # working | needsInput | waiting | idle, derived from hooks
       src/overseer.ts          # playbook writer (api | claude-cli backend)
       src/installer.ts         # settings.json merge/unmerge
       hooks/henry-hook.sh      # tiny script installed into settings.json
@@ -223,7 +257,6 @@ Fable 5.1 session in this repo (hooks, usage 5h/7d, repo card, playbook entries)
 
 ## Later (not in this plan)
 
-- Tauri shell for native windows.
 - Git actions from the UI (commit, push, new worktree).
 - Blocking rules (PreToolUse deny) once the observe-only picture is trusted.
 - Replay of a session's history as a timeline.
