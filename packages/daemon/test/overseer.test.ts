@@ -25,7 +25,7 @@ afterAll(async () => {
 const SECRET_SOURCE = "function SUPER_SECRET_FUNCTION_BODY() { return 42; }";
 const PAYLOAD_CODE = "const PAYLOAD_ONLY_TOKEN = 'never-in-prompt';";
 
-function makeSession(title = "off-chain"): Session {
+function makeSession(title = "widgets"): Session {
   const cwd = mkdtempSync(join(home, "cwd-"));
   mkdirSync(join(cwd, ".git"));
   mkdirSync(join(cwd, "src"));
@@ -53,7 +53,7 @@ function addFlag(sessionId: string, summary: string, severity: Flag["severity"] 
 }
 
 const repo: RepoState = {
-  path: "/tmp/fake/off-chain", name: "off-chain", branch: "feat/overseer", head: "deadbeef", upstream: "origin/feat/overseer",
+  path: "/tmp/fake/widgets", name: "widgets", branch: "feat/overseer", head: "deadbeef", upstream: "origin/feat/overseer",
   ahead: 2, behind: 0, dirty: 3, isWorktree: false, baseline: "0123456789abcdef", commitsSinceBaseline: 2,
 };
 
@@ -104,7 +104,7 @@ describe("prompt assembly", () => {
     expect(user).toContain("filler line 76"); // line 80 of the file
     expect(user).not.toContain("filler line 77"); // beyond the 80-line head
     expect(user).toContain("QUESTION_MARKER");
-    expect(user).toContain(`Session: "off-chain"`);
+    expect(user).toContain(`Session: "widgets"`);
 
     expect(user).not.toContain("SUPER_SECRET_FUNCTION_BODY");
     expect(user).not.toContain("PAYLOAD_ONLY_TOKEN");

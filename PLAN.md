@@ -191,7 +191,7 @@ path resolves into it), record `HEAD` as that session's baseline for that repo.
   "port": 4711,
   "host": "mbp",
   "reposRoot": "~/code",
-  "defaultRepo": "~/code/off-chain",
+  "defaultRepo": "~/code",
   "overseer": { "backend": "auto", "model": "claude-opus-5", "onStop": true, "onFlag": true, "stopMinIntervalSec": 60 },
   "rules": {
     "protectedBranches": ["main", "master"],

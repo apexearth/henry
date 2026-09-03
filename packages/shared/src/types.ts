@@ -163,7 +163,7 @@ export interface HenryConfig {
 export const DEFAULT_CONFIG: HenryConfig = {
   port: 4711,
   reposRoot: "~/code",
-  defaultRepo: "~/code/off-chain",
+  defaultRepo: "~/code",
   overseer: { backend: "auto", model: "claude-opus-5", onStop: true, onFlag: true },
   rules: {
     protectedBranches: ["main", "master"],
