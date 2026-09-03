@@ -90,6 +90,11 @@ CREATE TABLE IF NOT EXISTS session_usage (
 );
 `);
 
+// Milestone 5: playbook.kind ("entry" | "summary"); added as a migration so existing databases keep working.
+if (!(db.prepare("PRAGMA table_info(playbook)").all() as { name: string }[]).some((c) => c.name === "kind")) {
+  db.exec("ALTER TABLE playbook ADD COLUMN kind TEXT");
+}
+
 // ---- sessions ----
 
 interface SessionRow {
@@ -250,15 +255,15 @@ export function markFlagsRead(ids: string[]): void {
 
 // ---- playbook ----
 
-interface PlaybookRow { id: string; session_id: string | null; ts: number; text: string; trigger: PlaybookEntry["trigger"]; model: string | null }
+interface PlaybookRow { id: string; session_id: string | null; ts: number; text: string; trigger: PlaybookEntry["trigger"]; model: string | null; kind: PlaybookEntry["kind"] | null }
 
 function rowToPlaybook(r: PlaybookRow): PlaybookEntry {
-  return { id: r.id, sessionId: r.session_id, ts: r.ts, text: r.text, trigger: r.trigger, model: r.model ?? undefined };
+  return { id: r.id, sessionId: r.session_id, ts: r.ts, text: r.text, trigger: r.trigger, model: r.model ?? undefined, kind: r.kind ?? undefined };
 }
 
 export function insertPlaybook(p: PlaybookEntry): void {
-  db.prepare("INSERT INTO playbook (id, session_id, ts, text, trigger, model) VALUES (?, ?, ?, ?, ?, ?)")
-    .run(p.id, p.sessionId, p.ts, p.text, p.trigger, p.model ?? null);
+  db.prepare("INSERT INTO playbook (id, session_id, ts, text, trigger, model, kind) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    .run(p.id, p.sessionId, p.ts, p.text, p.trigger, p.model ?? null, p.kind ?? null);
 }
 
 /** sessionId: string = that session; null = global entries only; undefined = everything. */

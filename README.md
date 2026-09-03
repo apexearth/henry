@@ -32,7 +32,44 @@ Config lives in `~/.henry/config.json` (defaults in `packages/shared/src/types.t
 the database is `~/.henry/henry.db`. `HENRY_HOME` and `HENRY_PORT` override both for tests.
 
 CLI: `henry start | install | uninstall | status` (`packages/daemon/src/index.ts`).
-`install`/`uninstall`/`status` are milestone 2.
+
+## Install hooks
+
+Henry learns what a session does from Claude Code's own hooks and status line. Nothing is
+wired up until you run:
+
+```sh
+bun run --cwd packages/daemon start install   # or: bun packages/daemon/src/index.ts install
+```
+
+That merges into `~/.claude/settings.json` (or `$CLAUDE_CONFIG_DIR/settings.json`):
+
+- one `{ matcher: "", hooks: [{ type: "command", command: "<repo>/packages/daemon/hooks/henry-hook.sh <Event>" }] }`
+  entry for each of PreToolUse, PostToolUse, Stop, SubagentStop, UserPromptSubmit,
+  SessionStart, SessionEnd, PreCompact, Notification, unless an entry for that event
+  already runs `henry-hook.sh`;
+- `statusLine: { type: "command", command: "<repo>/packages/daemon/hooks/henry-statusline.sh" }`,
+  but only if you have no `statusLine` yet. If you do, install prints a warning and leaves
+  it; `HENRY_FORCE_STATUSLINE=1 henry install` replaces it and keeps the old value under
+  `_henryPreviousStatusLine` so `henry uninstall` can put it back.
+
+Everything else in the file is preserved; the first run copies the original to
+`settings.json.henry-backup`. `henry install` is idempotent, `henry uninstall` removes only
+what Henry added, and `henry status` shows which events are installed, whose status line is
+active, and whether the daemon answers.
+
+The hook script POSTs each hook payload to `http://127.0.0.1:$HENRY_PORT/hook` with
+`--max-time 1` and always exits 0, so a stopped daemon costs a session nothing. The status
+line script POSTs Claude Code's statusline JSON (which carries `rate_limits.five_hour` /
+`seven_day`) to `/statusline` and prints the daemon's reply, e.g. `henry · 5h 42% ↻2h10m ·
+7d 17% ↻3d · $1.23`; when the daemon is down it prints nothing. Sessions started outside
+Henry (Zed, a plain terminal) still post hooks and show up in the rail as "external"
+sessions with events and usage but no terminal output. Per-session tokens and cost come from
+tailing `~/.claude/projects/<slug>/<session_id>.jsonl`; the cost shown prefers Claude Code's
+own `total_cost_usd` from the status line and falls back to a list-price estimate.
+
+Tests (`bun test` in `packages/daemon`) exercise all of this against a throwaway daemon and
+a scratch `CLAUDE_CONFIG_DIR`; they never touch `~/.claude` or `~/.henry`.
 
 ## Requirements
 

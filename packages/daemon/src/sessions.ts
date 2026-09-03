@@ -8,8 +8,9 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { createInterface } from "node:readline";
 import { basename, join } from "node:path";
 import type { Session } from "@henry/shared";
-import { config } from "./config";
+import { config, henryDir } from "./config";
 import * as db from "./db";
+import { writeLaunchSettings } from "./installer";
 import type { HostCommand, HostEvent } from "./pty-host";
 
 const SCROLLBACK_BYTES = 2 * 1024 * 1024;
@@ -28,6 +29,8 @@ interface Live {
   session: Session;
   chunks: string[];
   bytes: number;
+  /** No PTY: a claude started outside Henry, known only through its hooks (milestone 2). */
+  external?: boolean;
 }
 
 export interface SessionEvents {
@@ -61,8 +64,13 @@ class SessionManager extends EventEmitter<SessionEvents> {
   async create(opts: CreateOptions): Promise<Session> {
     const id = crypto.randomUUID();
     const command = opts.command ?? resolveClaude();
+    const isClaude = basename(command) === "claude";
+    // Henry-launched claude: pin its session id to ours (no hook round-trip needed to
+    // bind) and layer Henry's hooks + statusline on top of the user's settings.
+    const args = opts.args ?? (isClaude ? ["--session-id", id, "--settings", writeLaunchSettings(henryDir)] : []);
     const session: Session = {
       id,
+      claudeSessionId: isClaude && !opts.args ? id : undefined,
       cwd: opts.cwd,
       title: opts.title || basename(opts.cwd),
       createdAt: Date.now(),
@@ -74,14 +82,20 @@ class SessionManager extends EventEmitter<SessionEvents> {
     db.insertSession(session);
 
     const env: Record<string, string> = {};
-    for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
+    for (const [k, v] of Object.entries(process.env)) {
+      // Never inherit markers from a Claude Code session that may have started the
+      // daemon: CLAUDE_CODE_CHILD_SESSION turns transcript saving off in the child,
+      // which starves Henry's tailer and any transcript-based plugin hooks.
+      if (v === undefined || k === "CLAUDECODE" || k.startsWith("CLAUDE_CODE_")) continue;
+      env[k] = v;
+    }
     Object.assign(env, {
       HENRY_SESSION: id,
       HENRY_PORT: String(config.port),
       TERM: "xterm-256color",
       COLORTERM: "truecolor",
     });
-    await this.send({ op: "spawn", id, command, args: opts.args ?? [], cwd: opts.cwd, env, cols: opts.cols ?? 120, rows: opts.rows ?? 36 });
+    await this.send({ op: "spawn", id, command, args, cwd: opts.cwd, env, cols: opts.cols ?? 120, rows: opts.rows ?? 36 });
     this.emit("update", session);
     return session;
   }
@@ -98,7 +112,9 @@ class SessionManager extends EventEmitter<SessionEvents> {
   kill(id: string): void {
     const l = this.live.get(id);
     if (!l) return;
-    if (l.session.status === "running") {
+    if (l.external && l.session.status === "running") {
+      this.finish(l, 0);
+    } else if (l.session.status === "running") {
       void this.send({ op: "kill", id, signal: "SIGHUP" });
       // Anything still alive after a grace period gets SIGKILL.
       setTimeout(() => {
@@ -107,6 +123,15 @@ class SessionManager extends EventEmitter<SessionEvents> {
     } else {
       this.live.delete(id);
     }
+  }
+
+  /** Register a session Henry did not spawn (hooks.ts, for a claude started elsewhere). No PTY behind it. */
+  registerExternal(session: Session): void {
+    if (this.live.has(session.id)) return;
+    const note = `[henry] external session: started outside Henry, output not captured (cwd ${session.cwd})\r\n`;
+    this.live.set(session.id, { session, chunks: [note], bytes: note.length, external: true });
+    db.insertSession(session);
+    this.emit("update", session);
   }
 
   /** Bind Claude's own session_id to a PTY session (milestone 2 calls this from hooks.ts). */

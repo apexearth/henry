@@ -1,0 +1,224 @@
+// Milestone 3 tests: real git repos in a temp dir, HENRY_HOME pointed at a scratch home.
+// Run: cd packages/daemon && bun test test/git.test.ts
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync, appendFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { HenryEvent, RepoState, ServerMessage } from "@henry/shared";
+
+const tmp = realpathSync(mkdtempSync(join(tmpdir(), "henry-git-test-")));
+const home = join(tmp, "home");
+const root = join(tmp, "code");
+const bare = join(tmp, "remote.git");
+const repo = join(root, "app");
+const wt = join(root, "app-worktrees", "feat");
+const clone = join(tmp, "clone");
+mkdirSync(home, { recursive: true });
+mkdirSync(root, { recursive: true });
+process.env.HENRY_HOME = home;
+process.env.HENRY_PORT = "0";
+
+const gitEnv = {
+  ...process.env,
+  GIT_AUTHOR_NAME: "t",
+  GIT_AUTHOR_EMAIL: "t@example.com",
+  GIT_COMMITTER_NAME: "t",
+  GIT_COMMITTER_EMAIL: "t@example.com",
+  GIT_CONFIG_GLOBAL: "/dev/null",
+  GIT_CONFIG_SYSTEM: "/dev/null",
+};
+
+function g(cwd: string, ...args: string[]): string {
+  const r = Bun.spawnSync(["git", ...args], { cwd, env: gitEnv, stdout: "pipe", stderr: "pipe" });
+  if (r.exitCode !== 0) throw new Error(`git ${args.join(" ")} failed: ${r.stderr.toString()}`);
+  return r.stdout.toString().trim();
+}
+
+type Git = typeof import("../src/git");
+type Db = typeof import("../src/db");
+let git: Git;
+let db: Db;
+const inbox: ServerMessage[] = [];
+
+async function waitFor<T>(what: string, fn: () => T | undefined, ms = 8000): Promise<T> {
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) {
+    const v = fn();
+    if (v !== undefined) return v;
+    await Bun.sleep(25);
+  }
+  throw new Error(`timeout waiting for ${what}`);
+}
+
+const nextMsg = <T extends ServerMessage["type"]>(type: T, pred: (m: Extract<ServerMessage, { type: T }>) => boolean = () => true, ms?: number) =>
+  waitFor(type, () => {
+    const i = inbox.findIndex((m) => m.type === type && pred(m as Extract<ServerMessage, { type: T }>));
+    return i >= 0 ? (inbox.splice(i, 1)[0] as Extract<ServerMessage, { type: T }>) : undefined;
+  }, ms);
+
+beforeAll(async () => {
+  g(tmp, "init", "-q", "--bare", "-b", "main", bare);
+  g(root, "init", "-q", "-b", "main", repo);
+  writeFileSync(join(repo, "a.txt"), "one\n");
+  writeFileSync(join(repo, ".gitignore"), "ignored.txt\n");
+  g(repo, "add", ".");
+  g(repo, "commit", "-q", "-m", "init");
+  writeFileSync(join(repo, "b.txt"), "b\n");
+  g(repo, "add", "b.txt");
+  g(repo, "commit", "-q", "-m", "add b");
+  g(repo, "remote", "add", "origin", bare);
+  g(repo, "push", "-q", "-u", "origin", "main");
+  mkdirSync(join(root, "app-worktrees"), { recursive: true });
+  g(repo, "worktree", "add", "-q", "-b", "feat", wt, "HEAD");
+
+  git = await import("../src/git");
+  db = await import("../src/db");
+  git.setBroadcast((m) => inbox.push(m));
+  git.start();
+});
+
+afterAll(() => {
+  git?.stop();
+  rmSync(tmp, { recursive: true, force: true });
+});
+
+describe("git", () => {
+  let baselineSha = "";
+
+  test("noteSessionPath records a baseline and broadcasts repos:update", async () => {
+    baselineSha = g(repo, "rev-parse", "HEAD");
+    git.noteSessionPath("s1", join(repo, "a.txt"));
+    const upd = await nextMsg("repos:update", (m) => m.sessionId === "s1");
+    expect(upd.repos).toHaveLength(1);
+    expect(upd.repos[0].path).toBe(repo);
+    expect(upd.repos[0].branch).toBe("main");
+    expect(upd.repos[0].isWorktree).toBe(false);
+    const b = db.getBaseline("s1", repo);
+    expect(b?.baselineSha).toBe(baselineSha);
+    expect(git.getSessionRepos("s1").map((r) => r.path)).toEqual([repo]);
+    expect(Object.keys(git.getAllSessionRepos())).toContain("s1");
+  });
+
+  test("repoForPath resolves the repo and branch synchronously", () => {
+    expect(git.repoForPath(join(repo, "deep", "missing", "file.ts"))).toMatchObject({ path: repo, branch: "main", isWorktree: false });
+    expect(git.repoForPath(wt)).toMatchObject({ path: wt, branch: "feat", isWorktree: true, worktreeOf: repo });
+    expect(git.repoForPath(tmp)).toBeUndefined();
+  });
+
+  test("getRepoState: ahead/behind/dirty/commitsSinceBaseline/upstream", async () => {
+    // Behind: a commit reaches the remote from elsewhere.
+    g(tmp, "clone", "-q", bare, clone);
+    writeFileSync(join(clone, "c.txt"), "c\n");
+    g(clone, "add", "c.txt");
+    g(clone, "commit", "-q", "-m", "remote c");
+    g(clone, "push", "-q", "origin", "main");
+    g(repo, "fetch", "-q", "origin");
+    // Ahead + commits since baseline: a local commit.
+    writeFileSync(join(repo, "d.txt"), "d\n");
+    g(repo, "add", "d.txt");
+    g(repo, "commit", "-q", "-m", "local d");
+    // Dirty: one modified tracked file, one untracked, one ignored.
+    appendFileSync(join(repo, "a.txt"), "two\n");
+    writeFileSync(join(repo, "untracked.txt"), "new\n");
+    writeFileSync(join(repo, "ignored.txt"), "x\n");
+    // Let the watcher settle so the commit event below is unambiguous.
+    await Bun.sleep(600);
+    inbox.length = 0;
+
+    const s = (await git.getRepoState(repo, "s1")) as RepoState;
+    expect(s.branch).toBe("main");
+    expect(s.head).toBe(g(repo, "rev-parse", "HEAD"));
+    expect(s.upstream).toBe("origin/main");
+    expect(s.ahead).toBe(1);
+    expect(s.behind).toBe(1);
+    expect(s.dirty).toBe(2);
+    expect(s.baseline).toBe(baselineSha);
+    expect(s.commitsSinceBaseline).toBe(1);
+    expect(s.lastCommitAt).toBeGreaterThan(Date.now() - 60_000);
+    expect(git.getSessionRepos("s1")[0].commitsSinceBaseline).toBe(1);
+  });
+
+  test("diffSinceBaseline covers tracked changes and untracked files, not ignored", async () => {
+    const { diff, baseline } = await git.diffSinceBaseline("s1", repo);
+    expect(baseline).toBe(baselineSha);
+    expect(diff).toContain("diff --git a/a.txt b/a.txt");
+    expect(diff).toContain("+two");
+    expect(diff).toContain("diff --git a/d.txt b/d.txt"); // committed since baseline
+    expect(diff).toContain("diff --git a/untracked.txt b/untracked.txt");
+    expect(diff).toContain("new file mode");
+    expect(diff).toContain("+new");
+    expect(diff).not.toContain("ignored.txt");
+  });
+
+  test("logSinceBaseline lists commits after the baseline", async () => {
+    const { baseline, commits } = await git.logSinceBaseline("s1", repo);
+    expect(baseline).toBe(baselineSha);
+    expect(commits).toHaveLength(1);
+    expect(commits[0].subject).toBe("local d");
+    expect(commits[0].sha).toBe(g(repo, "rev-parse", "--short", "HEAD"));
+    expect(commits[0].ts).toBeGreaterThan(Date.now() - 60_000);
+  });
+
+  test("worktree detection via noteSessionPath and listRepos", async () => {
+    git.noteSessionPath("s2", join(wt, "a.txt"));
+    const upd = await nextMsg("repos:update", (m) => m.sessionId === "s2");
+    expect(upd.repos[0]).toMatchObject({ path: wt, name: "feat", branch: "feat", isWorktree: true, worktreeOf: repo });
+    expect(upd.repos[0].upstream).toBeUndefined();
+    expect(db.getBaseline("s2", wt)?.baselineSha).toBe(baselineSha);
+
+    const list = await git.listRepos(root);
+    const byPath = Object.fromEntries(list.map((e) => [e.path, e]));
+    expect(byPath[repo]).toMatchObject({ name: "app", isWorktree: false });
+    expect(byPath[wt]).toMatchObject({ name: "feat", isWorktree: true, worktreeOf: repo });
+    expect(list.filter((e) => e.path === wt)).toHaveLength(1); // deduped
+    expect(byPath[join(root, "app-worktrees")]).toBeUndefined();
+  });
+
+  test("a new commit triggers a git HenryEvent and a repos:update", async () => {
+    inbox.length = 0;
+    writeFileSync(join(repo, "e.txt"), "e\n");
+    g(repo, "add", "e.txt");
+    g(repo, "commit", "-q", "-m", "watched commit");
+    const sha = g(repo, "rev-parse", "--short", "HEAD");
+    const ev = await nextMsg("event", (m) => m.event.kind === "git" && m.event.sessionId === "s1");
+    expect(ev.event.summary).toBe(`commit ${sha} on main: watched commit`);
+    expect(ev.event.repo).toBe(repo);
+    // main is a protected branch by default, so the rules engine flags the commit.
+    expect(ev.event.severity).toBe("alarm");
+    expect(ev.event.rule).toBe("commit-on-protected");
+    const stored = db.listEvents({ sessionId: "s1" }).find((e: HenryEvent) => e.id === ev.event.id);
+    expect(stored?.kind).toBe("git");
+    const upd = await nextMsg("repos:update", (m) => m.sessionId === "s1" && m.repos[0].commitsSinceBaseline === 2);
+    expect(upd.repos[0].ahead).toBe(2);
+  }, 20_000);
+
+  test("a push produces a 'pushed' event and ahead drops to 0", async () => {
+    inbox.length = 0;
+    g(repo, "pull", "-q", "--rebase", "--autostash", "origin", "main");
+    await nextMsg("event", (m) => m.event.kind === "git" && m.event.sessionId === "s1" && /rewritten|commits on main/.test(m.event.summary));
+    inbox.length = 0;
+    g(repo, "push", "-q", "origin", "main");
+    const ev = await nextMsg("event", (m) => m.event.kind === "git" && m.event.sessionId === "s1" && m.event.summary.startsWith("pushed"));
+    expect(ev.event.summary).toBe("pushed main (2 commits) to origin/main");
+    const upd = await nextMsg("repos:update", (m) => m.sessionId === "s1" && m.repos[0].ahead === 0);
+    expect(upd.repos[0].behind).toBe(0);
+  }, 20_000);
+
+  test("checkout produces a 'checked out' event", async () => {
+    inbox.length = 0;
+    g(repo, "checkout", "-q", "-b", "topic");
+    const ev = await nextMsg("event", (m) => m.event.kind === "git" && m.event.sessionId === "s1" && m.event.summary.startsWith("checked out"));
+    expect(ev.event.summary).toBe("checked out topic (was main)");
+    expect(git.repoForPath(repo)?.branch).toBe("topic");
+    g(repo, "checkout", "-q", "main");
+    await nextMsg("event", (m) => m.event.kind === "git" && m.event.summary === "checked out main (was topic)");
+  }, 20_000);
+
+  test("a new worktree produces an event", async () => {
+    inbox.length = 0;
+    const wt2 = join(root, "app-worktrees", "feat2");
+    g(repo, "worktree", "add", "-q", "-b", "feat2", wt2, "HEAD");
+    const ev = await nextMsg("event", (m) => m.event.kind === "git" && m.event.summary.startsWith("new worktree"));
+    expect(ev.event.summary).toBe(`new worktree ${wt2} on feat2`);
+  }, 20_000);
+});

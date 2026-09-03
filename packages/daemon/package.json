@@ -3,15 +3,19 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "bin": { "henry": "./src/index.ts" },
+  "bin": {
+    "henry": "./src/index.ts"
+  },
   "scripts": {
     "dev": "bun --watch src/index.ts start",
     "start": "bun src/index.ts start",
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
-    "smoke": "bun test/smoke.ts"
+    "smoke": "bun test/smoke.ts",
+    "test": "bun test/run-all.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.123.0",
     "@henry/shared": "workspace:*",
     "node-pty": "^1.0.0"
   },

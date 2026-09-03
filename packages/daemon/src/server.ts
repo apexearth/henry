@@ -8,6 +8,7 @@ import { config } from "./config";
 import * as db from "./db";
 import * as git from "./git";
 import * as hooks from "./hooks";
+import * as overseer from "./overseer";
 import { sessions } from "./sessions";
 
 const uiDist = join(import.meta.dir, "../../ui/dist");
@@ -148,15 +149,27 @@ export function startServer(): void {
         return json({ ok: true });
       }
       if (req.method === "POST" && pathname === "/statusline") {
-        try {
-          hooks.ingestStatusline(await readJson(req));
-        } catch (e) {
-          console.error("[statusline] ingest failed:", e);
-        }
-        return json({ ok: true });
+        // Claude Code displays whatever the status command prints; the script echoes this body.
+        const result = hooks.ingestStatusline(await readJson(req));
+        return new Response(result?.text ?? "", { headers: { "content-type": "text/plain; charset=utf-8" } });
       }
       if (pathname === "/api/state") return json(buildState());
+      if (pathname === "/api/playbook/status") return json(overseer.overseerStatus());
+      if (req.method === "POST" && pathname === "/api/playbook/manual") {
+        const body = (await readJson(req)) as { sessionId?: string | null; prompt?: string };
+        if (!body.prompt?.trim()) return json({ error: "prompt required" }, 400);
+        const entry = await overseer.writeManual(body.sessionId || null, body.prompt.trim());
+        return entry ? json({ entry }) : json({ error: overseer.overseerStatus().lastError ?? "overseer wrote nothing" }, 502);
+      }
+      if (pathname === "/api/events") {
+        return json(db.listEvents({ sessionId: url.searchParams.get("session") ?? undefined, limit: Number(url.searchParams.get("limit")) || 200 }));
+      }
       if (pathname === "/api/repos") return json(await git.listRepos(config.reposRoot));
+      if (pathname === "/api/repo/log") {
+        const sessionId = url.searchParams.get("sessionId") ?? "";
+        const repoPath = url.searchParams.get("repoPath") ?? "";
+        return json(await git.logSinceBaseline(sessionId, repoPath));
+      }
       if (pathname.startsWith("/api/")) return json({ error: "not found" }, 404);
       if (req.method !== "GET") return new Response("method not allowed", { status: 405 });
       return serveStatic(pathname);
@@ -184,10 +197,13 @@ export function startServer(): void {
       },
     },
   });
+  git.setBroadcast(broadcast);
+  git.start();
   console.log(`[henry] listening on http://127.0.0.1:${config.port} (db: ${db.dbPath})`);
 }
 
 export function stopServer(): void {
+  git.stop();
   sessions.shutdown();
   server?.stop(true);
 }

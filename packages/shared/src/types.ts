@@ -89,6 +89,8 @@ export interface PlaybookEntry {
   text: string;
   trigger: PlaybookTrigger;
   model?: string;
+  /** "entry" (default) = one playbook step; "summary" = the rolling "right now" paragraph (newest wins). */
+  kind?: "entry" | "summary";
 }
 
 export interface RateWindow {
@@ -127,6 +129,8 @@ export interface HenryConfig {
     model: string;
     onStop: boolean;
     onFlag: boolean;
+    /** Optional; ANTHROPIC_API_KEY in the environment takes precedence. */
+    apiKey?: string;
   };
   rules: {
     protectedBranches: string[];
@@ -134,6 +138,10 @@ export interface HenryConfig {
     notable: string[];
     crossRepoWrite: Severity;
     commitOnProtected: Severity;
+    /** Severity for `git push` to a protected branch without --force (milestone 4). Default "notable". */
+    pushToProtected?: Severity;
+    /** SubagentStop events per session per 10 minutes before "subagent-storm" fires (milestone 4). Default 8. */
+    maxSubagentsPer10m?: number;
   };
 }
 
@@ -148,6 +156,8 @@ export const DEFAULT_CONFIG: HenryConfig = {
     notable: ["git push", "git rebase", "git merge", "git checkout", "git switch", "git worktree", "git stash", "gh pr"],
     crossRepoWrite: "notable",
     commitOnProtected: "alarm",
+    pushToProtected: "notable",
+    maxSubagentsPer10m: 8,
   },
 };
 

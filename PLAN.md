@@ -29,6 +29,15 @@ the design changes; do not let it drift into a changelog.
   repo's `ACTIVE-WORK.md`. It never reads code. Two backends: Anthropic API with
   `claude-opus-5` when `ANTHROPIC_API_KEY` is present; otherwise headless
   `claude -p` on the subscription. Config picks; default is whichever works.
+- **Henry-launched sessions carry their own hooks.** Every `claude` Henry spawns gets
+  `--session-id <henry id>` (so Claude's session id equals Henry's, no binding
+  round-trip) and `--settings ~/.henry/launch-settings.json`, which layers Henry's
+  hooks and statusline over the user's settings for that process only. `henry install`
+  is only needed for sessions started elsewhere (a terminal, Zed).
+- **Spawned sessions never inherit `CLAUDE_CODE_*` / `CLAUDECODE` env.** A daemon
+  started from inside a Claude Code session would otherwise pass the child-session
+  marker through, which turns transcript saving off and breaks transcript-based
+  plugin hooks (verified 2026-09-02: claude-mem's Stop hook looped on it).
 - **Henry never edits `~/.claude/settings.json` on its own.** `henry install`
   merges hooks + statusLine idempotently and preserves everything else.
   `henry uninstall` removes only what it added.
@@ -144,7 +153,8 @@ path resolves into it), record `HEAD` as that session's baseline for that repo.
 
 Definition of done for this plan: all five milestones exist, `bun run dev` brings up
 the daemon and UI, a real `claude` session runs inside it, and each panel shows live
-data from that session.
+data from that session. **Met 2026-09-02**: verified in Chrome against a live
+Fable 5.1 session in this repo (hooks, usage 5h/7d, repo card, playbook entries).
 
 ## Later (not in this plan)
 
