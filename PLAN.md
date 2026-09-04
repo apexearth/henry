@@ -208,7 +208,9 @@ until it is back. Two machines that both listen dial each other, so each window 
   handshakes from one address lock it out for a minute.
 - **A paired machine is you.** It can attach, type, start and kill sessions and read files
   in repos there, exactly what a window can. Pause or forget a peer from the remotes menu
-  (`henry peers forget <name>`); a forgotten key is refused at the next handshake.
+  (`henry peers forget <name>`); a forgotten key is refused at the next handshake. A peer
+  whose address or port changed is re-pointed in place (menu "address", `henry peers url
+  <name> <host[:port]>`): the URL is just where to dial, the pinned key is the identity.
   `/api/federation/*` is never proxied and never served to a peer.
 - **Trust is not transitive.** A peer sees and drives this daemon's own sessions only.
   Messages from a peer that name a session relayed from another peer, or ask to create one

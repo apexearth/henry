@@ -1,4 +1,4 @@
-// henry pair | peers [forget <name>]: talks to the running daemon over loopback, which owns
+// henry pair | peers [forget <name> | url <name> <address>]: talks to the running daemon over loopback, which owns
 // the identity and the peer list (the file is not edited behind its back).
 import type { FederationStatus, PeerStatus } from "@henry/shared";
 import { config } from "./config";
@@ -48,4 +48,12 @@ function line(p: PeerStatus): string {
 export async function forget(name: string): Promise<void> {
   await call("/api/federation/peer/forget", { name });
   console.log(`forgot ${name}`);
+}
+
+/** Point a paired machine at a new address (host[:port]); "-" stops dialing it. */
+export async function setUrl(name: string, address: string): Promise<void> {
+  await call("/api/federation/peer/url", { name, address: address === "-" ? "" : address });
+  const st = await call<FederationStatus>("/api/federation/status");
+  const p = st.peers.find((x) => x.name === name);
+  console.log(p ? line(p) : `updated ${name}`);
 }

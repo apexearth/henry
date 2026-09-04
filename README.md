@@ -96,7 +96,9 @@ the rail with a dotted chip naming it. Compare the fingerprints the menu shows o
 sides. Pairing codes live ten minutes and work once; every connection after that is
 mutually authenticated by the stored keys and encrypted end to end (details in
 `PLAN.md`, "Federation"). `henry peers` lists what is paired; `henry peers forget <name>` or
-the menu's × drops a machine.
+the menu's × drops a machine. If a paired machine's address or port changes, the menu's
+"address" button (or `henry peers url <name> <host[:port]>`) re-points it without pairing
+again: the stored key still has to match.
 
 A paired machine can do to your sessions what a window can, typing included. Pair only over
 your own tailnet, with machines you own.

@@ -542,13 +542,18 @@ export function stopPairing(): void {
   pairing = undefined;
 }
 
-/** Dial `address` (host[:port]) and pair with the code shown there. Stores and links the peer on success. */
-export async function pair(address: string, code: string): Promise<PeerStatus> {
+/** `host`, `host:port`, `[v6]`, `[v6]:port` or a full ws://…/fed → the url to dial. A missing
+ * port is ours (both machines default to 14712). */
+export function fedUrl(address: string): string {
   const a = address.trim().replace(/^ws:\/\//, "").replace(/\/fed$/, "");
   if (!/^[A-Za-z0-9.:\[\]-]+$/.test(a)) throw new Error("address must be host or host:port");
-  // host, host:port, [v6], [v6]:port; a missing port is ours (both machines default to 14712).
   const hasPort = a.startsWith("[") ? /\]:\d+$/.test(a) : a.split(":").length === 2;
-  const url = `ws://${hasPort ? a : `${a}:${config.federation.port}`}/fed`;
+  return `ws://${hasPort ? a : `${a}:${config.federation.port}`}/fed`;
+}
+
+/** Dial `address` (host[:port]) and pair with the code shown there. Stores and links the peer on success. */
+export async function pair(address: string, code: string): Promise<PeerStatus> {
+  const url = fedUrl(address);
   if (!normalizeCode(code)) throw new Error("code required");
   const result = await PeerLink.pair(url, normalizeCode(code), { identity: store.identity, name: localName() }, advertisedUrl());
   if (result.publicKey === store.identity.publicKey) throw new Error("that is this machine");
@@ -563,6 +568,19 @@ export function forgetPeer(name: string): boolean {
   store.peers.splice(i, 1);
   saveStore();
   for (const c of inbound) if (c.peer === rec) c.close(4004, "forgotten");
+  syncLinks();
+  return true;
+}
+
+/** Change where a paired machine is dialed (it moved, or its port changed). The pinned key
+ * stays: a daemon at the new address that does not hold it fails the handshake. An empty
+ * address means stop dialing; the peer can still reach us. */
+export function setPeerUrl(name: string, address: string): boolean {
+  const rec = store.peers.find((p) => p.name === name);
+  if (!rec) return false;
+  if (address.trim()) rec.url = fedUrl(address);
+  else delete rec.url;
+  saveStore();
   syncLinks();
   return true;
 }

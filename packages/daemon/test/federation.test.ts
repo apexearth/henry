@@ -416,6 +416,30 @@ describe("two daemons", () => {
     wg.close();
   }, 60000);
 
+  test("re-pointing a peer redials the new address without pairing again", async () => {
+    const wrong = `127.0.0.1:${beta.fedPort + 1000}`;
+    expect((await post(alpha, "/api/federation/peer/url", { name: "beta", address: wrong })).status).toBe(200);
+    await waitFor("link dropped for the dead address", async () => {
+      const p = (await fedStatus(alpha)).peers[0];
+      return p?.url === `ws://${wrong}/fed` && p.link !== "connected" ? true : undefined;
+    });
+    expect((await post(alpha, "/api/federation/peer/url", { name: "beta", address: "not a host!" })).status).toBe(400);
+    expect((await post(alpha, "/api/federation/peer/url", { name: "nobody", address: wrong })).status).toBe(404);
+    // Back to the real port: the pinned key still matches, so it connects.
+    expect((await post(alpha, "/api/federation/peer/url", { name: "beta", address: `ws://127.0.0.1:${beta.fedPort}/fed` })).status).toBe(200);
+    await waitFor("link back up", async () => ((await fedStatus(alpha)).peers[0]?.link === "connected" ? true : undefined));
+    expect((await state(alpha)).sessions.some((s) => s.id === betaSession)).toBe(true);
+    // An empty address stops dialing; beta's own link to us is unaffected.
+    expect((await post(alpha, "/api/federation/peer/url", { name: "beta", address: "" })).status).toBe(200);
+    await waitFor("not dialing", async () => {
+      const p = (await fedStatus(alpha)).peers[0];
+      return p && !p.url && p.link === "off" ? true : undefined;
+    });
+    expect(readFileSync(join(alpha.home, "federation.json"), "utf8")).not.toContain(`${beta.fedPort}/fed`);
+    expect((await post(alpha, "/api/federation/peer/url", { name: "beta", address: `127.0.0.1:${beta.fedPort}` })).status).toBe(200);
+    await waitFor("link back up again", async () => ((await fedStatus(alpha)).peers[0]?.link === "connected" ? true : undefined));
+  }, 30000);
+
   test("killing through alpha ends the session on beta; forgetting the peer drops its sessions", async () => {
     const wa = await new Win().open(alpha);
     wa.send({ type: "session:kill", sessionId: betaSession });

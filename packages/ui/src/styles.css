@@ -297,6 +297,7 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 .remotes-pop .dot.offline { background: var(--alarm); }
 .remotes-pop .code { font-family: var(--mono); font-size: 20px; letter-spacing: .08em; padding: 6px 0; user-select: all; }
 .remotes-pop form { display: flex; gap: 6px; align-items: center; margin-top: 4px; }
+.remotes-pop .peer-row form { margin-top: 0; }
 .remotes-pop form input { flex: 1; min-width: 0; }
 .remotes-pop .err { color: var(--alarm); }
 .remotes-pop .ok { color: var(--ok); }

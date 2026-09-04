@@ -19,6 +19,9 @@ function ago(ts: number | undefined, now: number): string {
   return m < 1 ? "just now" : m < 60 ? `${m}m ago` : m < 1440 ? `${Math.floor(m / 60)}h ago` : `${Math.floor(m / 1440)}d ago`;
 }
 
+/** ws://host:port/fed → host:port, what the user typed to pair. */
+const bare = (url: string) => url.replace(/^ws:\/\//, "").replace(/\/fed$/, "");
+
 const LINK_TEXT: Record<PeerStatus["link"], string> = {
   connected: "connected",
   connecting: "connecting…",
@@ -56,6 +59,9 @@ function Remotes({ peers }: { peers: PeerStatus[] }) {
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<{ ok?: string; err?: string } | null>(null);
+  // Which peer's address is being edited, and the text in its box.
+  const [editing, setEditing] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
 
   // Listener and pairing state are not in the WS stream; poll while the menu is open.
   useEffect(() => {
@@ -116,11 +122,24 @@ function Remotes({ peers }: { peers: PeerStatus[] }) {
         <div key={p.name} className="peer-row" title={`identity ${p.fingerprint}\npaired ${new Date(p.pairedAt).toLocaleString()}\nlast seen ${ago(p.lastSeenAt, now)}${p.error ? `\n${p.error}` : ""}`}>
           <span className={"dot " + (p.enabled ? p.link : "off")} />
           <span className="name" style={{ color: hueText(nameHue(p.name)) }}>{p.name}</span>
-          <span className="grow dim">
-            {!p.enabled ? "disabled" : p.url ? `${LINK_TEXT[p.link]} · ${p.url.replace(/^ws:\/\//, "").replace(/\/fed$/, "")}` : "reaches us only"}
-            {p.inbound ? " · sees us" : ""}
-            {p.link === "connected" ? ` · ${p.sessions} session${p.sessions === 1 ? "" : "s"}` : ""}
-          </span>
+          {editing === p.name ? (
+            <form className="grow" onSubmit={(e) => { e.preventDefault(); void act(() => post("/api/federation/peer/url", { name: p.name, address: draft }).then(() => setEditing(null)), draft.trim() ? `dialing ${p.name} at ${draft.trim()}` : `no longer dialing ${p.name}`); }}>
+              <input autoFocus value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="host:port (empty: stop dialing)" spellCheck={false} autoCapitalize="off"
+                onKeyDown={(e) => { if (e.key === "Escape") setEditing(null); }} />
+              <button type="submit" className="small" disabled={busy}>save</button>
+              <button type="button" className="small" onClick={() => setEditing(null)}>cancel</button>
+            </form>
+          ) : (
+            <span className="grow dim">
+              {!p.enabled ? "disabled" : p.url ? `${LINK_TEXT[p.link]} · ${bare(p.url)}` : "reaches us only"}
+              {p.inbound ? " · sees us" : ""}
+              {p.link === "connected" ? ` · ${p.sessions} session${p.sessions === 1 ? "" : "s"}` : ""}
+            </span>
+          )}
+          <button className="small" disabled={busy || editing === p.name} title="change the address this machine is dialed at (its port or IP changed)"
+            onClick={() => { setDraft(p.url ? bare(p.url) : ""); setEditing(p.name); }}>
+            address
+          </button>
           <button className="small" disabled={busy} title={p.enabled ? "stop dialing and refuse this machine" : "dial and accept this machine again"}
             onClick={() => act(() => post("/api/federation/peer/enable", { name: p.name, enabled: !p.enabled }))}>
             {p.enabled ? "pause" : "resume"}

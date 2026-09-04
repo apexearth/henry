@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // henry CLI: start (default) | install | uninstall | status | sessiond status|restart [--now]
-//            | pair | peers [forget <name>]
+//            | pair | peers [forget <name> | url <name> <host[:port]|->]
 const cmd = process.argv[2] ?? "start";
 
 async function main(): Promise<void> {
@@ -39,8 +39,9 @@ async function main(): Promise<void> {
       const fed = await import("./federation-cli");
       if (cmd === "pair") await fed.pair();
       else if (process.argv[3] === "forget" && process.argv[4]) await fed.forget(process.argv[4]);
+      else if (process.argv[3] === "url" && process.argv[4] && process.argv[5]) await fed.setUrl(process.argv[4], process.argv[5]);
       else if (process.argv[3]) {
-        console.error("usage: henry peers [forget <name>]");
+        console.error("usage: henry peers [forget <name> | url <name> <host[:port]|->]");
         process.exit(2);
       } else await fed.peers();
       return;
@@ -48,7 +49,7 @@ async function main(): Promise<void> {
     case "-h":
     case "--help":
     case "help":
-      console.log("usage: henry [start|install|uninstall|status|sessiond status|sessiond restart [--now]|pair|peers [forget <name>]]");
+      console.log("usage: henry [start|install|uninstall|status|sessiond status|sessiond restart [--now]|pair|peers [forget <name> | url <name> <host[:port]|->]]");
       return;
     default:
       console.error(`unknown command: ${cmd}`);

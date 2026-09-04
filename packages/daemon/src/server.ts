@@ -392,6 +392,13 @@ async function federationApi(req: Request, url: URL): Promise<Response> {
     return json({ ok: true });
   }
   const body = (await readJson(req)) as { address?: string; code?: string; name?: string; enabled?: boolean };
+  if (pathname === "/api/federation/peer/url") {
+    try {
+      return body.name && federation.setPeerUrl(body.name, body.address ?? "") ? json({ ok: true }) : json({ error: "no such peer" }, 404);
+    } catch (e) {
+      return json({ error: (e as Error).message }, 400);
+    }
+  }
   if (pathname === "/api/federation/pair") {
     if (!body.address || !body.code) return json({ error: "address and code required" }, 400);
     try {
