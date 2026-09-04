@@ -16,10 +16,14 @@ reconnects to the same live sessions with their scrollback intact.
 
 ```sh
 bun install
-bun run dev        # daemon (bun --watch) on :14711 + Vite on :14713
+bun run dev        # daemon (bun --watch) on :14711 + Vite on :14713 + the native window
 ```
 
-Open http://127.0.0.1:14713 in dev. The window is a dockable workspace: drag a tool tab
+`bun run dev` also builds the shell (debug `cargo build`, skipped without a Rust
+toolchain or with `--no-shell`) and opens it on the Vite page once Vite answers, so the
+window hot-reloads too; an edit under `src-tauri` rebuilds and reopens it. Each of the
+three is restarted if it dies, after a delay that doubles while it keeps dying; closing
+the window is a clean exit and leaves it closed. Or open http://127.0.0.1:14713 in a browser. The window is a dockable workspace: drag a tool tab
 (Sessions, Repos, Flags, ...) to split, stack, edge-dock or float it; the arrangement is
 saved per browser and "reset layout" in the top bar restores rail | terminal | tools. The
 terminal in the centre has no tabs: the rail picks which session is shown. To point

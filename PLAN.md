@@ -29,7 +29,11 @@ the design changes; do not let it drift into a changelog.
   ⌘1..9. Menu items reach the page as `henry:menu` CustomEvents. On Windows the shell has
   no menu bar: wry turns WebView2's browser accelerators off, so the page's own bindings
   see every Ctrl chord and the bar would only cost a row. Both front ends run at once
-  against the one daemon.
+  against the one daemon. `bun run dev` (scripts/dev.ts) runs daemon, Vite and the shell
+  together: the shell is the debug cargo build with `HENRY_URL` on the Vite page so it
+  hot-reloads, rebuilt and reopened on edits under `src-tauri`. Each child is supervised
+  with a debounced restart (1s doubling to 15s, reset after a stable run); the servers
+  come back from any exit, the window only from a crash, since closing it is deliberate.
 - **Ports nobody else wants.** Daemon 14711, federation 14712, Vite dev 14713. Henry sits
   next to whatever the user is developing, so it stays off 3000/5173/8080 and their
   neighbours, off IANA-registered numbers, and below 32768 so no OS's ephemeral range can
