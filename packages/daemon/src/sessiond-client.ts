@@ -12,6 +12,7 @@ import { createConnection, type Socket } from "node:net";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { PROTOCOL_VERSION, type ClientMessage, type ServerMessage, type SessionSummary, type SessiondInfo } from "../../sessiond/src/protocol";
+import { isWindows, sanitizePtyOutput } from "./platform";
 
 export { PROTOCOL_VERSION };
 export type { ClientMessage, ServerMessage, SessionSummary, SessiondInfo };
@@ -98,6 +99,15 @@ export function dial(info: SessiondInfo, timeoutMs = 2000): Promise<{ socket: So
     };
     socket.on("data", onData);
   });
+}
+
+/** A PowerShell command line that starts `exe args` detached, hidden and without inherited handles. */
+export function startProcessCommand(exe: string, args: string[]): string {
+  const ps = (s: string) => `'${s.replace(/'/g, "''")}'`;
+  // -ArgumentList joins its elements with spaces and quotes none of them, so a path with a
+  // space is quoted here; inside PowerShell single quotes a double quote is literal.
+  const argLine = args.map((a) => (/[\s"]/.test(a) ? `"${a.replace(/"/g, '\\"')}"` : a)).join(" ");
+  return `Start-Process -FilePath ${ps(exe)} -ArgumentList ${ps(argLine)} -WindowStyle Hidden`;
 }
 
 export class SessiondClient extends EventEmitter<SessiondClientEvents> {
@@ -198,12 +208,19 @@ export class SessiondClient extends EventEmitter<SessiondClientEvents> {
     this.log(`starting ${sessiondMain}${stale ? ` (replacing stale sessiond.json pid ${stale.pid})` : ""}`);
     // sessiond is TypeScript run by Node directly: 22.18+/23.6+ strip types by default, and
     // the flag is accepted (as a no-op) there too, so it is always passed for 22.6..22.17.
-    const child = spawn(node, ["--experimental-strip-types", sessiondMain, "--daemon"], {
-      detached: true,
-      stdio: "ignore",
-      windowsHide: true,
-      env: { ...(this.opts.env ?? (process.env as Record<string, string>)), HENRY_HOME: this.henryDir },
-    });
+    const args = ["--experimental-strip-types", sessiondMain, "--daemon"];
+    const env = { ...(this.opts.env ?? (process.env as Record<string, string>)), HENRY_HOME: this.henryDir };
+    // Windows: a process made by CreateProcess inherits every inheritable handle of its
+    // parent, and Bun's listening sockets are inheritable, so a sessiond started by a daemon
+    // that is already serving (a respawn after `henry sessiond restart`) would keep :4711
+    // open after that daemon exits, and every daemon after it dies with "Is port 4711 in
+    // use?" until sessiond does (verified 2026-09-04). Start-Process creates the process
+    // through ShellExecute, which inherits nothing (cmd's `start /b` does not: it uses
+    // CreateProcess); the PowerShell in between exits at once, and Hidden keeps node's
+    // console window off screen.
+    const child = isWindows
+      ? spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", startProcessCommand(node, args)], { stdio: "ignore", windowsHide: true, env })
+      : spawn(node, args, { detached: true, stdio: "ignore", env });
     child.on("error", (e) => this.log(`spawn failed: ${e.message}`));
     child.unref();
     const deadline = Date.now() + 5000;
@@ -248,11 +265,12 @@ export class SessiondClient extends EventEmitter<SessiondClientEvents> {
       case "spawned":
         return void this.emit("spawned", msg.id, msg.pid);
       case "data":
-        return void this.emit("data", msg.id, msg.data);
+        return void this.emit("data", msg.id, sanitizePtyOutput(msg.data));
       case "scrollback": {
+        const data = sanitizePtyOutput(msg.data);
         const w = this.waiters.get(msg.id)?.shift();
-        if (w) w(msg.data);
-        return void this.emit("scrollback", msg.id, msg.data);
+        if (w) w(data);
+        return void this.emit("scrollback", msg.id, data);
       }
       case "exit":
         return void this.emit("exit", msg.id, msg.exitCode, msg.signal);

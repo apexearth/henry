@@ -39,9 +39,14 @@ session, so the goal is that it changes twice a year. Rules:
   process down. A client disconnecting never affects a session.
 - On Windows the PTYs are ConPTY (the one built into Windows; node-pty's bundled
   `useConptyDll` was tried and changes nothing that matters here) and node-pty refuses a
-  signal name, so `kill` (any signal) terminates the process instead. Otherwise nothing is
-  platform-specific: the launcher is started with `--experimental-strip-types` (a no-op on
-  Node ≥ 22.18) and `windowsHide`, so no console window appears for the detached process.
+  signal name, so `kill` (any signal) terminates the process instead. The launcher is started
+  with `--experimental-strip-types` (a no-op on Node ≥ 22.18) and `windowsHide`, so no
+  console window appears for the detached process, and on Windows the daemon starts it
+  through PowerShell's `Start-Process`: a child made by CreateProcess inherits the daemon's
+  listening sockets, so a sessiond started by a daemon that was already serving (a respawn
+  after `henry sessiond restart`) kept :4711 open after that daemon exited and every daemon
+  after it failed with "Is port 4711 in use?" until sessiond exited. ShellExecute, which
+  Start-Process uses, inherits nothing.
 - `henry sessiond status` shows the file, whether it answers, and versions.
   `henry sessiond restart` asks it to exit once every session has ended (the daemon
   spawns a fresh one on its next connect); `--now` hangs up every session and exits.

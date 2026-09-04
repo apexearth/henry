@@ -14,6 +14,20 @@ export const isWindows = process.platform === "win32";
  */
 export const redrawByShrink = !isWindows;
 
+/**
+ * ConPTY stores SO/SI (0x0E/0x0F) as printed cells and advances its cursor, and with the
+ * console in UTF-8 (Claude Code's case) it relays the raw byte instead of a glyph. xterm.js
+ * takes that byte as a zero-width charset shift, so its cursor falls one column behind
+ * ConPTY's and the next thing written lands a column left. Claude Code sends SI on the first
+ * key after a resize: the first character typed overwrites the space after the prompt. A
+ * space is what ConPTY's buffer amounts to. Identity off Windows.
+ */
+export const sanitizePtyOutput: (data: string) => string = isWindows ? stripLockingShifts : (data) => data;
+
+export function stripLockingShifts(data: string): string {
+  return data.replace(/[\x0e\x0f]/g, " ");
+}
+
 /** "claude" for claude, claude.exe, claude.cmd, C:\x\claude.exe, /usr/local/bin/claude. */
 export function programName(command: string): string {
   return basename(command).replace(/\.(exe|cmd|bat)$/i, "");

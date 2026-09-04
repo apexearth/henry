@@ -73,7 +73,9 @@ const conns = new Set<Conn>();
 let draining = false;
 
 function send(conn: Conn, msg: ServerMessage): void {
-  if (conn.socket.destroyed) return;
+  // A client that dropped mid-reply (a daemon that died at startup) has a socket that is not
+  // yet destroyed but no longer writable; writing to it raises an asynchronous ECONNRESET.
+  if (conn.socket.destroyed || !conn.socket.writable) return;
   try {
     conn.socket.write(JSON.stringify(msg) + "\n");
   } catch (e) {

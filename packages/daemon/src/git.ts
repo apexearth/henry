@@ -243,17 +243,27 @@ export function repoForPath(absPath: string): { path: string; branch: string; is
 
 // ---- discovery (new-tab picker) ----
 
-async function listWorktrees(repoPath: string): Promise<{ path: string; branch?: string }[]> {
+interface WorktreeEntry {
+  path: string;
+  branch?: string;
+  /** Neither a branch nor `detached`: `git worktree add` has registered it but not yet written its HEAD. */
+  settling?: boolean;
+}
+
+async function listWorktrees(repoPath: string): Promise<WorktreeEntry[]> {
   const { code, out } = await run(repoPath, ["worktree", "list", "--porcelain"]);
   if (code !== 0) return [];
-  const result: { path: string; branch?: string }[] = [];
-  let cur: { path: string; branch?: string } | undefined;
+  const result: WorktreeEntry[] = [];
+  let cur: WorktreeEntry | undefined;
   for (const line of out.split("\n")) {
     if (line.startsWith("worktree ")) {
-      cur = { path: line.slice(9) };
+      cur = { path: line.slice(9), settling: true };
       result.push(cur);
     } else if (cur && line.startsWith("branch ")) {
       cur.branch = line.slice(7).replace(/^refs\/heads\//, "");
+      cur.settling = false;
+    } else if (cur && (line === "detached" || line === "bare")) {
+      cur.settling = false;
     }
   }
   return result;
@@ -535,7 +545,9 @@ async function detectEvents(info: RepoInfo, prev: RepoBase, next: RepoBase): Pro
 }
 
 async function checkWorktrees(info: RepoInfo): Promise<void> {
-  const list = await listWorktrees(info.path);
+  // The watcher fires while `git worktree add` is still writing the new checkout; one still
+  // settling is left unknown so the next refresh reports it complete with its branch.
+  const list = (await listWorktrees(info.path)).filter((w) => !w.settling);
   const paths = new Set(list.map((w) => safeReal(w.path)));
   const known = knownWorktrees.get(info.commonDir);
   knownWorktrees.set(info.commonDir, paths);

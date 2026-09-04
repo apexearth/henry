@@ -142,7 +142,11 @@ the design changes; do not let it drift into a changelog.
 - **Windows is a first-class host, with the same three processes.** The platform switches
   live in one daemon module (`platform.ts`) and one function in sessiond; everything else
   goes through Node's path/os modules. What differs: sessiond runs PTYs on ConPTY and
-  node-pty there rejects signals, so `kill` terminates instead of delivering SIGHUP; a
+  node-pty there rejects signals, so `kill` terminates instead of delivering SIGHUP; the
+  daemon starts sessiond through PowerShell's `Start-Process` (ShellExecute inherits no
+  handles; a CreateProcess child inherits Bun's listening sockets, and a sessiond respawned
+  by a serving daemon then held :4711 after that daemon died, so no later daemon could
+  bind); a
   plain terminal is PowerShell (`pwsh`, else `powershell`, else cmd.exe) with no `-l`; a
   `claude.cmd` twin of the PATH shim serves PowerShell/cmd while the sh one serves Git
   Bash; hooks and the status line are `node henry-hook.mjs <Event>` (Claude Code runs
@@ -151,7 +155,10 @@ the design changes; do not let it drift into a changelog.
   replace `\` and `:`; a terminal shown again asks the daemon for a redraw
   (`pty:resize` with `redraw`), which a POSIX pty gets as a one-row shrink and restore and
   ConPTY as one plain resize, since it repaints on every resize and garbles a TUI on a
-  shrink (sessiond drops same-size resizes for the same reason). In the browser, Ctrl takes ⌘'s letters and digits, Alt takes the
+  shrink (sessiond drops same-size resizes for the same reason); the daemon turns raw SO/SI
+  bytes in ConPTY output into spaces, since ConPTY counts them as printed cells and xterm.js
+  does not, which otherwise puts the first character typed after a resize one column left
+  (Claude Code sends SI on that key). In the browser, Ctrl takes ⌘'s letters and digits, Alt takes the
   arrows (Ctrl+arrows are the terminal's) and Alt+N opens the picker (Chrome reserves
   Ctrl+N); duplicate is Ctrl+Shift+D. Tauri builds the platform's own bundles; the menu
   bar is macOS-only, and in the Windows shell Ctrl+N and Ctrl+Shift+R (reset layout) are
