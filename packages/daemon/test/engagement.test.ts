@@ -6,7 +6,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { HenryEvent, Session } from "@henry/shared";
-import { stopSessiond } from "./sessiond-helper";
+import { rmScratch, stopSessiond } from "./sessiond-helper";
 
 const scratch = mkdtempSync(join(tmpdir(), "henry-engagement-"));
 process.env.HENRY_HOME = join(scratch, "home");
@@ -46,7 +46,7 @@ const hook = (sessionId: string, hookEvent: string, ts: number): HenryEvent => (
 
 afterAll(async () => {
   await stopSessiond(join(scratch, "home"));
-  rmSync(scratch, { recursive: true, force: true });
+  await rmScratch(scratch);
 });
 
 describe("engagement", () => {

@@ -37,6 +37,11 @@ session, so the goal is that it changes twice a year. Rules:
   logs and stays (SIGKILL is the override). `SIGINT` (foreground only) hangs up every
   session and exits. Uncaught errors go to `<HENRY_HOME>/sessiond.log`, never take the
   process down. A client disconnecting never affects a session.
+- On Windows the PTYs are ConPTY (the one built into Windows; node-pty's bundled
+  `useConptyDll` was tried and changes nothing that matters here) and node-pty refuses a
+  signal name, so `kill` (any signal) terminates the process instead. Otherwise nothing is
+  platform-specific: the launcher is started with `--experimental-strip-types` (a no-op on
+  Node ≥ 22.18) and `windowsHide`, so no console window appears for the detached process.
 - `henry sessiond status` shows the file, whether it answers, and versions.
   `henry sessiond restart` asks it to exit once every session has ended (the daemon
   spawns a fresh one on its next connect); `--now` hangs up every session and exits.
@@ -56,7 +61,7 @@ Client -> server:
 | `spawn` | `id, command, args, cwd, env, cols, rows` | start a PTY; replies `spawned {id,pid}` or `error {id}` |
 | `write` | `id, data` | keyboard input |
 | `resize` | `id, cols, rows` | latest wins |
-| `kill` | `id, signal?` | running: send signal (default SIGHUP); exited: forget it |
+| `kill` | `id, signal?` | running: send signal (default SIGHUP; Windows: terminate); exited: forget it |
 | `attach` | `id` | subscribe; server sends `scrollback {id,data}` then live `data` (and `exit` if already exited) |
 | `detach` | `id` | unsubscribe |
 | `list` | | replies `sessions` |

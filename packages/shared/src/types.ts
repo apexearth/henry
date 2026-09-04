@@ -245,7 +245,7 @@ export const DEFAULT_CONFIG: HenryConfig = {
 /** True when the rail should present this session as Claude Code (vs a plain terminal). */
 export function isClaudeSession(s: Pick<Session, "kind" | "command" | "claudeActive">): boolean {
   // Rows from before `kind` existed: judge by the command (the smoke test's /bin/sh is a shell).
-  const kind = s.kind ?? (s.command && s.command !== "external" && !/(^|\/)claude$/.test(s.command) ? "shell" : "claude");
+  const kind = s.kind ?? (s.command && s.command !== "external" && !/(^|[\\/])claude(\.(exe|cmd|bat))?$/i.test(s.command) ? "shell" : "claude");
   return kind === "shell" ? !!s.claudeActive : true;
 }
 

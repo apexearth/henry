@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { ChangedFile } from "@henry/shared";
 import { openPeek } from "./FileView";
 import { splitPath, useSessionFiles } from "./files";
+import { joinPath } from "./platform";
 import { hueText, nameHue } from "./theme";
 import { useStore } from "./ws";
 
@@ -31,8 +32,8 @@ export function FilesSection() {
               const gone = f.status === "D";
               return (
                 <div key={f.path} className={"rail-item file" + (gone ? " off" : "")}
-                  title={`${STATUS_TEXT[f.status]}${f.from ? ` from ${f.from}` : ""}\n${r.path}/${f.path}`}
-                  onClick={() => !gone && openPeek(`${r.path}/${f.path}`)}>
+                  title={`${STATUS_TEXT[f.status]}${f.from ? ` from ${f.from}` : ""}\n${joinPath(r.path, f.path)}`}
+                  onClick={() => !gone && openPeek(joinPath(r.path, f.path))}>
                   <span className={"fstat s-" + f.status}>{f.status}</span>
                   <span className="title">{name}</span>
                   {dir && <span className="sub">{dir}</span>}

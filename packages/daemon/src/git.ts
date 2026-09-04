@@ -9,9 +9,10 @@
 // Broadcasting goes through an injected function (setBroadcast) so this module can be
 // imported by tests without starting the server. server.ts wires it in startServer().
 import { existsSync, readFileSync, readdirSync, statSync, realpathSync, watch, type FSWatcher } from "node:fs";
-import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import type { ChangedFile, FileDiff, HenryEvent, RepoPickerEntry, RepoState, ServerMessage, SessionFiles } from "@henry/shared";
 import * as db from "./db";
+import { isWindows } from "./platform";
 import * as rules from "./rules";
 
 // ---- constants ----
@@ -168,6 +169,19 @@ function infoFromGitEntry(root: string, gitEntry: string): RepoInfo | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * `abs` inside the checkout at `root`, in git's own form (forward slashes), or undefined when
+ * it lies outside. Separators and (on Windows) letter case are normalised first, since paths
+ * reach here from hooks, the UI and git itself in whatever shape each of them uses.
+ */
+export function relIn(root: string, abs: string): string | undefined {
+  const a = resolve(abs);
+  const head = a.slice(0, root.length);
+  const same = isWindows ? head.toLowerCase() === root.toLowerCase() : head === root;
+  if (!same || a.length <= root.length || (a[root.length] !== sep && a[root.length] !== "/")) return undefined;
+  return a.slice(root.length + 1).split(sep).join("/");
 }
 
 /** Walk up from `absPath` to the nearest checkout. Cached per directory. */
@@ -733,8 +747,8 @@ export async function listFiles(anyPath: string): Promise<string[]> {
  */
 export async function fileDiff(sessionId: string | undefined, absPath: string): Promise<FileDiff | undefined> {
   const info = resolveRepo(absPath);
-  if (!info || !absPath.startsWith(info.path + "/")) return undefined;
-  const rel = absPath.slice(info.path.length + 1);
+  const rel = info && relIn(info.path, absPath);
+  if (!info || rel === undefined) return undefined;
   const baseline = sessionId ? await baselineFor(sessionId, info) : (await run(info.path, ["rev-parse", "HEAD"])).out.trim();
   if (!baseline) return { baseline: "", diff: "" };
   const tracked = await run(info.path, ["diff", "--no-color", "--no-ext-diff", baseline, "--", rel], { maxBytes: DIFF_CAP_BYTES });

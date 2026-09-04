@@ -2,14 +2,13 @@ import { useEffect, useState } from "react";
 import { isClaudeSession, type Session, type SessionActivity } from "@henry/shared";
 import { FilesSection } from "./RailFiles";
 import { RepoPicker } from "./RepoPicker";
+import { MOD, baseName, isMac } from "./platform";
 import { inShell, onMenu } from "./shell";
 import { hueText, nameHue } from "./theme";
 import { showSession } from "./dock";
 import { activeRowIndex, duplicateSession, killSession, railGroups, railRows, resumeSession, setActive, setGroupBy, toggleShowClosed, useStore, type GroupBy } from "./ws";
 
-function base(p: string) {
-  return p.replace(/\/+$/, "").split("/").pop() || p;
-}
+const base = baseName;
 
 /** Clawd in twelve pixels: body, two eyes, two legs. Solid while running, an outline once exited. */
 function ClaudeMark({ on, activity }: { on: boolean; activity?: SessionActivity }) {
@@ -119,15 +118,17 @@ export function Rail() {
   // In the native shell the File menu owns ⌘N / ⌘D and calls us through onMenu. In a browser tab
   // Chrome keeps ⌘N for itself (new window) and never delivers it, so ⌃N is the one that fires.
   // ⌘D (bookmark) is overridable, so it works in both. ⌃D is EOF in the terminal: never bound.
+  // Off macOS Chrome reserves Ctrl+N too, so Alt+N opens the picker there, and Ctrl+Shift+D duplicates.
   useEffect(() => onMenu("new-session", () => setPicker(true)), []);
   useEffect(() => onMenu("duplicate-session", duplicateSession), []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.altKey || e.shiftKey) return;
-      if ((e.metaKey || e.ctrlKey) && (e.key === "n" || e.key === "N")) {
+      const n = e.key === "n" || e.key === "N";
+      const d = e.key === "d" || e.key === "D";
+      if (n && !e.shiftKey && ((e.metaKey || e.ctrlKey) && !e.altKey || (!isMac && e.altKey && !e.ctrlKey && !e.metaKey))) {
         e.preventDefault();
         setPicker(true);
-      } else if (e.metaKey && !e.ctrlKey && (e.key === "d" || e.key === "D")) {
+      } else if (d && !e.altKey && (isMac ? e.metaKey && !e.ctrlKey && !e.shiftKey : e.ctrlKey && e.shiftKey && !e.metaKey)) {
         e.preventDefault();
         duplicateSession();
       }
@@ -180,7 +181,7 @@ export function Rail() {
               const fade = neglect(s, now);
               return (
                 <div key={g.key + "\n" + s.id} className={"rail-item" + mark + (on ? "" : " off") + (fade ? " neglect-" + fade : "")} onClick={() => { setActive(s.id, g.key); showSession(s.id); }}
-                  title={`${what}, ${state}${on && s.activity ? ` — ${ACTIVITY_TEXT[s.activity]}${ago && s.activity === "working" ? ` for ${ago}` : ""}` : ""}${yours}\n${s.cwd}${s.peer ? `\non ${s.peer} (remote, via its own Henry daemon)` : s.host ? `\non ${s.host}` : ""}${i >= 0 && i < 9 ? `\n⌘${i + 1}` : ""}`}>
+                  title={`${what}, ${state}${on && s.activity ? ` — ${ACTIVITY_TEXT[s.activity]}${ago && s.activity === "working" ? ` for ${ago}` : ""}` : ""}${yours}\n${s.cwd}${s.peer ? `\non ${s.peer} (remote, via its own Henry daemon)` : s.host ? `\non ${s.host}` : ""}${i >= 0 && i < 9 ? `\n${MOD}${i + 1}` : ""}`}>
                   {on && claude && <Spark prompts={s.prompts} now={now} />}
                   {claude ? <ClaudeMark on={on} activity={on ? s.activity : undefined} /> : <ShellMark on={on} />}
                   <span className="title">{s.title}</span>
@@ -202,7 +203,7 @@ export function Rail() {
       </div>
       <FilesSection />
       <div className="rail-new-wrap">
-        <button className="rail-new" title={`new session (${inShell ? "⌘N" : "⌃N"})`} onClick={() => setPicker(true)}>+ new session</button>
+        <button className="rail-new" title={`new session (${isMac ? (inShell ? "⌘N" : "⌃N") : inShell ? "Ctrl+N" : "Alt+N"})`} onClick={() => setPicker(true)}>+ new session</button>
       </div>
       <div className="rail-foot">
         <span title={`${working} working`}>

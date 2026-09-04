@@ -73,6 +73,14 @@ await waitFor("carried-over totals", () => db.listSessionUsage()[sid]?.inputToke
 
 transcript.stopTailing(sid);
 assert(!transcript.isTailing(sid), "isTailing after stop");
-rmSync(home, { recursive: true, force: true });
+// Windows releases a closed fs.watch handle a moment later; the directory is busy until then.
+for (let i = 0; i < 20; i++) {
+  try {
+    rmSync(home, { recursive: true, force: true });
+    break;
+  } catch {
+    await Bun.sleep(100);
+  }
+}
 console.log("TAIL PASS");
 process.exit(0);

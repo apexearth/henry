@@ -47,6 +47,12 @@ function fixSpawnHelper(): void {
   }
 }
 
+// node-pty on Windows rejects a signal argument outright (ConPTY has no signals to deliver;
+// the process is terminated instead). Elsewhere the signal goes through as asked.
+function hangup(term: pty.IPty, signal?: string): void {
+  if (process.platform === "win32") term.kill();
+  else term.kill(signal);
+}
 // ---- sessions ----
 
 interface Conn {
@@ -174,7 +180,7 @@ function handle(conn: Conn, msg: ClientMessage): void {
       if (s.term) {
         log(`session ${msg.id}: ${msg.signal ?? "SIGHUP"}`);
         try {
-          s.term.kill(msg.signal);
+          hangup(s.term, msg.signal);
         } catch (e) {
           send(conn, { op: "error", id: msg.id, message: `kill failed: ${(e as Error).message}` });
         }
@@ -201,7 +207,7 @@ function handle(conn: Conn, msg: ClientMessage): void {
         log("shutdown now: hanging up every running session");
         for (const x of sessions.values()) {
           try {
-            x.term?.kill("SIGHUP");
+            if (x.term) hangup(x.term, "SIGHUP");
           } catch {}
         }
         setTimeout(() => exit(0), 150);
@@ -325,8 +331,10 @@ async function main(): Promise<void> {
     // Double fork. The daemon that starts us runs under `bun --watch`, which reloads in
     // place and keeps its pid, so a direct child it stops tracking would linger as a
     // zombie after exit. This short-lived process is reaped at once; the real sessiond
-    // is its detached child and gets reparented to init/launchd.
-    const child = spawnProcess(process.execPath, [process.argv[1]!], { detached: true, stdio: "ignore", env: process.env });
+    // is its detached child and gets reparented to init/launchd. execArgv carries the
+    // type-stripping flag on Node versions that need it; windowsHide keeps Windows from
+    // opening a console window for the detached child.
+    const child = spawnProcess(process.execPath, [...process.execArgv, process.argv[1]!], { detached: true, stdio: "ignore", env: process.env, windowsHide: true });
     child.unref();
     process.exit(0);
   }
@@ -377,7 +385,7 @@ process.on("SIGINT", () => {
   log("SIGINT: hanging up every running session");
   for (const s of sessions.values()) {
     try {
-      s.term?.kill("SIGHUP");
+      if (s.term) hangup(s.term, "SIGHUP");
     } catch {}
   }
   setTimeout(() => exit(0), 150);

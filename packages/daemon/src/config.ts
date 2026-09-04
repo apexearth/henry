@@ -2,13 +2,14 @@ import { existsSync, mkdirSync, readFileSync, watch, writeFileSync } from "node:
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { DEFAULT_CONFIG, type HenryConfig } from "@henry/shared";
+import { expandTilde } from "./platform";
 
 /** ~/.henry (override with HENRY_HOME, used by tests to stay out of the real one). */
 export const henryDir = process.env.HENRY_HOME ? resolve(process.env.HENRY_HOME) : join(homedir(), ".henry");
 export const configPath = join(henryDir, "config.json");
 
 export function expandHome(p: string): string {
-  return p === "~" ? homedir() : p.startsWith("~/") ? join(homedir(), p.slice(2)) : p;
+  return expandTilde(p, homedir());
 }
 
 /** The user's own config.json, or {} when absent or unparsable. */

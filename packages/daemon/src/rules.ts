@@ -8,10 +8,11 @@
 // Adding a rule = one entry in RULES here + one entry in packages/shared/src/rules-catalog.ts.
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { RULE_CATALOG, explainRule, rulesWithConfig, type HenryConfig, type HenryEvent, type RuleInfo, type Severity, type Session } from "@henry/shared";
 import { config, expandHome } from "./config";
 import * as git from "./git";
+import { isWindows } from "./platform";
 import { sessions } from "./sessions";
 
 export interface Classification {
@@ -706,7 +707,7 @@ function gitDirOf(root: string): string | undefined {
  */
 function repoIdentity(root: string): string {
   const gd = gitDirOf(root);
-  const m = gd ? /^(.*)\/\.git\/worktrees\/[^/]+$/.exec(gd) : null;
+  const m = gd ? /^(.*)[\\/]\.git[\\/]worktrees[\\/][^\\/]+$/.exec(gd) : null;
   return realpath(m ? m[1] : root);
 }
 
@@ -760,9 +761,9 @@ function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
+/** Absolute and normalised: on Windows a `C:/x` from a bash command becomes `C:\x`. */
 function resolveDir(p: string): string {
-  const x = expandHome(p);
-  return isAbsolute(x) ? x : resolve(x);
+  return resolve(expandHome(p));
 }
 
 function stripSlash(p: string): string {
@@ -771,7 +772,10 @@ function stripSlash(p: string): string {
 
 function isUnder(path: string, dir: string): boolean {
   if (!dir) return false;
-  return path === dir || path.startsWith(dir.endsWith(sep) ? dir : dir + sep);
+  // Windows paths compare case-insensitively, and a POSIX-rooted "/dev" or "/tmp" (what a
+  // Git Bash command says) is taken on the current drive.
+  const [p, d] = isWindows ? [path.toLowerCase(), resolve(dir).toLowerCase()] : [path, dir];
+  return p === d || p.startsWith(d.endsWith(sep) ? d : d + sep);
 }
 
 function uniq<T>(xs: T[]): T[] {

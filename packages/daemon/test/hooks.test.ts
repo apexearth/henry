@@ -6,7 +6,8 @@ import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync,
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ClientMessage, HenryEvent, ServerMessage, StateSnapshot } from "@henry/shared";
-import { stopSessiond } from "./sessiond-helper";
+import { rmScratch, stopSessiond } from "./sessiond-helper";
+import { isWindows, testShell } from "./shell";
 
 const PORT = 47200 + Math.floor(Math.random() * 300);
 const home = mkdtempSync(join(tmpdir(), "henry-hooks-"));
@@ -43,7 +44,7 @@ const events = (session?: string) => fetch(`${base}/api/events${session ? `?sess
 
 const CLAUDE_ID = "11111111-2222-4333-8444-555555555555";
 const cwd = join(home, "repo");
-const transcriptPath = join(claudeDir, "projects", cwd.replace(/[/.]/g, "-"), `${CLAUDE_ID}.jsonl`);
+const transcriptPath = join(claudeDir, "projects", cwd.replace(/[/\\:.]/g, "-"), `${CLAUDE_ID}.jsonl`);
 
 const hookPayload = (hook_event_name: string, extra: Record<string, unknown> = {}) => ({
   session_id: CLAUDE_ID,
@@ -90,14 +91,14 @@ afterAll(async () => {
   daemon?.kill();
   await daemon?.exited;
   await stopSessiond(home);
-  rmSync(home, { recursive: true, force: true });
+  await rmScratch(home);
 });
 
 describe("hook ingest", () => {
   let sessionId: string;
 
   test("PTY session binds to Claude's session_id from the first hook", async () => {
-    sendMsg({ type: "session:create", cwd, title: "hooks-test", command: "/bin/sh", args: [], requestId: "r1" });
+    sendMsg({ type: "session:create", cwd, title: "hooks-test", command: testShell.command, args: testShell.args, requestId: "r1" });
     sessionId = (await next("session:update", (m) => m.requestId === "r1")).session.id;
 
     const res = await post("/hook", { henrySession: sessionId, henryHookEvent: "SessionStart", payload: hookPayload("SessionStart", { source: "startup" }) });
@@ -110,7 +111,7 @@ describe("hook ingest", () => {
   });
 
   test("a shell session turns into a Claude session while claude posts hooks from it", async () => {
-    sendMsg({ type: "session:create", cwd, kind: "shell", command: "/bin/sh", args: [], requestId: "r-shell" });
+    sendMsg({ type: "session:create", cwd, kind: "shell", command: testShell.command, args: testShell.args, requestId: "r-shell" });
     const created = (await next("session:update", (m) => m.requestId === "r-shell")).session;
     expect(created.kind).toBe("shell");
     expect(created.claudeActive).toBeUndefined();
@@ -119,17 +120,21 @@ describe("hook ingest", () => {
     // The shell's PATH starts with Henry's shim dir, so a typed `claude` carries the launch settings.
     sendMsg({ type: "attach", sessionId: created.id });
     await next("pty:scrollback", (m) => m.sessionId === created.id);
-    sendMsg({ type: "pty:input", sessionId: created.id, data: "echo PATH=$PATH; command -v claude; echo HC=$HENRY_CLAUDE\r" });
+    const probe = isWindows
+      ? 'echo "PATH=$env:Path"; (Get-Command claude).Source; echo "HC=$env:HENRY_CLAUDE"\r'
+      : "echo PATH=$PATH; command -v claude; echo HC=$HENRY_CLAUDE\r";
+    sendMsg({ type: "pty:input", sessionId: created.id, data: probe });
     let out = "";
     await waitFor("shell PATH echo", () => {
       for (const m of inbox.splice(0)) if (m.type === "pty:data" && m.sessionId === created.id) out += m.data;
-      return out.includes("HC=") || undefined;
+      return /HC=[^\r\n]*[\r\n]/.test(out) || undefined;
     });
-    expect(out).toContain(`PATH=${join(home, "bin")}:`);
-    expect(out).toContain(join(home, "bin", "claude"));
-    const shim = readFileSync(join(home, "bin", "claude"), "utf8");
+    const shimFile = isWindows ? "claude.cmd" : "claude";
+    expect(out).toContain(`PATH=${join(home, "bin")}${isWindows ? ";" : ":"}`);
+    expect(out).toContain(join(home, "bin", shimFile));
+    const shim = readFileSync(join(home, "bin", shimFile), "utf8");
     expect(shim).toContain("--settings");
-    expect(statSync(join(home, "bin", "claude")).mode & 0o111).toBeTruthy();
+    if (!isWindows) expect(statSync(join(home, "bin", "claude")).mode & 0o111).toBeTruthy();
 
     const inner = "cccccccc-dddd-4eee-8fff-000000000001";
     await post("/hook", { henrySession: created.id, henryHookEvent: "SessionStart", payload: { ...hookPayload("SessionStart", { source: "startup" }), session_id: inner } });
@@ -152,15 +157,22 @@ describe("hook ingest", () => {
   });
 
   test("the terminal title becomes the session title; closing an exited session dismisses it for good", async () => {
-    sendMsg({ type: "session:create", cwd, kind: "shell", command: "/bin/sh", args: [], requestId: "r-title" });
+    sendMsg({ type: "session:create", cwd, kind: "shell", command: testShell.command, args: testShell.args, requestId: "r-title" });
     const created = (await next("session:update", (m) => m.requestId === "r-title")).session;
     expect(created.title).toBe("repo");
     sendMsg({ type: "attach", sessionId: created.id });
     await next("pty:scrollback", (m) => m.sessionId === created.id);
-    // OSC 0 with BEL, then OSC 2 with ST split across two writes; a leading status glyph is dropped.
-    sendMsg({ type: "pty:input", sessionId: created.id, data: "printf '\\033]0;\\342\\234\\263 Rail fixes\\007'\r" });
-    await next("session:update", (m) => m.session.id === created.id && m.session.title === "Rail fixes");
-    sendMsg({ type: "pty:input", sessionId: created.id, data: "printf '\\033]2;Second'; sleep 0.3; printf ' half\\033\\\\'\r" });
+    if (isWindows) {
+      // ConPTY re-emits console title changes as OSC sequences of its own; a split one cannot be staged from here.
+      sendMsg({ type: "pty:input", sessionId: created.id, data: '$host.UI.RawUI.WindowTitle = "$([char]0x2733) Rail fixes"\r' });
+      await next("session:update", (m) => m.session.id === created.id && m.session.title === "Rail fixes");
+      sendMsg({ type: "pty:input", sessionId: created.id, data: '$host.UI.RawUI.WindowTitle = "Second half"\r' });
+    } else {
+      // OSC 0 with BEL, then OSC 2 with ST split across two writes; a leading status glyph is dropped.
+      sendMsg({ type: "pty:input", sessionId: created.id, data: "printf '\\033]0;\\342\\234\\263 Rail fixes\\007'\r" });
+      await next("session:update", (m) => m.session.id === created.id && m.session.title === "Rail fixes");
+      sendMsg({ type: "pty:input", sessionId: created.id, data: "printf '\\033]2;Second'; sleep 0.3; printf ' half\\033\\\\'\r" });
+    }
     await next("session:update", (m) => m.session.id === created.id && m.session.title === "Second half");
     expect((await state()).sessions.find((s) => s.id === created.id)?.title).toBe("Second half");
 

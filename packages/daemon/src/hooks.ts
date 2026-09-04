@@ -4,6 +4,7 @@
 // kicks the overseer, feeds git.noteSessionPath, and drives the transcript tailer. Statusline
 // payloads become the 5h/7d Usage snapshot. Neither entry point throws: the HTTP handlers
 // must answer fast and Claude Code must never see a failing hook.
+import { homedir } from "node:os";
 import { basename, isAbsolute, resolve } from "node:path";
 import type { Flag, HenryEvent, RateWindow, Session, Usage } from "@henry/shared";
 import * as activity from "./activity";
@@ -168,7 +169,7 @@ function resolveSession(henrySession: string | undefined, claudeId: string | und
   const rowLive = row && sessions.get(row.id);
   if (rowLive && rowLive.status === "running") return rowLive;
 
-  const dir = cwd || process.env.HOME || "/";
+  const dir = cwd || homedir();
   const external: Session = {
     id: crypto.randomUUID(),
     claudeSessionId: claudeId,
@@ -190,7 +191,7 @@ function notePaths(session: Session, cwd: string | undefined, toolInput: unknown
   if (isObj(toolInput)) {
     for (const key of ["file_path", "path", "notebook_path"]) {
       const p = str(toolInput[key]);
-      if (p) paths.add(isAbsolute(p) ? p : resolve(base || "/", p));
+      if (p) paths.add(isAbsolute(p) ? p : resolve(base || homedir(), p));
     }
   }
   for (const p of paths) {
@@ -213,8 +214,9 @@ const clip = (s: string, n: number) => {
   return one.length > n ? one.slice(0, n - 1) + "…" : one;
 };
 
+/** Summaries show paths under the cwd relative to it, with forward slashes whatever the OS. */
 function relPath(p: string, cwd?: string): string {
-  if (cwd && p.startsWith(cwd + "/")) return p.slice(cwd.length + 1);
+  if (cwd && (p.startsWith(cwd + "/") || p.startsWith(cwd + "\\"))) return p.slice(cwd.length + 1).replace(/\\/g, "/");
   return p;
 }
 

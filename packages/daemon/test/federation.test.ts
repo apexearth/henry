@@ -8,6 +8,7 @@ import { join } from "node:path";
 import type { ClientMessage, FederationStatus, ServerMessage, StateSnapshot } from "@henry/shared";
 import { Channel, Handshake, fingerprint, newIdentity, newPairingCode, normalizeCode, proofsEqual, signTranscript, verifyTranscript } from "../src/fed-crypto";
 import { stopSessiond, waitFor } from "./sessiond-helper";
+import { echoExpr, isWindows, testShell } from "./shell";
 
 describe("fed-crypto", () => {
   const a = newIdentity();
@@ -193,7 +194,8 @@ describe("two daemons", () => {
     expect(sb.listening).toEqual({ address: "127.0.0.1", port: beta.fedPort });
     expect(sa.fingerprint).not.toBe(sb.fingerprint);
     expect(sa.peers).toEqual([]);
-    expect(statSync(join(alpha.home, "federation.json")).mode & 0o777).toBe(0o600);
+    // Windows has no POSIX mode bits to check.
+    if (process.platform !== "win32") expect(statSync(join(alpha.home, "federation.json")).mode & 0o777).toBe(0o600);
     const s = await state(alpha);
     expect(s.host).toBe("alpha");
     expect(s.peers).toEqual([]);
@@ -237,7 +239,7 @@ describe("two daemons", () => {
 
   test("a session on beta shows up in alpha tagged with the peer, and its terminal works through alpha", async () => {
     const wb = await new Win().open(beta);
-    wb.send({ type: "session:create", cwd: beta.home, title: "on-beta", command: "/bin/sh", args: [], requestId: "b1" });
+    wb.send({ type: "session:create", cwd: beta.home, title: "on-beta", command: testShell.command, args: testShell.args, requestId: "b1" });
     const created = await wb.next("session:update", (m) => m.requestId === "b1");
     betaSession = created.session.id;
     expect(created.session.peer).toBeUndefined();
@@ -256,9 +258,10 @@ describe("two daemons", () => {
     const sb = await wa.next("pty:scrollback", (m) => m.sessionId === betaSession);
     expect(typeof sb.data).toBe("string");
     wa.send({ type: "pty:resize", sessionId: betaSession, cols: 90, rows: 24 });
-    wa.send({ type: "pty:input", sessionId: betaSession, data: "echo fed-$((40+2)); stty size\r" });
+    wa.send({ type: "pty:input", sessionId: betaSession, data: echoExpr("fed", "40+2") });
     await wa.seen(betaSession, "fed-42");
-    await wa.seen(betaSession, "24 90");
+    wa.send({ type: "pty:input", sessionId: betaSession, data: isWindows ? 'echo "size=$($host.UI.RawUI.WindowSize.Height) $($host.UI.RawUI.WindowSize.Width)"\r' : "echo size=$(stty size)\r" });
+    await wa.seen(betaSession, "size=24 90");
 
     // A second window attaching gets its own scrollback with the echo in it.
     const wa2 = await new Win().open(alpha);
@@ -267,7 +270,7 @@ describe("two daemons", () => {
     expect(sb2.data).toContain("fed-42");
     wa2.send({ type: "detach", sessionId: betaSession });
     // The first window still streams after the second detached.
-    wa.send({ type: "pty:input", sessionId: betaSession, data: "echo still-$((1+1))\r" });
+    wa.send({ type: "pty:input", sessionId: betaSession, data: echoExpr("still", "1+1") });
     await wa.seen(betaSession, "still-2");
     wa2.close();
     wa.close();

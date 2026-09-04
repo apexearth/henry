@@ -12,6 +12,7 @@ import type { Session, SessionKind } from "@henry/shared";
 import { config, henryDir } from "./config";
 import * as db from "./db";
 import { writeLaunchBin, writeLaunchSettings } from "./installer";
+import { defaultShell, expandTilde, prependPath, programName, resolveClaude, spawnSpec } from "./platform";
 import { SessiondClient, type SessionSummary } from "./sessiond-client";
 
 export interface CreateOptions {
@@ -212,15 +213,15 @@ class SessionManager extends EventEmitter<SessionEvents> {
     await this.start();
     if (!this.client.connected) await this.client.connect();
     const id = crypto.randomUUID();
-    const cwd = opts.cwd.replace(/^~(?=\/|$)/, homedir());
-    const command = opts.command ?? (opts.kind === "shell" ? resolveShell() : resolveClaude());
-    const isClaude = basename(command) === "claude";
+    const cwd = expandTilde(opts.cwd, homedir());
+    const shell = !opts.command && opts.kind === "shell" ? defaultShell() : undefined;
+    const command = opts.command ?? shell?.command ?? resolveClaude();
+    const isClaude = programName(command) === "claude";
     const kind: SessionKind = opts.kind ?? (isClaude ? "claude" : "shell");
     // Henry-launched claude: pin its session id to ours (no hook round-trip needed to
     // bind) and layer Henry's hooks + statusline on top of the user's settings.
     const claudeId = opts.resume ?? id;
-    const args =
-      opts.args ?? (isClaude ? [opts.resume ? "--resume" : "--session-id", claudeId, "--settings", writeLaunchSettings(henryDir)] : kind === "shell" && !opts.command ? ["-l"] : []);
+    const args = opts.args ?? (isClaude ? [opts.resume ? "--resume" : "--session-id", claudeId, "--settings", writeLaunchSettings(henryDir)] : shell?.args ?? []);
     const session: Session = {
       id,
       claudeSessionId: isClaude && !opts.args ? claudeId : undefined,
@@ -247,10 +248,11 @@ class SessionManager extends EventEmitter<SessionEvents> {
       // A `claude` typed into this shell goes through Henry's shim, which adds the launch
       // settings; its first hook (HENRY_SESSION) then marks the terminal as running Claude.
       writeLaunchSettings(henryDir);
-      env.PATH = `${writeLaunchBin(henryDir)}:${env.PATH ?? "/usr/local/bin:/usr/bin:/bin"}`;
+      prependPath(env, writeLaunchBin(henryDir));
       env.HENRY_CLAUDE = resolveClaude();
     }
-    this.client.send({ op: "spawn", id, command, args, cwd, env, cols: opts.cols ?? 120, rows: opts.rows ?? 36 });
+    const spec = spawnSpec(command, args);
+    this.client.send({ op: "spawn", id, command: spec.command, args: spec.args, cwd, env, cols: opts.cols ?? 120, rows: opts.rows ?? 36 });
     this.client.send({ op: "attach", id });
     this.emit("update", session);
     return session;
@@ -305,7 +307,7 @@ class SessionManager extends EventEmitter<SessionEvents> {
     const buf = (tail ?? "") + data;
     let title: string | undefined;
     for (const m of buf.matchAll(OSC_TITLE)) title = m[1];
-    if (title !== undefined) this.setTitle(id, title.replace(LEADING_GLYPH, ""));
+    if (title !== undefined && !EXE_TITLE.test(title)) this.setTitle(id, title.replace(LEADING_GLYPH, ""));
     const start = buf.lastIndexOf("\x1b]");
     const rest = start >= 0 ? buf.slice(start) : "";
     if (rest && !OSC_END.test(rest)) this.titleTail.set(id, rest.slice(0, 1024));
@@ -394,15 +396,10 @@ class SessionManager extends EventEmitter<SessionEvents> {
 
 const OSC_TITLE = /\x1b\](?:0|2);([^\x07\x1b]*)(?:\x07|\x1b\\)/g;
 const OSC_END = /\x07|\x1b\\/;
+/** ConPTY announces the console's default title, the shell's own path ("C:\...\powershell.exe",
+ * "Administrator: C:\...\cmd.exe - node x.js"), as an OSC 0. That is no name for a tab. */
+const EXE_TITLE = /^(?:administrator:\s*)?[a-z]:\\[^\r\n]*?\.exe(?:\s|$)/i;
 /** Claude Code prefixes its title with a status glyph (✳ idle, ◔◑◕ spinner, braille); the rail has its own icon. */
 const LEADING_GLYPH = /^[\u2190-\u21ff\u2500-\u27bf\u2800-\u28ff\u2b00-\u2bff\u{1f300}-\u{1faff}]\ufe0f?\s*/u;
-
-function resolveClaude(): string {
-  return Bun.which("claude") ?? "claude";
-}
-
-function resolveShell(): string {
-  return process.env.SHELL || "/bin/zsh";
-}
 
 export const sessions = new SessionManager();

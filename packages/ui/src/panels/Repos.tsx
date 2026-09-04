@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import type { RepoState, Session } from "@henry/shared";
 import { DiffView } from "../DiffView";
+import { baseName } from "../platform";
 import { diffKey, requestDiff, useStore } from "../ws";
 import { hueText, nameHue } from "../theme";
 
@@ -117,7 +118,7 @@ function RepoCard({ sessionId, repo, diff, onRequestDiff }: CardProps) {
         <span className="rc-name" style={{ color: hueText(nameHue(repo.name)) }} title={repo.path}>{repo.name}</span>
         {repo.isWorktree && (
           <span className="rc-wt" title={repo.worktreeOf ?? "worktree"}>
-            worktree{repo.worktreeOf ? ` of ${repo.worktreeOf.split("/").pop()}` : ""}
+            worktree{repo.worktreeOf ? ` of ${baseName(repo.worktreeOf)}` : ""}
           </span>
         )}
         <span className="rc-spacer" />

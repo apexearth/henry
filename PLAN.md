@@ -134,6 +134,19 @@ the design changes; do not let it drift into a changelog.
 - **The overseer runs once per real turn.** Stops with `stop_hook_active` (Claude sent
   back by another Stop hook) are ignored, and Stop-triggered runs for one session are
   at least `overseer.stopMinIntervalSec` (60) apart. Flags still run immediately.
+- **Windows is a first-class host, with the same three processes.** The platform switches
+  live in one daemon module (`platform.ts`) and one function in sessiond; everything else
+  goes through Node's path/os modules. What differs: sessiond runs PTYs on ConPTY and
+  node-pty there rejects signals, so `kill` terminates instead of delivering SIGHUP; a
+  plain terminal is PowerShell (`pwsh`, else `powershell`, else cmd.exe) with no `-l`; a
+  `claude.cmd` twin of the PATH shim serves PowerShell/cmd while the sh one serves Git
+  Bash; hooks and the status line are `node henry-hook.mjs <Event>` (Claude Code runs
+  hooks under Git Bash or PowerShell on Windows, neither of which has curl for sure),
+  written with forward slashes since Git Bash eats backslashes; transcript slugs also
+  replace `\` and `:`. In the browser, Ctrl takes ⌘'s letters and digits, Alt takes the
+  arrows (Ctrl+arrows are the terminal's) and Alt+N opens the picker (Chrome reserves
+  Ctrl+N); duplicate is Ctrl+Shift+D. Tauri builds the platform's own bundles; the
+  application menu is macOS-only.
 
 ## Federation: sessions on other machines
 
@@ -285,8 +298,9 @@ henry/
       src/engagement.ts        # my prompts + keystrokes per session: lastInputAt, prompt sparkline
       src/overseer.ts          # playbook writer (api | claude-cli backend)
       src/installer.ts         # settings.json merge/unmerge
-      hooks/henry-hook.sh      # tiny script installed into settings.json
-      hooks/henry-statusline.sh
+      src/platform.ts          # the Windows switches: default shell, .cmd spawning, PATH key, shims
+      hooks/henry-hook.sh      # tiny script installed into settings.json (henry-hook.mjs on Windows)
+      hooks/henry-statusline.sh  # (henry-statusline.mjs on Windows)
     sessiond/                  # henry-sessiond: owns the PTYs, outlives the daemon (Node, node-pty only)
       src/main.ts              # TCP server, spawn/attach/kill, 2MB scrollback ring, drain/shutdown
       src/protocol.ts          # wire types, PROTOCOL_VERSION; the daemon imports this file

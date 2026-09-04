@@ -6,16 +6,19 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { HenryConfig, HenryEvent } from "@henry/shared";
-import { stopSessiond } from "./sessiond-helper";
+import { rmScratch, stopSessiond } from "./sessiond-helper";
 
 const scratch = mkdtempSync(join(tmpdir(), "henry-rules-"));
 process.env.HENRY_HOME = join(scratch, "home");
 process.env.HENRY_PORT = "0";
 
-const reposRoot = join(scratch, "code");
-const repoA = join(reposRoot, "alpha");
-const repoB = join(reposRoot, "beta");
-const outside = join(scratch, "elsewhere");
+// The shell commands below quote these paths: on Windows they carry forward slashes, as a
+// command typed into Git Bash (Claude Code's Bash tool there) would. join() still works on them.
+const shellish = (p: string) => (process.platform === "win32" ? p.replace(/\\/g, "/") : p);
+const reposRoot = shellish(join(scratch, "code"));
+const repoA = shellish(join(reposRoot, "alpha"));
+const repoB = shellish(join(reposRoot, "beta"));
+const outside = shellish(join(scratch, "elsewhere"));
 
 // Imported after HENRY_HOME is set (static imports would hoist above the assignment).
 const rules = await import("../src/rules");
@@ -76,7 +79,11 @@ beforeAll(() => {
 
 afterAll(async () => {
   await stopSessiond(join(scratch, "home"));
-  rmSync(scratch, { recursive: true, force: true });
+  try {
+    await rmScratch(scratch);
+  } catch {
+    // Windows: config.ts still watches HENRY_HOME in this process, which pins the directory.
+  }
 });
 
 beforeEach(() => rules.resetState());

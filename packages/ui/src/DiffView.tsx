@@ -3,6 +3,7 @@
 // files) start collapsed so a big diff does not freeze the panel.
 import { useMemo, useState } from "react";
 import { openPeek } from "./FileView";
+import { isMac, joinPath } from "./platform";
 
 export interface DiffViewProps {
   repoPath: string;
@@ -207,8 +208,8 @@ function FileBlock({ file, open, onToggle, split, repoPath }: { file: DiffFile; 
     <div className={`df ${open ? "open" : ""}`}>
       <div className="df-head" onClick={onToggle} title={open ? "collapse" : "expand"}>
         <span className="df-caret">{open ? "▾" : "▸"}</span>
-        <span className="df-path" title="⌘-click to peek at the file"
-          onClick={(e) => { if (!e.metaKey && !e.ctrlKey) return; e.stopPropagation(); openPeek(`${repoPath}/${file.newPath || file.oldPath}`); }}>{fileTitle(file)}</span>
+        <span className="df-path" title={`${isMac ? "⌘" : "Ctrl"}-click to peek at the file`}
+          onClick={(e) => { if (!e.metaKey && !e.ctrlKey) return; e.stopPropagation(); openPeek(joinPath(repoPath, file.newPath || file.oldPath)); }}>{fileTitle(file)}</span>
         {label && <span className={`df-status df-${file.status}`}>{label}</span>}
         <span className="df-counts">
           {file.adds > 0 && <span className="df-adds">+{file.adds}</span>}

@@ -6,7 +6,8 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ClientMessage, ServerMessage, StateSnapshot } from "@henry/shared";
-import { pidAlive, readSessiondInfo, stopSessiond, waitFor } from "./sessiond-helper";
+import { pidAlive, readSessiondInfo, rmScratch, stopSessiond, waitFor } from "./sessiond-helper";
+import { deadCommand, echoExpr, echoPid, isWindows, testShell } from "./shell";
 
 const home = mkdtempSync(join(tmpdir(), "henry-survival-"));
 const cwd = mkdtempSync(join(home, "cwd-"));
@@ -112,7 +113,7 @@ afterAll(async () => {
     } catch {}
   }
   await stopSessiond(home);
-  rmSync(home, { recursive: true, force: true });
+  await rmScratch(home);
 });
 
 describe("sessiond survival", () => {
@@ -134,14 +135,14 @@ describe("sessiond survival", () => {
 
   test("a shell session echoes its pid and the daemon records it", async () => {
     const w = await new Win().open(a);
-    w.send({ type: "session:create", cwd, title: "survive", command: "/bin/sh", args: [], requestId: "r1" });
+    w.send({ type: "session:create", cwd, title: "survive", command: testShell.command, args: testShell.args, requestId: "r1" });
     const created = await w.next("session:update", (m) => m.requestId === "r1");
     sessionId = created.session.id;
     expect(created.session.status).toBe("running");
     expect(created.session.host).toBeTruthy();
     w.send({ type: "attach", sessionId });
     await w.next("pty:scrollback", (m) => m.sessionId === sessionId);
-    w.send({ type: "pty:input", sessionId, data: "echo alive-$$\r" });
+    w.send({ type: "pty:input", sessionId, data: echoPid("alive") });
     const m = await w.seen(sessionId, /alive-(\d+)/);
     shPid = Number(m[1]);
     expect(shPid).toBeGreaterThan(0);
@@ -152,7 +153,8 @@ describe("sessiond survival", () => {
 
   test("SIGTERM to the daemon leaves the shell and sessiond running", async () => {
     const code = await a.stop();
-    expect(code).toBe(0);
+    // Windows has no SIGTERM: kill() terminates the daemon outright, with a nonzero code.
+    if (!isWindows) expect(code).toBe(0);
     expect(pidAlive(shPid)).toBe(true);
     expect(pidAlive(sessiondPid)).toBe(true);
     expect(readSessiondInfo(home)?.pid).toBe(sessiondPid);
@@ -178,10 +180,10 @@ describe("sessiond survival", () => {
     expect(sb2.data).toContain(`alive-${shPid}`);
 
     // Two attached windows both get live output, from input sent by either.
-    w1.send({ type: "pty:input", sessionId, data: "echo again-$((6*7))\r" });
+    w1.send({ type: "pty:input", sessionId, data: echoExpr("again", "6*7") });
     await w1.seen(sessionId, "again-42");
     await w2.seen(sessionId, "again-42");
-    w2.send({ type: "pty:input", sessionId, data: "echo more-$((6*8))\r" });
+    w2.send({ type: "pty:input", sessionId, data: echoExpr("more", "6*8") });
     await w1.seen(sessionId, "more-48");
     await w2.seen(sessionId, "more-48");
 
@@ -216,11 +218,11 @@ describe("sessiond survival", () => {
     expect(existsSync(join(home, "sessiond.json"))).toBe(false);
     // The daemon notices and, on its next need, starts a fresh one.
     const w = await new Win().open(b);
-    w.send({ type: "session:create", cwd, title: "after-restart", command: "/bin/sh", args: [], requestId: "r2" });
+    w.send({ type: "session:create", cwd, title: "after-restart", command: testShell.command, args: testShell.args, requestId: "r2" });
     const created = await w.next("session:update", (m) => m.requestId === "r2", 15000);
     w.send({ type: "attach", sessionId: created.session.id });
     await w.next("pty:scrollback", (m) => m.sessionId === created.session.id);
-    w.send({ type: "pty:input", sessionId: created.session.id, data: "echo fresh-$((1+1))\r" });
+    w.send({ type: "pty:input", sessionId: created.session.id, data: echoExpr("fresh", "1+1") });
     await w.seen(created.session.id, "fresh-2");
     const info = readSessiondInfo(home);
     expect(info).toBeDefined();
@@ -234,7 +236,7 @@ describe("sessiond survival", () => {
   }, 40000);
 
   test("a stale sessiond.json (dead pid) is replaced", async () => {
-    const dead = Bun.spawn(["/bin/sh", "-c", "true"]);
+    const dead = Bun.spawn(deadCommand, { stdout: "ignore", stderr: "ignore" });
     await dead.exited;
     expect(pidAlive(dead.pid)).toBe(false);
     writeFileSync(join(home, "sessiond.json"), JSON.stringify({ port: 1, token: "stale", pid: dead.pid, protocolVersion: 1, startedAt: 0 }));

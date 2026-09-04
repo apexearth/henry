@@ -39,7 +39,7 @@ export function readPeek(raw: string, cwd?: string): FilePeek | undefined {
   return {
     path,
     repoPath: repo?.path,
-    rel: repo && path.startsWith(repo.path + "/") ? path.slice(repo.path.length + 1) : undefined,
+    rel: repo ? git.relIn(repo.path, path) : undefined,
     size,
     truncated: size > n,
     binary,

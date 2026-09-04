@@ -1,23 +1,26 @@
 // Topbar "keys" modal: every shortcut Henry binds, in one place. The bindings live in
 // App.tsx, Rail.tsx, Terminal.tsx, the pickers and the shell menu; keep this list in step.
 import { useEffect } from "react";
+import { ARROW_MOD, MOD, isMac } from "./platform";
 import { inShell } from "./shell";
 
 type Key = [keys: string[], what: string];
 
 // ⌘N and ⌘⇧R are reserved by Chrome in a browser tab (new window, reload); the shell's menu owns them.
+// Off macOS the same shortcuts sit on Ctrl (letters, digits) and Alt (arrows, N); see platform.ts.
+const SHIFT_R = isMac ? "⌘⇧R" : "Ctrl+Shift+R";
 const SECTIONS: [string, Key[]][] = [
   ["sessions", [
-    [["⌘1…9", "⌃1…9"], "switch to the nth session in rail order"],
-    [["⌘↑", "⌘↓"], "previous / next session in the rail, wrapping"],
-    [[inShell ? "⌘N" : "⌃N"], "new session (the + new session picker)"],
-    [["⌘D"], "duplicate the session in view: same kind, same folder"],
+    [isMac ? ["⌘1…9", "⌃1…9"] : ["Ctrl+1…9"], "switch to the nth session in rail order"],
+    [[`${ARROW_MOD}↑`, `${ARROW_MOD}↓`], "previous / next session in the rail, wrapping"],
+    [[isMac ? (inShell ? "⌘N" : "⌃N") : inShell ? "Ctrl+N" : "Alt+N"], "new session (the + new session picker)"],
+    [[isMac ? "⌘D" : "Ctrl+Shift+D"], "duplicate the session in view: same kind, same folder"],
     [["⇧↩"], "newline in Claude Code's prompt instead of sending"],
   ]],
   ["files", [
-    [["⌘K", "⌃K"], "find a file to peek at (⌃K stays kill-line in the terminal)"],
-    [["⌘ click"], "peek at a path in terminal output or a diff header"],
-    [["⌘←", "⌘→"], "walk the stage: the session, then its peeks"],
+    [isMac ? ["⌘K", "⌃K"] : ["Ctrl+K"], isMac ? "find a file to peek at (⌃K stays kill-line in the terminal)" : "find a file to peek at (outside the terminal, where it is kill-line)"],
+    [[isMac ? "⌘ click" : "Ctrl click"], "peek at a path in terminal output or a diff header"],
+    [[`${ARROW_MOD}←`, `${ARROW_MOD}→`], "walk the stage: the session, then its peeks"],
     [["esc"], "close the peek in view, or the dialog that is open"],
   ]],
   ["pickers", [
@@ -26,8 +29,8 @@ const SECTIONS: [string, Key[]][] = [
     [["esc"], "close"],
   ]],
   ["window", [
-    [["⌘/"], "this list"],
-    ...(inShell ? [[["⌘⇧R"], "reset layout: rail | terminals | tools"], [["⌘R"], "reload"]] as Key[] : []),
+    [[`${MOD}/`], "this list"],
+    ...(inShell ? [[[SHIFT_R], "reset layout: rail | terminals | tools"], [[`${MOD}R`], "reload"]] as Key[] : []),
   ]],
 ];
 
@@ -62,7 +65,9 @@ export function Keys({ onClose }: { onClose: () => void }) {
           ))}
         </div>
         <div className="foot hint">
-          <span>{inShell ? "native window: ⌘N and ⌘⇧R come from the menu" : "browser tab: Chrome keeps ⌘N and ⌘⇧R, so ⌃N and the reset layout button stand in"}</span>
+          <span>{inShell
+            ? `native window: ${MOD}N and ${SHIFT_R} come from the menu`
+            : `browser tab: Chrome keeps ${MOD}N and ${SHIFT_R}, so ${isMac ? "⌃N" : "Alt+N"} and the reset layout button stand in`}</span>
           <span>Esc to close</span>
         </div>
       </div>

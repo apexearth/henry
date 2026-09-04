@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
@@ -9,7 +10,7 @@ export default defineConfig({
   // Henry is a local tool: ui/dist is what the daemon serves day to day, so keep it readable
   // (the build script's NODE_ENV=development also keeps React's full error messages).
   build: { minify: false, sourcemap: true },
-  resolve: { alias: { "@henry/shared": new URL("../shared/src/index.ts", import.meta.url).pathname } },
+  resolve: { alias: { "@henry/shared": fileURLToPath(new URL("../shared/src/index.ts", import.meta.url)) } },
   server: {
     host: "127.0.0.1",
     port: 5173,

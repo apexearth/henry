@@ -1,6 +1,7 @@
 // WebSocket client + tiny store (useSyncExternalStore). PTY traffic bypasses React state:
 // Terminal components subscribe per session via subscribePty.
 import { useSyncExternalStore } from "react";
+import { baseName } from "./platform";
 import { nameHue } from "./theme";
 import { isClaudeSession, type ClientMessage, type Flag, type HenryConfig, type HenryEvent, type PeerStatus, type PlaybookEntry, type RepoState, type ServerMessage, type Session, type SessionKind, type Usage } from "@henry/shared";
 
@@ -311,9 +312,7 @@ function attentionGroups(order: Session[]): RailGroup[] {
   return groups;
 }
 
-function basename(p: string): string {
-  return p.replace(/\/+$/, "").split("/").pop() || p;
-}
+const basename = baseName;
 
 // Memoised on its inputs: useSyncExternalStore needs the same array back until something
 // changes, or React sees an ever-new snapshot and throws "maximum update depth exceeded".

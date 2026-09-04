@@ -6,6 +6,7 @@ import { parseDiff } from "./DiffView";
 import { closePeek, filePanelId, peekFile } from "./dock";
 import { noteRecent } from "./files";
 import { highlightLines } from "./highlight";
+import { baseName } from "./platform";
 import { getState } from "./ws";
 
 /** `path:line[:col]` → parts. Windows-style drive letters aren't a concern here. */
@@ -145,7 +146,7 @@ export function FileView({ path, line, active }: Props) {
         <span className="peek-path" title={path}>
           {shown.dir}<b>{shown.name}</b>
         </span>
-        {peek?.repoPath && <span className="peek-meta" style={{ marginLeft: 0 }}>{peek.repoPath.split("/").pop()}</span>}
+        {peek?.repoPath && <span className="peek-meta" style={{ marginLeft: 0 }}>{baseName(peek.repoPath)}</span>}
         {tint && (
           <span className="peek-meta peek-diffstat" style={{ marginLeft: 0 }} title={`vs baseline ${fd?.baseline.slice(0, 7)}`}>
             {tint.adds.size > 0 && <span className="a">+{tint.adds.size}</span>}

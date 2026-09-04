@@ -57,8 +57,8 @@ Henry hosts get `~/.henry/bin/claude` first on PATH, a shim that adds Henry's la
 settings (hooks + statusline) so no `henry install` is needed for it. Subcommands such as
 `claude mcp ...` pass through the shim untouched.
 
-Smoke test (boots a throwaway daemon, drives it over WebSocket with `/bin/sh` in place
-of `claude`):
+Smoke test (boots a throwaway daemon, drives it over WebSocket with `/bin/sh`, or PowerShell
+on Windows, in place of `claude`):
 
 ```sh
 bun run smoke
@@ -140,9 +140,33 @@ shell, SIGTERM the daemon, start another one, find the same shell running with i
 
 ## Requirements
 
-- bun ≥ 1.3 (daemon runtime, `bun:sqlite`, `Bun.serve` WebSockets)
-- node ≥ 22 on `PATH` (runs sessiond, see below)
+- bun ≥ 1.2 (daemon runtime, `bun:sqlite`, `Bun.serve` WebSockets)
+- node ≥ 22.6 on `PATH` (runs sessiond, see below; also the hook scripts on Windows)
 - `claude` on `PATH`
+- git on `PATH`
+
+## Windows
+
+Henry runs natively on Windows (no WSL): the same daemon, sessiond on ConPTY, the same UI.
+`bun run dev`, `bun run build`, `bun run test` and `bun run smoke` work from PowerShell or
+Git Bash. What is different:
+
+- A plain terminal is PowerShell (`pwsh` if installed, else Windows PowerShell; cmd.exe only
+  when neither exists), not `$SHELL -l`. Typing `claude` in it still goes through Henry's shim
+  (`~/.henry/bin/claude.cmd`; a Git Bash terminal uses the sh shim next to it).
+- `henry install` writes `node <repo>/packages/daemon/hooks/henry-hook.mjs <Event>` (and the
+  statusline twin) into settings.json, since Claude Code on Windows runs hooks under Git Bash
+  or PowerShell and neither is guaranteed curl. Paths are written with forward slashes on
+  purpose: Git Bash strips unquoted backslashes.
+- Shortcuts in a browser tab: `Ctrl+1..9` pick a tab, `Alt+↑/↓` step through the rail, `Alt+←/→`
+  walk the stage, `Alt+N` opens "+ new" (Chrome reserves `Ctrl+N`), `Ctrl+Shift+D` duplicates,
+  `Ctrl+K` finds a file (outside the terminal), `Ctrl+/` lists every shortcut. In the native window `Ctrl+N` is File > New Session.
+- Closing a session terminates it (ConPTY has no SIGHUP to send); `henry sessiond restart
+  --now` does the same to every session.
+- `bun run app` needs a Rust toolchain and WebView2 (preinstalled on Windows 10/11);
+  `bun run app:bundle` writes an NSIS installer and an MSI.
+- `federation.listen: "tailscale"` finds the Tailscale adapter the same way; Windows Firewall
+  may ask once about port 4712.
 
 ## sessiond, node-pty and Bun
 
@@ -155,7 +179,8 @@ So the PTYs live in `henry-sessiond` (`packages/sessiond`, Node, node-pty is its
 dependency), which doubles as the thing that keeps sessions alive across daemon restarts.
 The daemon (`packages/daemon/src/sessiond-client.ts`, driven by `sessions.ts`) reads
 `sessiond.json`, connects with the token, and on a missing, stale or unresponsive file
-starts `node packages/sessiond/src/main.ts --daemon` and waits for a fresh file. On start
+starts `node --experimental-strip-types packages/sessiond/src/main.ts --daemon` (the flag is
+a no-op on Node ≥ 22.18, where types are stripped by default) and waits for a fresh file. On start
 the daemon reconciles: sessions sessiond still holds are running in the rail (attached, with
 scrollback fetched from sessiond on every window attach); sessions from the last 24h that
 sessiond does not have come back as exited with a note. Stopping the daemon never stops

@@ -22,6 +22,9 @@ Read `PLAN.md` first; it is the design contract. `README.md` covers running and 
   `pkill -f` by pattern has killed the user's session once. Don't.
 - Never edit `~/.claude/settings.json`; `henry install` is the user's explicit action.
 - Observe and flag, never block. Rules must not return hook denies.
+- Henry runs on macOS and Windows. Platform switches go in `packages/daemon/src/platform.ts`
+  (and `hangup` in sessiond); everywhere else use `node:path`, never `"/"` string joins, and
+  never assume `/bin/sh`, `$HOME`, `$SHELL` or POSIX mode bits.
 - The overseer never reads source code or diffs, only summaries.
 - Update `PLAN.md` when a design decision changes. It is not a changelog.
 

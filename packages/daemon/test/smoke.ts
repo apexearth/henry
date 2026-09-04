@@ -1,10 +1,11 @@
 // Smoke test: boots a daemon on a scratch port/home, creates a shell session over WS,
 // sends input, checks the echo, kills the session. Run: bun run smoke
 import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ClientMessage, ServerMessage } from "@henry/shared";
 import { stopSessiond } from "./sessiond-helper";
+import { echoExpr, testShell } from "./shell";
 
 const PORT = 47110 + Math.floor(Math.random() * 100);
 const home = mkdtempSync(join(tmpdir(), "henry-smoke-"));
@@ -65,7 +66,7 @@ const next = <T extends ServerMessage["type"]>(type: T, pred: (m: Extract<Server
 const state = await next("state");
 log("initial state:", state.sessions.length, "sessions; defaultRepo =", state.config.defaultRepo);
 
-sendMsg({ type: "session:create", cwd: process.env.HOME!, title: "smoke", command: "/bin/sh", args: [], requestId: "r1" });
+sendMsg({ type: "session:create", cwd: homedir(), title: "smoke", command: testShell.command, args: testShell.args, requestId: "r1" });
 const created = await next("session:update", (m) => m.requestId === "r1");
 const id = created.session.id;
 log("created session", id, "status", created.session.status, "cmd", created.session.command);
@@ -75,7 +76,7 @@ const sb = await next("pty:scrollback", (m) => m.sessionId === id);
 log("scrollback bytes:", sb.data.length);
 
 sendMsg({ type: "pty:resize", sessionId: id, cols: 100, rows: 30 });
-sendMsg({ type: "pty:input", sessionId: id, data: "echo smoke-$((40+2))\r" });
+sendMsg({ type: "pty:input", sessionId: id, data: echoExpr("smoke", "40+2") });
 let seen = "";
 await waitFor("pty:data containing smoke-42", () => {
   for (const m of inbox.splice(0)) if (m.type === "pty:data" && m.sessionId === id) seen += m.data;

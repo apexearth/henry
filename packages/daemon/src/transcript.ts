@@ -42,9 +42,10 @@ export function claudeConfigDir(): string {
   return process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
 }
 
-/** Claude Code's project slug: the absolute cwd with "/" and "." replaced by "-". */
+/** Claude Code's project slug: the absolute cwd with "/" and "." (and on Windows "\" and ":")
+ * replaced by "-", so `C:\Users\me\code\app` is `C--Users-me-code-app`. */
 export function projectSlug(cwd: string): string {
-  return cwd.replace(/[/.]/g, "-");
+  return cwd.replace(/[/\\:.]/g, "-");
 }
 
 export function transcriptPathFor(cwd: string, claudeSessionId: string): string {

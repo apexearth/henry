@@ -3,6 +3,7 @@
 // a typed path offers both.
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { RepoPickerEntry, SessionKind } from "@henry/shared";
+import { baseName } from "./platform";
 import { hueText, nameHue } from "./theme";
 import { createSession, useStore } from "./ws";
 
@@ -17,9 +18,7 @@ interface Row {
   search: string;
 }
 
-function base(p: string) {
-  return p.replace(/\/+$/, "").split("/").pop() || p;
-}
+const base = baseName;
 
 function labelOf(r: RepoPickerEntry) {
   return r.name + (r.isWorktree ? " (worktree)" : r.folder ? " (folder)" : "");
@@ -32,8 +31,8 @@ function searchOf(r: RepoPickerEntry) {
 function buildRows(repos: RepoPickerEntry[], preferred: string, query: string): Row[] {
   const rows: Row[] = [];
   const q = query.trim();
-  // A typed path (absolute or ~) is offered as-is, ahead of the repo list.
-  if (/^[~/]/.test(q)) {
+  // A typed path (absolute, `C:\`, or ~) is offered as-is, ahead of the repo list.
+  if (/^(~|[\\/]|[A-Za-z]:[\\/])/.test(q)) {
     rows.push({ key: `claude:${q}`, kind: "claude", path: q, label: base(q), name: base(q), search: `claude ${q}` });
     rows.push({ key: `shell:${q}`, kind: "shell", path: q, label: base(q), name: base(q), search: `terminal shell $ ${q}` });
   }

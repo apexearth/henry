@@ -12,6 +12,7 @@ import type { Flag, HenryEvent, PlaybookEntry, PlaybookTrigger, RepoState, Serve
 import { config } from "./config";
 import * as db from "./db";
 import * as git from "./git";
+import { resolveClaude, spawnSpec } from "./platform";
 
 // ---- public types ----
 
@@ -551,7 +552,6 @@ function getNeutralDir(): string {
  * stripped so nothing loops back into Henry, and HENRY_OVERSEER=1 marks the process.
  */
 async function claudeCliBackend(req: BackendRequest, signal: AbortSignal): Promise<string | undefined> {
-  const bin = Bun.which("claude") ?? "claude";
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
   delete env.HENRY_SESSION;
@@ -562,7 +562,8 @@ async function claudeCliBackend(req: BackendRequest, signal: AbortSignal): Promi
     "-p", "--safe-mode", "--tools", "", "--no-session-persistence", "--output-format", "text",
     "--model", req.model, "--effort", "low", "--system-prompt", req.system,
   ];
-  const proc = Bun.spawn([bin, ...args], { cwd: getNeutralDir(), env, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  const spec = spawnSpec(resolveClaude(), args);
+  const proc = Bun.spawn([spec.command, ...spec.args], { cwd: getNeutralDir(), env, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
   const onAbort = () => proc.kill();
   signal.addEventListener("abort", onAbort, { once: true });
   try {

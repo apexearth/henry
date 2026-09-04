@@ -70,6 +70,23 @@ export function dialSessiond(info: SessiondInfo, timeoutMs = 2000): Promise<{ se
 }
 
 /**
+ * Remove a scratch tree. On Windows a directory stays busy for a moment after the handles on
+ * it close (config.ts watches HENRY_HOME in-process; sessiond just exited), so retry, then
+ * let a leftover temp dir be rather than fail the run.
+ */
+export async function rmScratch(dir: string): Promise<void> {
+  const { rmSync } = await import("node:fs");
+  for (let i = 0; i < 20; i++) {
+    try {
+      rmSync(dir, { recursive: true, force: true });
+      return;
+    } catch {
+      await Bun.sleep(100);
+    }
+  }
+}
+
+/**
  * Stop the sessiond recorded in <home>/sessiond.json: `shutdown now`, wait for its pid to
  * go, SIGKILL as a last resort (it is ours: it lives under a scratch home). No-op when
  * there is none. Returns true if a sessiond was found.

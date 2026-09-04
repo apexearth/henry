@@ -6,6 +6,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { isClaudeSession } from "@henry/shared";
 import { getState, send, subscribePty, useStore } from "./ws";
 import { openPeek, splitLineRef } from "./FileView";
+import { arrowMod, isMac, mod } from "./platform";
 import { cssVar, onTheme, xtermTheme } from "./theme";
 
 interface Props {
@@ -16,9 +17,10 @@ interface Props {
   focused: boolean;
 }
 
-// Something with a slash in it, or a bare `name.ext`, optionally followed by `:line[:col]`.
-// Loose on purpose: a ⌘-click on a non-file simply finds nothing.
-const PATH_RE = /(?<![\w@:/.-])(?:~\/|\.{1,2}\/|\/)?[\w.@+-]+(?:\/[\w.@+-]+)+(?::\d+(?::\d+)?)?|(?<![\w@:/.-])[\w@+-]+(?:\.[\w@+-]+)*\.[A-Za-z]{2,5}(?::\d+(?::\d+)?)?/g;
+// Something with a slash (or, for Windows, a backslash or drive letter) in it, or a bare
+// `name.ext`, optionally followed by `:line[:col]`. Loose on purpose: a ⌘-click on a non-file
+// simply finds nothing.
+const PATH_RE = /(?<![\w@:/.\\-])(?:[A-Za-z]:)?(?:~[\\/]|\.{1,2}[\\/]|[\\/])?[\w.@+-]+(?:[\\/][\w.@+-]+)+(?::\d+(?::\d+)?)?|(?<![\w@:/.\\-])[\w@+-]+(?:\.[\w@+-]+)*\.[A-Za-z]{2,5}(?::\d+(?::\d+)?)?/g;
 // Terminal-to-host reports: DA1/DA2/DSR/CPR, DECRQM, OSC and DCS replies, focus events.
 const REPORT_RE = /^\x1b(\[[?>]?[\d;]*[cRn]|\[\?[\d;]*\$y|\][^\x07\x1b]*(\x07|\x1b\\)|P[^\x1b]*\x1b\\|\[[IO])/;
 
@@ -51,9 +53,12 @@ export function TerminalView({ sessionId, visible, focused }: Props) {
       console.warn("[henry] WebGL renderer unavailable, using DOM renderer", e);
     }
     t.attachCustomKeyEventHandler((ev) => {
-      // The window-level handlers own Cmd/Ctrl+1..9, Cmd+arrows, Cmd+K and Cmd+/ (App.tsx) and Cmd/Ctrl+N (Rail.tsx).
-      if ((ev.metaKey || ev.ctrlKey) && !ev.altKey && !ev.shiftKey && (ev.key === "n" || ev.key === "N")) return false;
-      if ((ev.metaKey || ev.ctrlKey) && !ev.altKey && (/^[1-9]$/.test(ev.key) || (ev.metaKey && (ev.key.startsWith("Arrow") || ev.key === "k" || ev.key === "K" || ev.key === "/")))) return false;
+      // The window-level handlers own Cmd/Ctrl+1..9, Cmd+arrows, Cmd+K and Cmd+/ (App.tsx) and
+      // Cmd/Ctrl+N (Rail.tsx); off macOS the arrows and N sit on Alt and / on Ctrl instead.
+      const n = ev.key === "n" || ev.key === "N";
+      if (n && !ev.shiftKey && ((ev.metaKey || ev.ctrlKey) && !ev.altKey || (!isMac && ev.altKey && !ev.ctrlKey))) return false;
+      if ((ev.metaKey || ev.ctrlKey) && !ev.altKey && (/^[1-9]$/.test(ev.key) || (ev.metaKey && (ev.key === "k" || ev.key === "K")) || (mod(ev) && ev.key === "/"))) return false;
+      if (arrowMod(ev) && !ev.ctrlKey && ev.key.startsWith("Arrow")) return false;
       // Shift+Enter inserts a newline in Claude Code's prompt: send ESC CR, the sequence its own
       // /terminal-setup binds. Plain shells keep a normal Enter. keypress must be swallowed too or
       // xterm still emits "\r" from it.

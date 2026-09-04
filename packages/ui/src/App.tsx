@@ -7,6 +7,7 @@ import { Layout } from "./Layout";
 import { Setup } from "./Setup";
 import { Keys } from "./Keys";
 import { closePeek, getDockApi, isFilePanel, resetLayout, showSession, stageStep } from "./dock";
+import { MOD, arrowMod, isMac, mod } from "./platform";
 import { onMenu } from "./shell";
 import { activeRowIndex, railRows, setActive, useStore, type RailRow } from "./ws";
 
@@ -37,21 +38,23 @@ export function App() {
         }
         return;
       }
-      if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
-      // ⌘/ lists the shortcuts.
-      if (e.metaKey && !e.ctrlKey && e.key === "/") {
+      // macOS: ⌘ (or Ctrl) plus a key. Elsewhere the Windows key is the OS's, so Ctrl takes the
+      // letters and digits and Alt takes the arrows (Ctrl+arrows are the terminal's).
+      if (isMac ? !(e.metaKey || e.ctrlKey) || e.altKey : !(e.ctrlKey || e.altKey) || e.metaKey) return;
+      // ⌘/ (Ctrl+/ off macOS) lists the shortcuts.
+      if (mod(e) && !e.altKey && !e.shiftKey && e.key === "/") {
         e.preventDefault();
         setKeys((v) => !v);
         return;
       }
       // ⌘K finds a file to peek at. ⌃K too, except in the terminal where it is kill-line.
-      if ((e.key === "k" || e.key === "K") && !e.shiftKey && (e.metaKey || !(e.target as HTMLElement | null)?.closest?.(".xterm"))) {
+      if ((e.key === "k" || e.key === "K") && !e.shiftKey && !e.altKey && (e.metaKey || !(e.target as HTMLElement | null)?.closest?.(".xterm"))) {
         e.preventDefault();
         setFinder((v) => !v);
         return;
       }
-      // Cmd+←/→ walk the stage: the session, then its peeks.
-      if (e.metaKey && !e.ctrlKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+      // Cmd+←/→ (Alt+←/→ off macOS) walk the stage: the session, then its peeks.
+      if (arrowMod(e) && !e.ctrlKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
         e.preventDefault();
         stageStep(e.key === "ArrowLeft" ? -1 : 1);
         return;
@@ -59,10 +62,10 @@ export function App() {
       const rows = railRows();
       let r: RailRow | undefined;
       // Cmd+N is reserved by Chrome on macOS (browser tab switch); Ctrl+N works there. Both are bound.
-      if (/^[1-9]$/.test(e.key)) r = rows[Number(e.key) - 1];
-      // Cmd+↑/↓ step through the rail's rows, wrapping, from the row you are on (a session
-      // listed under several repos is several rows). Ctrl+↑/↓ stay with the terminal.
-      else if (e.metaKey && (e.key === "ArrowUp" || e.key === "ArrowDown") && rows.length) {
+      if ((e.metaKey || e.ctrlKey) && /^[1-9]$/.test(e.key)) r = rows[Number(e.key) - 1];
+      // Cmd+↑/↓ (Alt+↑/↓ off macOS) step through the rail's rows, wrapping, from the row you are
+      // on (a session listed under several repos is several rows). Ctrl+↑/↓ stay with the terminal.
+      else if (arrowMod(e) && (e.key === "ArrowUp" || e.key === "ArrowDown") && rows.length) {
         const i = activeRowIndex();
         r = rows[(i + (e.key === "ArrowUp" ? -1 : 1) + rows.length) % rows.length];
       }
@@ -89,7 +92,7 @@ export function App() {
         )}
         <RemotesMenu />
         <ThemeMenu />
-        <button className="topbar-btn" onClick={() => setKeys(true)} title="keyboard shortcuts (⌘/)">keys</button>
+        <button className="topbar-btn" onClick={() => setKeys(true)} title={`keyboard shortcuts (${MOD}/)`}>keys</button>
         <button className="topbar-btn" onClick={resetLayout} title="back to rail | terminals | tools">reset layout</button>
       </div>
       <Layout />

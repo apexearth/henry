@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync, appendFile
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { HenryEvent, RepoState, ServerMessage } from "@henry/shared";
-import { stopSessiond } from "./sessiond-helper";
+import { rmScratch, stopSessiond } from "./sessiond-helper";
 
 const tmp = realpathSync(mkdtempSync(join(tmpdir(), "henry-git-test-")));
 const home = join(tmp, "home");
@@ -82,7 +82,7 @@ beforeAll(async () => {
 afterAll(async () => {
   git?.stop();
   await stopSessiond(home);
-  rmSync(tmp, { recursive: true, force: true });
+  await rmScratch(tmp);
 });
 
 describe("git", () => {

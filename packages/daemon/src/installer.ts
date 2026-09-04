@@ -6,6 +6,7 @@ import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFile
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { config } from "./config";
+import { isWindows, slashes } from "./platform";
 
 export const HOOK_EVENTS = [
   "PreToolUse",
@@ -20,8 +21,10 @@ export const HOOK_EVENTS = [
   "PermissionRequest",
 ] as const;
 
-const HOOK_SCRIPT = "henry-hook.sh";
-const STATUS_SCRIPT = "henry-statusline.sh";
+// Two twins per script: sh + curl where Claude Code runs hooks through `sh -c`, a Node script
+// on Windows, where the hook runs under Git Bash or PowerShell and only `node` is a given.
+const HOOK_SCRIPT = isWindows ? "henry-hook.mjs" : "henry-hook.sh";
+const STATUS_SCRIPT = isWindows ? "henry-statusline.mjs" : "henry-statusline.sh";
 const PREVIOUS_KEY = "_henryPreviousStatusLine";
 
 type Dict = Record<string, unknown>;
@@ -48,13 +51,22 @@ export const hooksDir = resolve(import.meta.dir, "../hooks");
 export const hookScript = join(hooksDir, HOOK_SCRIPT);
 export const statusScript = join(hooksDir, STATUS_SCRIPT);
 
-/** Shell-quote a path only when it needs it, so the common case stays readable in settings.json. */
+/**
+ * Quote a path only when it needs it, so the common case stays readable in settings.json.
+ * Windows paths are written with forward slashes and double quotes: Git Bash eats unquoted
+ * backslashes, and both it and PowerShell accept the result.
+ */
 function q(p: string): string {
+  if (isWindows) {
+    const s = slashes(p);
+    return /[\s'"$`]/.test(s) ? `"${s}"` : s;
+  }
   return /[\s'"$`\\]/.test(p) ? `'${p.replace(/'/g, `'\\''`)}'` : p;
 }
 
-export const hookCommand = (event: string) => `${q(hookScript)} ${event}`;
-export const statusCommand = () => q(statusScript);
+const runner = isWindows ? "node " : "";
+export const hookCommand = (event: string) => `${runner}${q(hookScript)} ${event}`;
+export const statusCommand = () => `${runner}${q(statusScript)}`;
 
 function readSettings(path: string): Dict {
   if (!existsSync(path)) return {};
@@ -70,8 +82,9 @@ function writeSettings(path: string, settings: Dict): void {
   writeFileSync(path, JSON.stringify(settings, null, 2) + "\n");
 }
 
-const isHenryHook = (h: unknown) => isObj(h) && typeof h.command === "string" && h.command.includes(HOOK_SCRIPT);
-const isHenryStatus = (s: unknown) => isObj(s) && typeof s.command === "string" && s.command.includes(STATUS_SCRIPT);
+// Either twin counts as Henry's, so a settings file that moved between machines is still recognised.
+const isHenryHook = (h: unknown) => isObj(h) && typeof h.command === "string" && h.command.includes("henry-hook.");
+const isHenryStatus = (s: unknown) => isObj(s) && typeof s.command === "string" && s.command.includes("henry-statusline.");
 
 function entriesFor(settings: Dict, event: string): HookEntry[] {
   const hooks = isObj(settings.hooks) ? settings.hooks : undefined;
@@ -101,16 +114,51 @@ export function writeLaunchSettings(dir: string): string {
   return path;
 }
 
+/** Subcommands that reject root options such as --settings; the shim passes them through untouched. */
+const PASSTHROUGH = ["mcp", "plugin", "install", "update", "upgrade", "doctor", "auth", "login", "logout", "config", "agents", "setup-token", "migrate-installer", "remote-control", "rc", "help"];
+
 /**
  * `<dir>/bin/claude`: a PATH shim for the shells Henry hosts. A `claude` typed into one
  * gets Henry's launch settings (hooks + statusline) exactly like a Henry-launched Claude
  * session, so the rail can tell the terminal now runs Claude without `henry install`.
  * Subcommands (`claude mcp ...`) reject root options, so those pass through untouched.
+ * On Windows a `claude.cmd` twin covers PowerShell and cmd.exe (the sh one serves Git Bash).
  * Returns the bin directory to prepend to PATH.
  */
 export function writeLaunchBin(dir: string): string {
   const bin = join(dir, "bin");
   mkdirSync(bin, { recursive: true });
+  if (isWindows) {
+    writeFileSync(
+      join(bin, "claude.cmd"),
+      `@echo off\r
+rem Henry's PATH shim (written by the daemon; safe to delete). Runs the real claude with\r
+rem Henry's launch settings so hooks reach the daemon that hosts this terminal.\r
+setlocal\r
+set "self=%~dp0"\r
+set "real=%HENRY_CLAUDE%"\r
+if "%real%"=="" goto find\r
+if /i "%real%"=="%self%claude.cmd" goto find\r
+if exist "%real%" goto run\r
+:find\r
+for %%i in (claude.exe claude.cmd claude.bat) do (\r
+  for %%j in ("%%~$PATH:i") do if not "%%~j"=="" if /i not "%%~dpj"=="%self%" (\r
+    set "real=%%~j"\r
+    goto run\r
+  )\r
+)\r
+echo henry: claude not found on PATH 1>&2\r
+exit /b 127\r
+:run\r
+for %%s in (${PASSTHROUGH.join(" ")}) do if /i "%~1"=="%%s" (\r
+  "%real%" %*\r
+  exit /b %errorlevel%\r
+)\r
+"%real%" --settings "%self%..\\launch-settings.json" %*\r
+exit /b %errorlevel%\r
+`,
+    );
+  }
   const shim = join(bin, "claude");
   writeFileSync(
     shim,
@@ -123,13 +171,17 @@ if [ -z "$real" ] || [ ! -x "$real" ] || [ "$real" = "$self/claude" ]; then
   real="$(PATH="$(printf '%s' "$PATH" | tr ':' '\n' | grep -vx "$self" | paste -sd: -)" command -v claude)"
 fi
 case "\${1:-}" in
-  mcp|plugin|install|update|upgrade|doctor|auth|login|logout|config|agents|setup-token|migrate-installer|remote-control|rc|help)
+  ${PASSTHROUGH.join("|")})
     exec "$real" "$@" ;;
   *) exec "$real" --settings "$self/../launch-settings.json" "$@" ;;
 esac
 `,
   );
-  chmodSync(shim, 0o755);
+  try {
+    chmodSync(shim, 0o755);
+  } catch {
+    // Windows has no execute bit
+  }
   return bin;
 }
 

@@ -3,6 +3,7 @@
 import type { DockviewApi, DockviewGroupPanel, DockviewTheme, IDockviewPanel, SerializedDockview } from "dockview-react";
 import type { Session } from "@henry/shared";
 import { isClaudeSession } from "@henry/shared";
+import { baseName } from "./platform";
 import { getState } from "./ws";
 
 export type ToolId = "sessions" | "repos" | "flags" | "playbook" | "usage";
@@ -171,7 +172,7 @@ export function peekFile(path: string, line?: number) {
     existing.api.setActive();
     return;
   }
-  api.addPanel({ id, component: "file", title: path.split("/").pop() || path, params: { path, line }, position: { referenceGroup: g.id, direction: "within" } });
+  api.addPanel({ id, component: "file", title: baseName(path), params: { path, line }, position: { referenceGroup: g.id, direction: "within" } });
 }
 
 export function closePeek(id?: string) {

@@ -233,7 +233,7 @@ async function serveStatic(pathname: string): Promise<Response> {
     );
   }
   const rel = normalize(decodeURIComponent(pathname)).replace(/^(\.\.[/\\])+/, "");
-  const file = Bun.file(join(uiDist, rel === "/" ? "index.html" : rel));
+  const file = Bun.file(join(uiDist, rel === "/" || rel === "\\" ? "index.html" : rel));
   if (await file.exists()) return new Response(file);
   return new Response(Bun.file(join(uiDist, "index.html")));
 }
@@ -339,7 +339,7 @@ export async function handleApi(req: Request, url: URL, fromPeer: boolean): Prom
       // UI, because only the daemon can see the filesystem.
       if (req.method === "POST" && pathname === "/api/config") {
         const body = (await readJson(req)) as { reposRoot?: string };
-        const typed = (body.reposRoot ?? "").trim().replace(/(.)\/+$/, "$1");
+        const typed = (body.reposRoot ?? "").trim().replace(/(.)[\\/]+$/, "$1");
         if (!typed) return json({ error: "path required" }, 400);
         const root = expandHome(typed);
         let isDir = false;

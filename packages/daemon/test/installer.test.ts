@@ -38,6 +38,11 @@ async function henry(cmd: string, env: Record<string, string> = {}) {
 }
 
 const read = () => JSON.parse(readFileSync(settings, "utf8"));
+// macOS/Linux: "<abs>/hooks/henry-hook.sh Event". Windows: 'node <C:/abs>/hooks/henry-hook.mjs Event' (quoted when the path has spaces).
+const isWindows = process.platform === "win32";
+const HOOK = isWindows ? "henry-hook.mjs" : "henry-hook.sh";
+const hookRe = (ev: string) => (isWindows ? new RegExp(`^node "?[A-Za-z]:/.*hooks/henry-hook\\.mjs"? ${ev}$`) : new RegExp(`^/.*hooks/henry-hook\\.sh ${ev}$`));
+const statusRe = isWindows ? /^node "?[A-Za-z]:\/.*\/hooks\/henry-statusline\.mjs"?$/ : /\/hooks\/henry-statusline\.sh$/;
 const HOOK_EVENTS = ["PreToolUse", "PostToolUse", "Stop", "SubagentStop", "UserPromptSubmit", "SessionStart", "SessionEnd", "PreCompact", "Notification", "PermissionRequest"];
 
 beforeAll(() => {
@@ -70,9 +75,9 @@ describe("henry install / uninstall / status", () => {
     expect(s.hooks.Notification[0]).toEqual(fixture.hooks.Notification[0]);
     expect(s.hooks.PreToolUse[0]).toEqual(fixture.hooks.PreToolUse[0]);
     for (const ev of HOOK_EVENTS) {
-      const ours = s.hooks[ev].filter((e: { hooks: { command: string }[] }) => e.hooks.some((h) => h.command.includes("henry-hook.sh")));
+      const ours = s.hooks[ev].filter((e: { hooks: { command: string }[] }) => e.hooks.some((h) => h.command.includes(HOOK)));
       expect(ours.length).toBe(1);
-      expect(ours[0]).toEqual({ matcher: "", hooks: [{ type: "command", command: expect.stringMatching(new RegExp(`^/.*hooks/henry-hook\\.sh ${ev}$`)) }] });
+      expect(ours[0]).toEqual({ matcher: "", hooks: [{ type: "command", command: expect.stringMatching(hookRe(ev)) }] });
     }
     expect(s.hooks.PreToolUse.length).toBe(2);
     expect(s.hooks.Notification.length).toBe(2);
@@ -102,7 +107,7 @@ describe("henry install / uninstall / status", () => {
     expect(r.code).toBe(0);
     expect(r.out).toContain("statusLine: replaced");
     const s = read();
-    expect(s.statusLine.command).toMatch(/\/hooks\/henry-statusline\.sh$/);
+    expect(s.statusLine.command).toMatch(statusRe);
     expect(s.statusLine.type).toBe("command");
     expect(s._henryPreviousStatusLine).toEqual(fixture.statusLine);
     const st = await henry("status");

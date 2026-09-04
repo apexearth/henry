@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { openPeek } from "./FileView";
 import { recentFiles, repoIndex, splitPath, useSessionFiles } from "./files";
+import { joinPath, under } from "./platform";
 import { useStore } from "./ws";
 
 interface Row {
@@ -77,7 +78,7 @@ export function FilePicker({ onClose }: { onClose: () => void }) {
     for (const r of allRepos[active ?? ""] ?? []) add(r.path, r.name, true);
     const here = new Set(sameMachine.split("\n"));
     for (const [sid, rs] of Object.entries(allRepos)) if (sid !== active && here.has(sid)) for (const r of rs) add(r.path, r.name, false);
-    out.sort((a, b) => Number(cwd.startsWith(b.path + "/") || cwd === b.path) - Number(cwd.startsWith(a.path + "/") || cwd === a.path));
+    out.sort((a, b) => Number(under(cwd, b.path)) - Number(under(cwd, a.path)));
     return out;
   }, [sf, allRepos, active, cwd, sameMachine]);
 
@@ -101,15 +102,15 @@ export function FilePicker({ onClose }: { onClose: () => void }) {
       out.push({ ...row, score: sc });
     };
     for (const r of sf?.repos ?? []) {
-      for (const f of r.files) if (f.status !== "D") push({ abs: `${r.path}/${f.path}`, rel: f.path, repoName: r.name, tier: 0, status: f.status, mtime: f.mtime });
+      for (const f of r.files) if (f.status !== "D") push({ abs: joinPath(r.path, f.path), rel: f.path, repoName: r.name, tier: 0, status: f.status, mtime: f.mtime });
     }
     for (const abs of recentFiles()) {
-      const repo = scope.find((r) => abs.startsWith(r.path + "/"));
-      push({ abs, rel: repo ? abs.slice(repo.path.length + 1) : abs, repoName: repo?.name ?? "", tier: 1 });
+      const repo = scope.find((r) => abs !== r.path && under(abs, r.path));
+      push({ abs, rel: repo ? abs.slice(repo.path.length + 1).replace(/\\/g, "/") : abs, repoName: repo?.name ?? "", tier: 1 });
     }
     // Without a query the index would be an arbitrary wall of files; the hint says it is there.
     if (tokens.length) {
-      for (const r of scope) for (const rel of indexes[r.path] ?? []) push({ abs: `${r.path}/${rel}`, rel, repoName: r.name, tier: r.mine ? 2 : 3 });
+      for (const r of scope) for (const rel of indexes[r.path] ?? []) push({ abs: joinPath(r.path, rel), rel, repoName: r.name, tier: r.mine ? 2 : 3 });
     }
     out.sort((a, b) => a.tier - b.tier || b.score - a.score || (b.mtime ?? 0) - (a.mtime ?? 0) || a.rel.localeCompare(b.rel));
     return out.slice(0, MAX_ROWS);

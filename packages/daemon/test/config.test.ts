@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { RepoPickerEntry, StateSnapshot } from "@henry/shared";
-import { stopSessiond, waitFor } from "./sessiond-helper";
+import { rmScratch, stopSessiond, waitFor } from "./sessiond-helper";
 
 const PORT = 47600 + Math.floor(Math.random() * 300);
 const home = mkdtempSync(join(tmpdir(), "henry-config-"));
@@ -42,7 +42,7 @@ afterAll(async () => {
   daemon?.kill();
   await daemon?.exited;
   await stopSessiond(home);
-  rmSync(home, { recursive: true, force: true });
+  await rmScratch(home);
 });
 
 describe("first-run setup", () => {

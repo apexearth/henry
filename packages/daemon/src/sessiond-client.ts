@@ -196,9 +196,12 @@ export class SessiondClient extends EventEmitter<SessiondClientEvents> {
     if (!node) throw new Error("node is required on PATH to run henry-sessiond (see README)");
     const stale = readSessiondInfo(this.henryDir);
     this.log(`starting ${sessiondMain}${stale ? ` (replacing stale sessiond.json pid ${stale.pid})` : ""}`);
-    const child = spawn(node, [sessiondMain, "--daemon"], {
+    // sessiond is TypeScript run by Node directly: 22.18+/23.6+ strip types by default, and
+    // the flag is accepted (as a no-op) there too, so it is always passed for 22.6..22.17.
+    const child = spawn(node, ["--experimental-strip-types", sessiondMain, "--daemon"], {
       detached: true,
       stdio: "ignore",
+      windowsHide: true,
       env: { ...(this.opts.env ?? (process.env as Record<string, string>)), HENRY_HOME: this.henryDir },
     });
     child.on("error", (e) => this.log(`spawn failed: ${e.message}`));
