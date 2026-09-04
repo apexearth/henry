@@ -26,8 +26,10 @@ the design changes; do not let it drift into a changelog.
 - **Browser or native, same page.** The daemon serves the UI at `http://127.0.0.1:4711`.
   `packages/shell` is a Tauri window on that URL and nothing else: no IPC, no state, no
   bundled frontend. It exists for the macOS menu, since a browser tab never sees ⌘N or
-  ⌘1..9. Menu items reach the page as `henry:menu` CustomEvents. Both front ends run at
-  once against the one daemon.
+  ⌘1..9. Menu items reach the page as `henry:menu` CustomEvents. On Windows the shell has
+  no menu bar: wry turns WebView2's browser accelerators off, so the page's own bindings
+  see every Ctrl chord and the bar would only cost a row. Both front ends run at once
+  against the one daemon.
 - **Observe and flag, never block.** Henry's safeguard rules classify tool calls and
   git events as `info`, `notable`, or `alarm`. They never return a hook deny.
 - **3–4 top-level sessions** is the design point. Subagents show under their parent.
@@ -151,8 +153,9 @@ the design changes; do not let it drift into a changelog.
   ConPTY as one plain resize, since it repaints on every resize and garbles a TUI on a
   shrink (sessiond drops same-size resizes for the same reason). In the browser, Ctrl takes ⌘'s letters and digits, Alt takes the
   arrows (Ctrl+arrows are the terminal's) and Alt+N opens the picker (Chrome reserves
-  Ctrl+N); duplicate is Ctrl+Shift+D. Tauri builds the platform's own bundles; the
-  application menu is macOS-only.
+  Ctrl+N); duplicate is Ctrl+Shift+D. Tauri builds the platform's own bundles; the menu
+  bar is macOS-only, and in the Windows shell Ctrl+N and Ctrl+Shift+R (reset layout) are
+  page bindings, with nothing on Ctrl+R so the terminal keeps reverse search.
 
 ## Federation: sessions on other machines
 

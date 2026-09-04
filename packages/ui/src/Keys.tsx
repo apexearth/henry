@@ -6,7 +6,8 @@ import { inShell } from "./shell";
 
 type Key = [keys: string[], what: string];
 
-// ⌘N and ⌘⇧R are reserved by Chrome in a browser tab (new window, reload); the shell's menu owns them.
+// ⌘N and ⌘⇧R are reserved by Chrome in a browser tab (new window, reload); the shell's menu owns them
+// on macOS, and on Windows the shell has no menu and nothing reserved, so the page binds them itself.
 // Off macOS the same shortcuts sit on Ctrl (letters, digits) and Alt (arrows, N); see platform.ts.
 const SHIFT_R = isMac ? "⌘⇧R" : "Ctrl+Shift+R";
 const SECTIONS: [string, Key[]][] = [
@@ -30,7 +31,8 @@ const SECTIONS: [string, Key[]][] = [
   ]],
   ["window", [
     [[`${MOD}/`], "this list"],
-    ...(inShell ? [[[SHIFT_R], "reset layout: rail | terminals | tools"], [[`${MOD}R`], "reload"]] as Key[] : []),
+    ...(inShell ? [[[SHIFT_R], "reset layout: rail | terminals | tools"]] as Key[] : []),
+    ...(inShell && isMac ? [[["⌘R"], "reload"]] as Key[] : []),
   ]],
 ];
 
@@ -66,7 +68,7 @@ export function Keys({ onClose }: { onClose: () => void }) {
         </div>
         <div className="foot hint">
           <span>{inShell
-            ? `native window: ${MOD}N and ${SHIFT_R} come from the menu`
+            ? isMac ? `native window: ⌘N and ⌘⇧R come from the menu` : "native window: no menu, and nothing is reserved"
             : `browser tab: Chrome keeps ${MOD}N and ${SHIFT_R}, so ${isMac ? "⌃N" : "Alt+N"} and the reset layout button stand in`}</span>
           <span>Esc to close</span>
         </div>

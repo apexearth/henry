@@ -8,7 +8,7 @@ import { Setup } from "./Setup";
 import { Keys } from "./Keys";
 import { closePeek, getDockApi, isFilePanel, resetLayout, showSession, stageStep } from "./dock";
 import { MOD, arrowMod, isMac, mod } from "./platform";
-import { onMenu } from "./shell";
+import { inShell, onMenu } from "./shell";
 import { activeRowIndex, railRows, setActive, useStore, type RailRow } from "./ws";
 
 export function App() {
@@ -45,6 +45,13 @@ export function App() {
       if (mod(e) && !e.altKey && !e.shiftKey && e.key === "/") {
         e.preventDefault();
         setKeys((v) => !v);
+        return;
+      }
+      // Ctrl+Shift+R resets the layout in the Windows shell, which has no menu to own it
+      // (a browser tab keeps it for hard reload; macOS gets ⌘⇧R from the menu).
+      if (inShell && !isMac && e.ctrlKey && e.shiftKey && !e.altKey && (e.key === "r" || e.key === "R")) {
+        e.preventDefault();
+        resetLayout();
         return;
       }
       // ⌘K finds a file to peek at. ⌃K too, except in the terminal where it is kill-line.

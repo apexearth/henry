@@ -115,7 +115,8 @@ export function Rail() {
   const [picker, setPicker] = useState(false);
   const now = useNow(15000);
 
-  // In the native shell the File menu owns ⌘N / ⌘D and calls us through onMenu. In a browser tab
+  // In the macOS shell the File menu owns ⌘N / ⌘D and calls us through onMenu; the Windows shell
+  // has no menu, so Ctrl+N lands here like in a tab (WebView2 reserves nothing). In a browser tab
   // Chrome keeps ⌘N for itself (new window) and never delivers it, so ⌃N is the one that fires.
   // ⌘D (bookmark) is overridable, so it works in both. ⌃D is EOF in the terminal: never bound.
   // Off macOS Chrome reserves Ctrl+N too, so Alt+N opens the picker there, and Ctrl+Shift+D duplicates.
