@@ -81,6 +81,13 @@ CREATE TABLE IF NOT EXISTS usage_snapshots (
 );
 CREATE INDEX IF NOT EXISTS usage_snapshots_ts ON usage_snapshots(ts);
 
+-- One row per minute you were at the keyboard; mask says how Henry knows (shared/human.ts
+-- SRC). Nothing about what you were doing in it: the minute is the whole record.
+CREATE TABLE IF NOT EXISTS presence (
+  minute INTEGER PRIMARY KEY,
+  mask INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS session_usage (
   session_id TEXT PRIMARY KEY,
   input_tokens INTEGER NOT NULL DEFAULT 0,
@@ -275,6 +282,40 @@ export function listHookTimes(sessionId: string, hookEvent: string, since: numbe
   return rows.map((r) => r.ts);
 }
 
+/** Every prompt you sent since `since`, ascending: the whole basis of human.ts. */
+export function listPromptTimes(since: number): { ts: number; sessionId: string }[] {
+  const rows = db
+    .prepare("SELECT ts, session_id FROM events WHERE kind = 'hook' AND hook_event = 'UserPromptSubmit' AND ts >= ? ORDER BY ts ASC")
+    .all(since) as { ts: number; session_id: string }[];
+  return rows.map((r) => ({ ts: r.ts, sessionId: r.session_id }));
+}
+
+/** Oldest event still in the log; how far back any history claim can honestly reach. */
+export function oldestEventTs(): number | undefined {
+  const row = db.prepare("SELECT MIN(ts) AS ts FROM events").get() as { ts: number | null } | undefined;
+  return row?.ts ?? undefined;
+}
+
+// ---- presence: whole minutes you were here (human.ts) ----
+
+const qMarkPresence = db.prepare("INSERT INTO presence (minute, mask) VALUES (?, ?) ON CONFLICT(minute) DO UPDATE SET mask = mask | excluded.mask");
+
+export function markPresence(minutes: number[], mask: number): void {
+  if (!minutes.length || !mask) return;
+  db.transaction(() => {
+    for (const m of minutes) qMarkPresence.run(m, mask);
+  })();
+}
+
+export function listPresence(since: number): { minute: number; mask: number }[] {
+  return db.prepare("SELECT minute, mask FROM presence WHERE minute >= ? ORDER BY minute ASC").all(since) as { minute: number; mask: number }[];
+}
+
+export function oldestPresenceMinute(): number | undefined {
+  const row = db.prepare("SELECT MIN(minute) AS m FROM presence").get() as { m: number | null } | undefined;
+  return row?.m ?? undefined;
+}
+
 // ---- flags ----
 
 interface FlagRow { id: string; event_id: string; session_id: string; ts: number; severity: Flag["severity"]; rule: string; summary: string; read: number }
@@ -374,6 +415,7 @@ export interface PruneCounts {
   flags: number;
   playbook: number;
   snapshots: number;
+  presence: number;
 }
 
 /**
@@ -392,8 +434,9 @@ export function pruneHistory(days: number): PruneCounts | undefined {
     playbook: del("playbook"),
     // The newest snapshot is the live 5h/7d usage; keep it however old it is.
     snapshots: db.prepare("DELETE FROM usage_snapshots WHERE ts < ? AND ts <> (SELECT MAX(ts) FROM usage_snapshots)").run(cutoff).changes,
+    presence: db.prepare("DELETE FROM presence WHERE minute < ?").run(cutoff).changes,
   }))();
-  const total = counts.events + counts.flags + counts.playbook + counts.snapshots;
+  const total = counts.events + counts.flags + counts.playbook + counts.snapshots + counts.presence;
   if (total) {
     try {
       const free = (db.prepare("PRAGMA freelist_count").get() as { freelist_count: number }).freelist_count;

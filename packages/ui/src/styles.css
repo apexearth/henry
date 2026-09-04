@@ -38,6 +38,48 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 .henry-mark .hat, .henry-mark .brim { fill: #6b4a2f; }
 .topbar-btn { background: none; border: none; padding: 2px 6px; color: var(--fg-dim); border-radius: 3px; }
 .topbar-btn:hover { color: var(--fg); background: var(--bg-3); }
+
+/* Activity chips: status first, one line, each a shortcut to the panel or session behind it. */
+.topbar-act { display: flex; align-items: center; gap: 4px; margin-left: 6px; min-width: 0; }
+.act-chip { background: none; border: none; padding: 1px 6px; border-radius: 3px; color: var(--fg-dim); white-space: nowrap; display: flex; align-items: center; gap: 4px; }
+.act-chip:hover { color: var(--fg); background: var(--bg-3); border-color: transparent; }
+.act-chip .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.act-chip.working { color: var(--claude); }
+.act-chip.working .dot { animation: mark-pulse 1.8s ease-in-out infinite; }
+.act-chip.needs { color: var(--warn); }
+.act-chip.waiting { color: var(--ok); }
+.act-chip .ahead { opacity: 0.75; }
+/* The human half: your hours, your prompts, your cadence. Quieter than the session chips. */
+.act-sep { width: 1px; height: 12px; background: var(--border); margin: 0 3px; flex: none; }
+.act-chip.you, .act-chip.cadence { color: var(--fg-dim); }
+.act-chip.cadence svg { width: 46px; height: 11px; }
+.act-chip.cadence .bar { fill: var(--fg-dim); opacity: 0.6; }
+.act-chip.cadence .bar.now { fill: var(--accent); opacity: 1; }
+.act-chip.cadence:hover .bar { fill: var(--fg); }
+
+/* "you" popover: today's numbers, the day by the hour, the fortnight behind it. It hangs
+   from the left of the bar, under the chips, not from the right like the menus. */
+.you-pop { width: 340px; left: 8px; right: auto; }
+.you-pop h4 { margin: 8px 0 4px; font-size: 10px; letter-spacing: .04em; text-transform: uppercase; color: var(--fg-dim); font-weight: normal; }
+.you-pop h4:first-child { margin-top: 0; }
+.you-pop .dim { color: var(--fg-dim); font-size: 11px; }
+.you-grid { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; }
+.you-grid span { color: var(--fg-dim); }
+.you-grid b { text-align: right; }
+.you-hours { display: flex; align-items: flex-end; gap: 1px; height: 40px; }
+.you-hours .h { flex: 1; height: 100%; display: flex; align-items: flex-end; background: var(--bg); }
+/* Each hour is a bar of minutes present; the solid foot of it is the minutes you typed in. */
+.you-hours .h i { width: 100%; background: var(--accent); opacity: 0.35; display: flex; align-items: flex-end; }
+.you-hours .h.peak i { opacity: 0.5; }
+.you-hours .h u { width: 100%; background: var(--accent); opacity: 1; text-decoration: none; }
+.you-axis { display: flex; justify-content: space-between; color: var(--fg-faint); font-size: 10px; margin-top: 2px; }
+.you-days { display: flex; align-items: flex-end; gap: 3px; height: 56px; margin-bottom: 4px; }
+.you-days .d { flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; gap: 2px; }
+.you-days .d i { width: 100%; background: var(--claude); opacity: 0.55; border-radius: 1px; }
+.you-days .d.today i { opacity: 1; }
+.you-days .d.off i { background: var(--fg-faint); min-height: 1px; }
+.you-days .d em { font-style: normal; text-align: center; color: var(--fg-faint); font-size: 9px; }
+.you-days .d.today em { color: var(--fg); }
 .dock { flex: 1; min-height: 0; }
 
 .rail { display: flex; flex-direction: column; height: 100%; background: var(--bg-2); min-width: 0; }

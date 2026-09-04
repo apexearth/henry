@@ -5,6 +5,7 @@
 // keystrokes relayed to the PTY (throttled, never persisted). Nothing is polled.
 import { isClaudeSession } from "@henry/shared";
 import * as db from "./db";
+import { notePresence } from "./human";
 import { sessions } from "./sessions";
 
 /** How far back the rail's prompt sparkline looks. */
@@ -47,12 +48,15 @@ export function note(sessionId: string, hookEvent: string, ts = Date.now()): voi
   publish(sessionId);
 }
 
-/** Keystrokes from a window (server.ts pty:input). Only Claude sessions count: a plain
- * shell has no "waiting for you" to neglect. */
+/** Keystrokes from a window (server.ts pty:input). Only Claude sessions count for neglect:
+ * a plain shell has no "waiting for you". Your hours count either way — typing into a
+ * terminal is you being here, whatever is running in it. */
 export function input(sessionId: string, data: string, now = Date.now()): void {
   const s = sessions.get(sessionId);
-  if (!s || s.status !== "running" || !isClaudeSession(s)) return;
+  if (!s || s.status !== "running") return;
   if (!isHumanInput(data)) return;
+  notePresence("terminal", now);
+  if (!isClaudeSession(s)) return;
   const prev = lastInput.get(sessionId);
   if (prev !== undefined && now - prev < INPUT_THROTTLE_MS) return;
   lastInput.set(sessionId, now);

@@ -232,6 +232,15 @@ export interface HenryConfig {
     /** Floor in seconds between two Stop-triggered playbook runs for one session (default 60). */
     stopMinIntervalSec?: number;
   };
+  /** Henry's own MCP server (mcp.ts), which lets a session see what its neighbours are doing. */
+  mcp: {
+    /** Serve `POST /mcp` at all. Off means the endpoint 404s and sessions get no Henry tools. */
+    enabled: boolean;
+    /** List the server in `launch-settings.json`, so sessions Henry launches carry the one
+     * session-facing tool. A tool definition costs context on every request of every session,
+     * so this is the switch for "I want Henry quiet in my sessions". */
+    sessions: boolean;
+  };
   /** Sessions on other machines (federation.ts). The daemon dials paired peers and relays
    * their sessions; `listen` is where other machines reach this one. */
   federation: {
@@ -259,6 +268,7 @@ export const DEFAULT_CONFIG: HenryConfig = {
   defaultRepo: "~/code",
   retentionDays: 30,
   overseer: { backend: "auto", model: "claude-opus-5", onStop: false, onFlag: false },
+  mcp: { enabled: true, sessions: true },
   federation: { listen: "tailscale", port: 14712 },
   rules: {
     protectedBranches: ["main", "master"],

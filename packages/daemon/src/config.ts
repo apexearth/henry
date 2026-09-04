@@ -50,6 +50,7 @@ export function setReposRoot(root: string): void {
 const SETTABLE = {
   root: ["host", "reposRoot", "defaultRepo", "retentionDays"],
   overseer: ["backend", "model", "onStop", "onFlag", "apiKey", "stopMinIntervalSec"],
+  mcp: ["enabled", "sessions"],
   federation: ["listen", "port"],
   rules: ["protectedBranches", "alarm", "notable", "crossRepoWrite", "commitOnProtected", "pushToProtected", "maxSubagentsPer10m"],
 } as const;
@@ -62,7 +63,7 @@ export function setConfig(patch: Partial<HenryConfig>): HenryConfig {
   const incoming = patch as Record<string, unknown>;
   const next: Record<string, unknown> = { ...user };
   for (const k of SETTABLE.root) if (k in incoming) next[k] = incoming[k];
-  for (const group of ["overseer", "federation", "rules"] as const) {
+  for (const group of ["overseer", "mcp", "federation", "rules"] as const) {
     const sub = incoming[group];
     if (!sub || typeof sub !== "object") continue;
     const merged = { ...((user[group] as Record<string, unknown>) ?? {}) };
@@ -81,6 +82,7 @@ function load(): HenryConfig {
     ...DEFAULT_CONFIG,
     ...user,
     overseer: { ...DEFAULT_CONFIG.overseer, ...(user.overseer ?? {}) },
+    mcp: { ...DEFAULT_CONFIG.mcp, ...(user.mcp ?? {}) },
     federation: { ...DEFAULT_CONFIG.federation, ...(user.federation ?? {}) },
     rules: { ...DEFAULT_CONFIG.rules, ...(user.rules ?? {}) },
   };

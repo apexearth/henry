@@ -10,6 +10,7 @@ import { Layout } from "./Layout";
 import { Setup } from "./Setup";
 import { Settings } from "./Settings";
 import { Keys } from "./Keys";
+import { TopActivity } from "./TopActivity";
 import { closePeek, getDockApi, isFilePanel, resetLayout, showSession, stageStep } from "./dock";
 import { MOD, arrowMod, isMac, mod } from "./platform";
 import { inShell, onMenu } from "./shell";
@@ -18,7 +19,6 @@ import { activeRowIndex, railRows, setActive, useStore, type RailRow } from "./w
 export function App() {
   const connected = useStore((s) => s.connected);
   const firstRun = useStore((s) => s.hydrated && s.firstRun);
-  const reposRoot = useStore((s) => s.config?.reposRoot);
   const [finder, setFinder] = useState(false);
   const [explorer, setExplorer] = useState<Pick<ExplorerProps, "text"> | null>(null);
   const [settings, setSettings] = useState(false);
@@ -118,12 +118,8 @@ export function App() {
         <HenryMark />
         <span className="brand">henry</span>
         <span className={"conn" + (connected ? " on" : "")} title={connected ? "connected" : "reconnecting"}>●</span>
+        <TopActivity />
         <span style={{ flex: 1 }} />
-        {reposRoot && (
-          <button className="topbar-btn" onClick={() => setSettings(true)} title={`the folder holding all your repos; click for settings (${MOD},)`}>
-            repos {reposRoot}
-          </button>
-        )}
         <PrsMenu />
         <button className="topbar-btn" onClick={() => setExplorer({})} title={`browse repos and files, or search their text (${MOD}F)`}>explore</button>
         <RemotesMenu />

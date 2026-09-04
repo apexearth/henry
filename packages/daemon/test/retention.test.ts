@@ -36,8 +36,9 @@ describe("pruneHistory", () => {
       db.insertFlag(flag(id, now - age * DAY));
       db.insertPlaybook(entry(id, now - age * DAY));
     }
+    db.markPresence([now - 40 * DAY, now - 2 * DAY], 1);
     const counts = db.pruneHistory(30);
-    expect(counts).toEqual({ events: 2, flags: 2, playbook: 2, snapshots: 0 });
+    expect(counts).toEqual({ events: 2, flags: 2, playbook: 2, snapshots: 0, presence: 1 });
     expect(db.listEvents({ sessionId: "s1" }).map((e) => e.id)).toEqual(["fresh"]);
     expect(db.listFlags({ sessionId: "s1" }).map((f) => f.id)).toEqual(["fresh"]);
     expect(db.listPlaybook("s1").map((p) => p.id)).toEqual(["fresh"]);

@@ -3,7 +3,8 @@
 import { existsSync, statSync } from "node:fs";
 import { join, normalize } from "node:path";
 import type { ServerWebSocket } from "bun";
-import type { ClientMessage, HenryConfig, ServerMessage, StateSnapshot, Usage } from "@henry/shared";
+import type { ClientMessage, HenryConfig, PresenceBeat, PresenceSource, ServerMessage, StateSnapshot, Usage } from "@henry/shared";
+import { SOURCES } from "@henry/shared";
 import * as activity from "./activity";
 import { config, expandHome, isFirstRun, onConfigReload, setConfig, setReposRoot } from "./config";
 import * as db from "./db";
@@ -13,7 +14,9 @@ import type { Client } from "./federation";
 import type { FedState, PeerLink } from "./fed-peer";
 import * as git from "./git";
 import * as files from "./files";
+import { backfillPresence, humanStats, notePresence } from "./human";
 import * as hooks from "./hooks";
+import * as mcp from "./mcp";
 import * as overseer from "./overseer";
 import { sessions } from "./sessions";
 
@@ -107,8 +110,8 @@ let sweepTimer: ReturnType<typeof setInterval> | undefined;
 function sweepHistory(): void {
   try {
     const c = db.pruneHistory(config.retentionDays);
-    if (c && c.events + c.flags + c.playbook + c.snapshots) {
-      console.log(`[henry] pruned history older than ${config.retentionDays}d: ${c.events} events, ${c.flags} flags, ${c.playbook} playbook, ${c.snapshots} usage snapshots`);
+    if (c && c.events + c.flags + c.playbook + c.snapshots + c.presence) {
+      console.log(`[henry] pruned history older than ${config.retentionDays}d: ${c.events} events, ${c.flags} flags, ${c.playbook} playbook, ${c.snapshots} usage snapshots, ${c.presence} presence minutes`);
       broadcast({ type: "state", ...buildState() });
     }
   } catch (e) {
@@ -295,6 +298,8 @@ export async function startServer(): Promise<void> {
         const result = hooks.ingestStatusline(await readJson(req));
         return new Response(result?.text ?? "", { headers: { "content-type": "text/plain; charset=utf-8" } });
       }
+      // Henry's own tools, for the sessions it hosts and for the overseer (mcp.ts).
+      if (pathname === "/mcp") return mcp.handleMcp(req, url);
       if (pathname.startsWith("/api/")) return handleApi(req, url, false);
       if (req.method !== "GET") return new Response("method not allowed", { status: 405 });
       return serveStatic(pathname);
@@ -364,6 +369,16 @@ export async function handleApi(req: Request, url: URL, fromPeer: boolean): Prom
         if (!body.prompt?.trim()) return json({ error: "prompt required" }, 400);
         const entry = await overseer.writeManual(body.sessionId || null, body.prompt.trim());
         return entry ? json({ entry }) : json({ error: overseer.overseerStatus().lastError ?? "overseer wrote nothing" }, 502);
+      }
+      // Your hours, not Claude's: the topbar's activity strip polls this.
+      if (pathname === "/api/human") return json(humanStats(Number(url.searchParams.get("days")) || undefined));
+      // A window saying you are here: reading, scrolling, moving around. One minute per beat.
+      if (req.method === "POST" && pathname === "/api/presence") {
+        const body = (await readJson(req)) as Partial<PresenceBeat>;
+        const source = SOURCES.includes(body?.source as PresenceSource) ? (body!.source as PresenceSource) : "reading";
+        notePresence(source);
+        if (Array.isArray(body?.backfill)) backfillPresence(source, body.backfill.filter((n) => typeof n === "number"));
+        return json({ ok: true });
       }
       if (pathname === "/api/events") {
         return json(db.listEvents({ sessionId: url.searchParams.get("session") ?? undefined, limit: Number(url.searchParams.get("limit")) || 200 }));

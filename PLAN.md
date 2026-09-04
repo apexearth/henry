@@ -228,17 +228,53 @@ until it is back. Two machines that both listen dial each other, so each window 
   session you are looking at. Global playbook and 5h/7d usage stay per machine (same
   account, same limits).
 
+## Henry's tools: what one session may know about another
+
+Henry hosts 3–4 sessions that share repos, which makes it a multi-agent system whether or not
+it is described as one. The question is the shape. Henry stays a **star with the user at the
+centre**: sessions may *read* what their neighbours are doing, and nothing more. A session
+cannot type into another session, message it, or change Henry's config. The user is the only
+router, and the rail stays a truthful record of who did what.
+
+- **The tools are an MCP server on the daemon** (`daemon/src/mcp.ts`), `POST /mcp`, JSON-RPC
+  2.0, no SDK: one endpoint answering initialize / ping / tools/list / tools/call is not worth
+  a dependency. Loopback only, like `/hook`.
+- **A tool definition is a tax on every request of every session**, since it rides in the
+  system prompt all day. So the server serves **two tool lists**. `?as=session` (what
+  `launch-settings.json` points at) is the narrow one: today exactly `henry_activity`, under
+  900 bytes of schema, and adding to it has to be worth the same cost in all four sessions.
+  A client that connects without it gets the wide list, where one process pays once; that is
+  where the overseer's own tools go.
+- **`henry_activity(repo?)`** answers "who else is in this repo and what are they holding".
+  Per checkout: branch, ahead/behind, uncommitted count; each live session with its `activity`
+  (a session `waiting on the human 45m` is parked, so its dirty files are not in flight) and
+  the uncommitted files it is on record as writing; the last 3 commits, so a session can see
+  one landed under it; and the rest of the dirty tree as *not traced to a live session*.
+  `repo` takes a name or a path and is optional. A bare name matches every checkout with it,
+  worktrees included: that is exactly when two sessions think they are alone.
+- **Attribution comes from the hook stream, not from git.** `git.changedFiles` diffs the repo,
+  so in a shared checkout it hands every dirty path to every session there. `mcp.ts` reads the
+  `file_path` of each `Write`/`Edit`/`NotebookEdit` event instead. A Bash `sed -i` or `>` names
+  no path, so an untraced file means "nobody claimed it", never "nobody touched it", and the
+  wording says so.
+- **The answer is a dozen lines of text**, not JSON: it is read by a model mid-task. Caps on
+  repos, files and commits, `~` for the home prefix, and one 5s cache so an agent checking
+  several files in a row costs one set of git spawns.
+- **`mcp.sessions: false` takes it out of the sessions** and leaves the endpoint up; `mcp.enabled:
+  false` turns the whole thing off. `henry install` does not add the server to the user's own
+  settings.json: that would put Henry's tools in every Claude on the machine, Henry's or not.
+
 ## Layout
 
 ```
 ┌──────────┬──────────────────────────────────────┬──────────────────────┐
-│ sessions │                                      │ Repos│Flags│Play│Use │
+│ sessions │                                      │ Repos│Flags│Playbook │
 │ ▣ Rail fi│                                      │                      │
 │ ▣ Stealth│         xterm.js (WebGL)             │  per-repo cards:     │
 │ >_ henry │         one per session              │  branch, ↑↓ upstream │
 │ ▢ arm ⚑2 │                                      │  commits since base  │
-│ + new    │                                      │  diff viewer         │
-│ 3 running│                                      │                      │
+│ + new    │                                      ├──────────────────────┤
+│ 3 running│                                      │ Usage  5h ▇▇▁ 7d ▇▁▁ │
 └──────────┴──────────────────────────────────────┴──────────────────────┘
 ```
 
@@ -247,7 +283,11 @@ That is the default arrangement, not a fixed one. The workspace is a Dockview gr
 to split a group (top/bottom/left/right), stack it as a tab, dock it on a window edge, or
 float it. Tabs have no close button and there is no view menu: tools are rearranged, never
 dismissed. The arrangement is saved to localStorage
-(`henry.layout.v1`) and restored on load; "reset layout" restores the picture above.
+(`henry.layout.v2`) and restored on load; "reset layout" restores the picture above.
+
+**Usage lives in the bottom-right corner**, in its own pane under the tool tabs rather than
+as a fourth tab. The rate bars are a gauge you watch while working, not a view you switch
+to, so they should never be hidden behind another tool's tab.
 The selected session is saved too (`henry.active`, id + cwd), so a refresh reopens where you
 were; if that session is gone, Henry falls back to a running session in the same repo.
 
@@ -312,6 +352,38 @@ under the peek header, smart case, ↩/⇧↩ walk the matches, matched lines sh
 (and lose syntax colour for it), Esc closes the bar before it closes the peek. ⌘⇧F from there
 carries the term into the explorer's text mode, so "this word, but everywhere" is one key.
 
+**The topbar carries the roll-up, and it is half about you.** Left of the buttons, one line
+of chips answers "what is happening" without the rail: sessions working / needing an answer /
+waiting on you, and uncommitted paths (plus unpushed commits) across every repo Henry has
+seen. Then a divider, and the same line answers "what have *I* been doing": time here today
+(typing or reading), prompts sent, and a four-hour cadence sparkline with your current pace.
+Flags and usage are deliberately not up here — they are panels, and the bar is for the two
+things you cannot get by looking at a panel: who wants you, and how your day is going. A chip
+renders only when it has something to say, and each is a shortcut: session chips jump to the
+session that has waited longest, the repo chip opens Repos, the human chips open the "you"
+popover (today in detail, the day by the hour, the last fortnight). The repos-root button is
+gone; Settings is where the path lives.
+
+**Your hours are counted in whole minutes, and reading counts.** A minute is yours if there
+is evidence you were there for it, and there are three kinds of evidence (`SRC` in
+`shared/human.ts`): a **prompt**, a **keystroke into a terminal**, or **reading** — a Henry
+window that is visible, focused and touched within the idle window, beating `POST /api/presence`
+every 30 s (`ui/presence.ts`). Sitting with a diff open, walking a repo tree, watching a turn
+run: all of it is time spent, and none of it produces a prompt, so the beat is the only way it
+can count. Prompts also *imply* minutes — every minute between two prompts less than 15 apart
+(`IDLE_MS`) — which back-fills days from before any of this existed and sessions driven from a
+terminal Henry never sees. The two sets are unioned per minute, so nothing double-counts, and
+a minute knows which kinds it had: "3h 12m here, 1h 40m of it reading."
+  The row in the `presence` table is `(minute, mask)` and nothing else — never the panel, the
+file, the repo or the keystroke. Beats bridge at most two minutes of silence since the last
+one, so a missed beat is not a hole but an hour away is not credited. `daemon/human.ts` groups
+minutes and prompts into local days for `GET /api/human`, which also ships today's minutes
+packed as 1440 hex digits; the UI re-runs the same shared functions with the minute you are
+currently in added, which is what keeps the clock moving without a round trip. Retention
+sweeps presence with everything else. Honest limits, all stated in the popover: an untouched
+window stops counting after 15 minutes, work outside Henry never counts, and a stretch across
+midnight is split by the day line.
+
 **Appearance.** Three choices in the topbar "theme" popover (tone, highlight, shade) derive
 the whole palette in OKLCH; `theme.ts` writes it as CSS variables on `<html>` and the
 terminal (background, foreground, cursor, selection, the 16 ANSI colors) reads the same
@@ -352,6 +424,7 @@ henry/
     shared/                    # protocol + types shared by daemon and ui
       src/protocol.ts          # WS message union, REST shapes
       src/types.ts             # Session, RepoState, Flag, PlaybookEntry, Usage
+      src/human.ts             # presence in whole minutes: hours, reading share, sit-downs, cadence
     daemon/
       src/index.ts             # cli: start | install | uninstall | status | sessiond status|restart
       src/server.ts            # HTTP + WS on 127.0.0.1:14711, serves ui/dist
@@ -368,8 +441,10 @@ henry/
       src/git.ts               # repo discovery, worktrees, status, ahead/behind, diff
       src/prs.ts               # open PRs per checkout via `gh pr list`, cached and best-effort
       src/rules.ts             # ~/.henry/config.json rules → classify events
+      src/mcp.ts               # POST /mcp: Henry's tools; henry_activity for hosted sessions
       src/activity.ts          # working | needsInput | waiting | idle, derived from hooks
       src/engagement.ts        # my prompts + keystrokes per session: lastInputAt, prompt sparkline
+      src/human.ts             # my minutes recorded + rolled up by local day (GET /api/human, POST /api/presence)
       src/overseer.ts          # playbook writer (api | claude-cli backend)
       src/installer.ts         # settings.json merge/unmerge
       src/platform.ts          # the Windows switches: default shell, .cmd spawning, PATH key, shims
@@ -380,7 +455,9 @@ henry/
       src/protocol.ts          # wire types, PROTOCOL_VERSION; the daemon imports this file
       README.md                # why it stays boring; the protocol
     ui/
-      src/App.tsx              # top bar (view buttons, reset) + Layout
+      src/App.tsx              # top bar (activity strip, view buttons, reset) + Layout
+      src/TopActivity.tsx      # the strip: sessions, dirty repos, my hours/prompts/cadence + "you"
+      src/presence.ts          # this window beating "I am here" while you read (POST /api/presence)
       src/Layout.tsx           # Dockview root; wraps rail, terminals and tools as panels
       src/dock.ts              # default layout, localStorage persistence, open/focus helpers
       src/ws.ts                # client, reconnect, state store
@@ -404,6 +481,7 @@ claude (in PTY) ──hooks──▶ henry-hook.sh ──POST /hook──▶ dae
 ~/code/*/.git ──watch+poll──▶ daemon (repo state, baseline diffs)
 sessiond (owns PTYs) ◀──TCP 127.0.0.1, token──▶ daemon (spawn, write, attach, scrollback)
 daemon ──WS──▶ every attached window (pty data, state deltas)
+claude (in PTY) ──MCP /mcp?as=session──▶ daemon (henry_activity: what the other sessions hold)
 daemon ──on Stop / on flag──▶ overseer ──▶ playbook rows ──WS──▶ windows
 daemon ◀──ws://<tailscale ip>:14712/fed, mutually authenticated──▶ peer daemon (its sessions, relayed)
 ```
@@ -475,6 +553,7 @@ unbounded input is trimmed at the door.
   "defaultRepo": "~/code",
   "retentionDays": 30,
   "overseer": { "backend": "auto", "model": "claude-opus-5", "onStop": false, "onFlag": false, "stopMinIntervalSec": 60 },
+  "mcp": { "enabled": true, "sessions": true },
   "federation": { "listen": "tailscale", "port": 14712 },
   "rules": {
     "protectedBranches": ["main", "master"],
@@ -509,3 +588,16 @@ Fable 5.1 session in this repo (hooks, usage 5h/7d, repo card, playbook entries)
 - Git actions from the UI (commit, push, new worktree).
 - Blocking rules (PreToolUse deny) once the observe-only picture is trusted.
 - Replay of a session's history as a timeline.
+- **Henry as an interlocutor**: the overseer given the wide tool list and a conversation thread,
+  so "what did I forget", "what is most urgent" and "which session was I doing xyz in" are
+  asked rather than inferred from a panel. Needs an FTS index over event summaries, prompts and
+  playbook text (prompts are the highest-signal text), and a cheap daily digest, since a day's
+  raw events answer "what did I focus on yesterday" neither in a prompt nor after the retention
+  sweep. The chat runs only when asked, so unlike the playbook it can default on.
+- **Per-repo rule overrides**, so "these flags are normal in this repo" is a setting rather than
+  a habit of ignoring the badge. `config.rules` is global today, which is why a conversation
+  about muting a rule has nothing to write.
+- **Cross-session writes, deliberately not built.** A session leaving an advisory note for
+  whoever comes next ("churning `packages/shared` for the next hour") is data and stays on the
+  table. A session typing into another session's PTY, or steering it, is not: it would make the
+  rail's attribution meaningless and put the daemon in the loop where the user is.

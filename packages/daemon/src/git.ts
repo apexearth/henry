@@ -791,6 +791,57 @@ export async function changedFiles(sessionId: string, repoPath: string): Promise
   return out;
 }
 
+/**
+ * Uncommitted paths in the working tree (vs HEAD), untracked included. `changedFiles` answers
+ * "what has this session done"; this answers "what would I collide with", which is the question
+ * one session asks about another (mcp.ts). Untracked mode is git's default `normal`, so a new
+ * directory collapses to one row rather than costing a walk of the whole tree.
+ */
+export async function dirtyPaths(repoPath: string): Promise<ChangedFile[]> {
+  const info = resolveRepo(repoPath);
+  if (!info) return [];
+  const { code, out } = await run(info.path, ["status", "--porcelain", "-z"]);
+  if (code !== 0) return [];
+  const parts = out.split("\0");
+  const files: ChangedFile[] = [];
+  for (let i = 0; i < parts.length && files.length < FILES_CAP; ) {
+    const entry = parts[i++];
+    if (!entry || entry.length < 4) continue;
+    const [x, y] = entry;
+    const path = entry.slice(3);
+    // A rename or copy is followed by its original path in its own NUL-terminated field.
+    const from = x === "R" || x === "C" ? parts[i++] : undefined;
+    const status: ChangedFile["status"] =
+      x === "?" ? "?" : x === "R" || x === "C" ? "R" : x === "A" || x === "D" ? x : y === "D" ? "D" : "M";
+    const f: ChangedFile = { path, status };
+    if (from) f.from = from;
+    if (status !== "D") {
+      try {
+        f.mtime = statSync(join(info.path, path)).mtimeMs;
+      } catch {
+        /* gone between listing and stat */
+      }
+    }
+    files.push(f);
+  }
+  return files;
+}
+
+/** The newest commits on HEAD, so a session can tell whether one landed under it. */
+export async function recentCommits(repoPath: string, limit = 3): Promise<LogEntry[]> {
+  const info = resolveRepo(repoPath);
+  if (!info) return [];
+  const { code, out } = await run(info.path, ["log", `-${limit}`, "--format=%h%x09%ct%x09%s"]);
+  if (code !== 0) return [];
+  const commits: LogEntry[] = [];
+  for (const line of out.split("\n")) {
+    if (!line) continue;
+    const [sha, ts, ...rest] = line.split("\t");
+    commits.push({ sha, ts: Number(ts) * 1000, subject: rest.join("\t") });
+  }
+  return commits;
+}
+
 /** Changed files for every repo the session touched, plus the repo its cwd sits in. */
 export async function sessionFiles(sessionId: string): Promise<SessionFiles> {
   const paths = new Set<string>(sessionRepos.get(sessionId) ?? []);

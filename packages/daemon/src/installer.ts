@@ -105,7 +105,13 @@ function eventInstalled(settings: Dict, event: string): boolean {
 export function launchSettings(): Dict {
   const hooks: Dict = {};
   for (const event of HOOK_EVENTS) hooks[event] = [{ matcher: "", hooks: [{ type: "command", command: hookCommand(event) }] }];
-  return { hooks, statusLine: { type: "command", command: statusCommand() } };
+  const settings: Dict = { hooks, statusLine: { type: "command", command: statusCommand() } };
+  // `?as=session` picks the one-tool list: a tool definition rides in the system prompt of
+  // every request this session makes, so hosted sessions get the narrow surface (mcp.ts).
+  if (config.mcp.enabled && config.mcp.sessions) {
+    settings.mcpServers = { henry: { type: "http", url: `http://127.0.0.1:${config.port}/mcp?as=session` } };
+  }
+  return settings;
 }
 
 export function writeLaunchSettings(dir: string): string {
