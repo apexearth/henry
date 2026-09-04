@@ -201,7 +201,9 @@ export function Rail() {
         ))}
       </div>
       <FilesSection />
-      <button className="rail-new" title={`new session (${inShell ? "⌘N" : "⌃N"})`} onClick={() => setPicker(true)}>+ new</button>
+      <div className="rail-new-wrap">
+        <button className="rail-new" title={`new session (${inShell ? "⌘N" : "⌃N"})`} onClick={() => setPicker(true)}>+ new session</button>
+      </div>
       <div className="rail-foot">
         <span title={`${working} working`}>
           {running} running

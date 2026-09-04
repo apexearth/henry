@@ -19,6 +19,8 @@ interface Props {
 // Something with a slash in it, or a bare `name.ext`, optionally followed by `:line[:col]`.
 // Loose on purpose: a ⌘-click on a non-file simply finds nothing.
 const PATH_RE = /(?<![\w@:/.-])(?:~\/|\.{1,2}\/|\/)?[\w.@+-]+(?:\/[\w.@+-]+)+(?::\d+(?::\d+)?)?|(?<![\w@:/.-])[\w@+-]+(?:\.[\w@+-]+)*\.[A-Za-z]{2,5}(?::\d+(?::\d+)?)?/g;
+// Terminal-to-host reports: DA1/DA2/DSR/CPR, DECRQM, OSC and DCS replies, focus events.
+const REPORT_RE = /^\x1b(\[[?>]?[\d;]*[cRn]|\[\?[\d;]*\$y|\][^\x07\x1b]*(\x07|\x1b\\)|P[^\x1b]*\x1b\\|\[[IO])/;
 
 export function TerminalView({ sessionId, visible, focused }: Props) {
   const box = useRef<HTMLDivElement>(null);
@@ -27,6 +29,7 @@ export function TerminalView({ sessionId, visible, focused }: Props) {
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
   const connectionId = useStore((s) => s.connectionId);
+  const replaying = useRef(false);
 
   useEffect(() => {
     const t = new Terminal({
@@ -48,9 +51,9 @@ export function TerminalView({ sessionId, visible, focused }: Props) {
       console.warn("[henry] WebGL renderer unavailable, using DOM renderer", e);
     }
     t.attachCustomKeyEventHandler((ev) => {
-      // The window-level handlers own Cmd/Ctrl+1..9, Cmd+arrows and Cmd+K (App.tsx) and Cmd/Ctrl+N (Rail.tsx).
+      // The window-level handlers own Cmd/Ctrl+1..9, Cmd+arrows, Cmd+K and Cmd+/ (App.tsx) and Cmd/Ctrl+N (Rail.tsx).
       if ((ev.metaKey || ev.ctrlKey) && !ev.altKey && !ev.shiftKey && (ev.key === "n" || ev.key === "N")) return false;
-      if ((ev.metaKey || ev.ctrlKey) && !ev.altKey && (/^[1-9]$/.test(ev.key) || (ev.metaKey && (ev.key.startsWith("Arrow") || ev.key === "k" || ev.key === "K")))) return false;
+      if ((ev.metaKey || ev.ctrlKey) && !ev.altKey && (/^[1-9]$/.test(ev.key) || (ev.metaKey && (ev.key.startsWith("Arrow") || ev.key === "k" || ev.key === "K" || ev.key === "/")))) return false;
       // Shift+Enter inserts a newline in Claude Code's prompt: send ESC CR, the sequence its own
       // /terminal-setup binds. Plain shells keep a normal Enter. keypress must be swallowed too or
       // xterm still emits "\r" from it.
@@ -62,7 +65,13 @@ export function TerminalView({ sessionId, visible, focused }: Props) {
       }
       return true;
     });
-    t.onData((data) => send({ type: "pty:input", sessionId, data }));
+    t.onData((data) => {
+      // Scrollback replay re-parses old device queries (DA, DSR, OSC colour asks) and xterm
+      // answers each one again; the app that asked is long gone, so the reply would land in
+      // the shell as typed text ("1;2c"). Drop reports while replaying, keep keystrokes.
+      if (replaying.current && REPORT_RE.test(data)) return;
+      send({ type: "pty:input", sessionId, data });
+    });
     // ⌘-click a path in the output to peek at it. Relative paths resolve against the session's cwd.
     t.registerLinkProvider({
       provideLinks(y, cb) {
@@ -134,7 +143,10 @@ export function TerminalView({ sessionId, visible, focused }: Props) {
     t.reset();
     const unsub = subscribePty(sessionId, (m) => {
       if (m.type === "pty:exit") t.write(`\r\n\x1b[90m[henry] process exited with code ${m.exitCode}\x1b[0m\r\n`);
-      else t.write(m.data);
+      else if (m.type === "pty:scrollback") {
+        replaying.current = true;
+        t.write(m.data, () => (replaying.current = false));
+      } else t.write(m.data);
     });
     send({ type: "attach", sessionId });
     return () => {

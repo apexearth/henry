@@ -5,6 +5,7 @@ import { RemotesMenu } from "./RemotesMenu";
 import { FilePicker } from "./FilePicker";
 import { Layout } from "./Layout";
 import { Setup } from "./Setup";
+import { Keys } from "./Keys";
 import { closePeek, getDockApi, isFilePanel, resetLayout, showSession, stageStep } from "./dock";
 import { onMenu } from "./shell";
 import { activeRowIndex, railRows, setActive, useStore, type RailRow } from "./ws";
@@ -15,6 +16,7 @@ export function App() {
   const reposRoot = useStore((s) => s.config?.reposRoot);
   const [finder, setFinder] = useState(false);
   const [setup, setSetup] = useState(false);
+  const [keys, setKeys] = useState(false);
 
   useEffect(() => onMenu("reset-layout", resetLayout), []);
 
@@ -36,6 +38,12 @@ export function App() {
         return;
       }
       if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+      // ⌘/ lists the shortcuts.
+      if (e.metaKey && !e.ctrlKey && e.key === "/") {
+        e.preventDefault();
+        setKeys((v) => !v);
+        return;
+      }
       // ⌘K finds a file to peek at. ⌃K too, except in the terminal where it is kill-line.
       if ((e.key === "k" || e.key === "K") && !e.shiftKey && (e.metaKey || !(e.target as HTMLElement | null)?.closest?.(".xterm"))) {
         e.preventDefault();
@@ -81,10 +89,12 @@ export function App() {
         )}
         <RemotesMenu />
         <ThemeMenu />
+        <button className="topbar-btn" onClick={() => setKeys(true)} title="keyboard shortcuts (⌘/)">keys</button>
         <button className="topbar-btn" onClick={resetLayout} title="back to rail | terminals | tools">reset layout</button>
       </div>
       <Layout />
       {finder && <FilePicker onClose={() => setFinder(false)} />}
+      {keys && <Keys onClose={() => setKeys(false)} />}
       {firstRun ? <Setup /> : setup && <Setup onClose={() => setSetup(false)} />}
     </div>
   );

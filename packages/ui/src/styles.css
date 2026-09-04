@@ -95,7 +95,8 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 .rail-group-h .n { flex: none; margin-left: auto; color: var(--fg-faint); }
 .rail-groupby { background: none; border: none; padding: 0; color: var(--fg-dim); font: inherit; font-size: 11px; }
 .rail-groupby:hover { color: var(--fg); }
-.rail-new { margin: 8px 10px; }
+.rail-new-wrap { flex: none; padding: 8px 10px; border-top: 1px solid var(--border); }
+.rail-new { width: 100%; }
 .rail-foot { padding: 6px 10px; border-top: 1px solid var(--border); color: var(--fg-dim); font-size: 11px; display: flex; justify-content: space-between; align-items: center; }
 .rail-toggle { background: none; border: none; padding: 0; color: var(--fg-dim); font-size: 11px; }
 .rail-toggle:hover { color: var(--fg); }
@@ -298,3 +299,14 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 .topbar .remotes-btn .n { margin-left: 4px; }
 .topbar .remotes-btn .n.off { color: var(--alarm); }
 .topbar .remotes-btn .n.on { color: var(--ok); }
+
+/* Keyboard shortcut list (topbar "keys"). */
+.modal.keys { width: 560px; }
+.modal.keys .list { padding: 4px 0 8px; }
+.keys-section { padding: 6px 12px 2px; }
+.keys-h { color: var(--fg-dim); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; padding: 4px 0; }
+.keys-row { display: flex; align-items: baseline; gap: 12px; padding: 3px 0; }
+.keys-combo { flex: 0 0 150px; white-space: nowrap; }
+.keys-or { color: var(--fg-dim); font-size: 11px; margin: 0 5px; }
+.keys-what { color: var(--fg); font-size: 12px; }
+kbd { display: inline-block; font: inherit; font-size: 11px; padding: 1px 6px; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; background: var(--bg-3); color: var(--fg); }

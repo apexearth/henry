@@ -40,6 +40,7 @@ sessiond` runs sessiond in the foreground for debugging (the daemon then attache
 instead of starting its own). `Cmd+1..9` (or `Ctrl+1..9`, since Chrome on macOS reserves Cmd+digit) switches tabs in
 rail order; `Cmd+↑/↓` steps through them; `Ctrl+N` (Cmd+N is Chrome's new window) opens "+ new";
 `Cmd+D` duplicates the current tab: a new session of the same kind in the same folder.
+The `keys` button in the top bar (or `Cmd+/`) lists every shortcut.
 `bun run app` opens the same UI in a native window instead, where the Cmd keys are yours:
 `Cmd+N` is File > New Session, `Cmd+D` File > Duplicate Session, and `Cmd+1..9` reach the page. It needs a Rust toolchain and
 attaches to whatever daemon is already running (`HENRY_URL` or `HENRY_PORT` to point it
