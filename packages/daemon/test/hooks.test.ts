@@ -226,6 +226,31 @@ describe("hook ingest", () => {
     expect((bash.payload as { tool_input: { command: string } }).tool_input.command).toBe("git push origin main");
   });
 
+  test("a huge tool response is capped before it is stored, but still classified whole", async () => {
+    const big = "A".repeat(300_000);
+    await post("/hook", {
+      henrySession: sessionId,
+      henryHookEvent: "PostToolUse",
+      payload: hookPayload("PostToolUse", {
+        tool_name: "Bash",
+        tool_input: { command: "git commit -m wip" },
+        // The sha the commit rule reads sits at the head, where capping keeps it.
+        tool_response: { stdout: `[main a1b2c3d] wip\n${big}`, stderr: "" },
+      }),
+    });
+    const stored = await waitFor("capped event", async () => {
+      const found = (await events(sessionId)).find((e) => e.hookEvent === "PostToolUse" && (e.payload as { tool_input?: { command?: string } })?.tool_input?.command === "git commit -m wip");
+      return found ?? undefined;
+    });
+    const size = JSON.stringify(stored.payload).length;
+    expect(size).toBeLessThan(32_768);
+    const p = stored.payload as { tool_input: { command: string }; tool_response: { stdout: string } };
+    // Short fields survive intact; the long one keeps its head and says what went.
+    expect(p.tool_input.command).toBe("git commit -m wip");
+    expect(p.tool_response.stdout.startsWith("[main a1b2c3d] wip\nAAA")).toBe(true);
+    expect(p.tool_response.stdout).toContain("henry truncated");
+  });
+
   test("activity follows the hook stream: working, needs input, waiting", async () => {
     const activityOf = async () => (await state()).sessions.find((x) => x.id === sessionId)?.activity;
 

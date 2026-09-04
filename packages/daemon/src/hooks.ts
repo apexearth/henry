@@ -54,6 +54,42 @@ const isObj = (v: unknown): v is Dict => !!v && typeof v === "object" && !Array.
 const str = (v: unknown): string | undefined => (typeof v === "string" && v ? v : undefined);
 const num = (v: unknown): number | undefined => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
 
+// ---- payload capping ----
+
+const FIELD_CAP = 4_096;
+const TOTAL_CAP = 32_768;
+const MAX_DEPTH = 6;
+const MAX_ITEMS = 200;
+
+const capString = (s: string): string =>
+  s.length <= FIELD_CAP ? s : `${s.slice(0, FIELD_CAP)}… [henry truncated ${s.length - FIELD_CAP} chars]`;
+
+function capDeep(v: unknown, depth = 0): unknown {
+  if (typeof v === "string") return capString(v);
+  if (!v || typeof v !== "object" || depth >= MAX_DEPTH) return v;
+  if (Array.isArray(v)) return v.slice(0, MAX_ITEMS).map((x) => capDeep(x, depth + 1));
+  const out: Dict = {};
+  for (const [k, val] of Object.entries(v as Dict)) out[k] = capDeep(val, depth + 1);
+  return out;
+}
+
+/**
+ * Trim a hook payload before it is stored and broadcast. A PostToolUse response runs to
+ * hundreds of KB (a screenshot, a large file read), and every byte would otherwise sit in
+ * SQLite for the retention window and go over the WS to every open window. Strings keep their
+ * head, so `[main abc1234] subject` and other leading detail survive; the shape is unchanged,
+ * so the Flags panel and the overseer read a capped payload exactly as they read a whole one.
+ */
+function capPayload(payload: HookPayload): HookPayload {
+  if (JSON.stringify(payload).length <= TOTAL_CAP) return payload;
+  const capped = capDeep(payload) as HookPayload;
+  const size = JSON.stringify(capped).length;
+  if (size <= TOTAL_CAP) return capped;
+  // Wide rather than deep (thousands of small fields): drop the two that carry the bulk.
+  const { tool_input: _in, tool_response: _out, ...rest } = capped;
+  return { ...rest, henryTruncated: size };
+}
+
 // ---- hooks ----
 
 /** Body of POST /hook: `{ henrySession, henryHookEvent, payload }` where payload is Claude Code's hook JSON. */
@@ -99,6 +135,8 @@ function ingestHookInner(body: HookBody): IngestResult {
   } catch (e) {
     console.error("[hook] rules.classify failed:", e);
   }
+  // Classification saw the whole payload; only what outlives this call is trimmed.
+  event.payload = capPayload(payload);
 
   db.insertEvent(event);
   broadcast({ type: "event", event });

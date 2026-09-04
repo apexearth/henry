@@ -17,6 +17,8 @@ import { sessions } from "./sessions";
 const POLL_MS = 2000;
 const BROADCAST_THROTTLE_MS = 2000;
 const MAX_SEEN_IDS = 5000;
+/** Most a single tick reads; the rest follows through the event loop. */
+const READ_CHUNK_BYTES = 1 << 20;
 
 /** USD per million tokens: [input, output]. Cache read = 10% of input, cache write = 125% of input. */
 const PRICES: Record<string, [number, number]> = {
@@ -223,6 +225,8 @@ function ensureWatcher(tail: Tail): void {
 function tick(tail: Tail): void {
   if (tail.reading) return;
   tail.reading = true;
+  // Set when this pass stopped at the chunk cap with more file behind it.
+  let more = false;
   try {
     let size: number;
     try {
@@ -243,8 +247,13 @@ function tick(tail: Tail): void {
     const fd = openSync(tail.path, "r");
     let changed = false;
     try {
-      const buf = Buffer.alloc(size - tail.offset);
-      const n = readSync(fd, buf, 0, buf.length, tail.offset);
+      // A cold start reads from byte 0, and transcripts reach tens of MB: one allocation and
+      // a JSON.parse per line would stall the daemon (hooks and the WS with it) for as long
+      // as that takes. Take a chunk per pass and come back through the event loop.
+      const want = Math.min(size - tail.offset, READ_CHUNK_BYTES);
+      more = want < size - tail.offset;
+      const buf = Buffer.alloc(want);
+      const n = readSync(fd, buf, 0, want, tail.offset);
       tail.offset += n;
       const text = tail.partial + buf.toString("utf8", 0, n);
       const lines = text.split("\n");
@@ -261,6 +270,9 @@ function tick(tail: Tail): void {
     console.error(`[transcript] ${basename(tail.path)}: ${(e as Error).message}`);
   } finally {
     tail.reading = false;
+    // Checked at fire time, not now: stopTailing() flushes with a final tick before it drops
+    // the tail, so a follow-up scheduled here must not outlive it.
+    if (more) setTimeout(() => tails.get(tail.sessionId) === tail && tick(tail), 0);
   }
 }
 

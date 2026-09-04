@@ -408,6 +408,27 @@ Baseline: when a session first touches a repo (first hook event whose cwd or fil
 path resolves into it), record `HEAD` as that session's baseline for that repo.
 "Commits since" and the diff are against that ref.
 
+## Staying cheap
+
+The daemon watches and polls continuously, so every recurring cost has a ceiling and every
+unbounded input is trimmed at the door.
+
+- **Watchers cover `.git`, never the working tree**, and only for repos with a live session.
+  A refresh is ~5 git processes behind a 300ms debounce, coalesced per common dir;
+  `GIT_OPTIONAL_LOCKS=0` keeps our own `status` from rewriting the index and waking the
+  watcher we just fired.
+- **The 10s poll is a floor, not a promise.** A common dir whose refresh takes ≥250ms drops
+  to 30s and ≥1s to 60s (`git.pollIntervalFor`): `status --untracked-files=all` is
+  proportional to the untracked tree, and a big un-ignored build dir must not hold the whole
+  daemon to a 10s cadence. fs.watch still reports those repos immediately.
+- **Hook payloads are capped at 32KB before storage and broadcast**, strings head-first at
+  4KB each with the shape intact. Rules classify the whole payload first, so nothing is
+  missed; what a 300KB screenshot response leaves behind is a readable head. Uncapped, this
+  was ~19MB of SQLite for two days of use, all of it also crossing the WS to every window.
+- **The transcript tailer reads 1MB per pass** and comes back through the event loop.
+  A cold start begins at byte 0 and transcripts reach tens of MB; one synchronous pass would
+  stall hooks and the WS for the length of the file.
+
 ## Config (`~/.henry/config.json`)
 
 - **First run asks for `reposRoot`.** Until config.json has one, every window shows a

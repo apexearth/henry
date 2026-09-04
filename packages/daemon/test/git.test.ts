@@ -321,4 +321,14 @@ describe("git", () => {
     const ev = await nextMsg("event", (m) => m.event.kind === "git" && m.event.summary.startsWith("new worktree"));
     expect(ev.event.summary).toBe(`new worktree ${wt2} on feat2`);
   }, 20_000);
+
+  test("a slow refresh earns a slower poll", () => {
+    // fs.watch still reports changes at once; only the belt-and-braces sweep backs off.
+    expect(git.pollIntervalFor(12)).toBe(10_000);
+    expect(git.pollIntervalFor(249)).toBe(10_000);
+    expect(git.pollIntervalFor(250)).toBe(30_000);
+    expect(git.pollIntervalFor(999)).toBe(30_000);
+    expect(git.pollIntervalFor(1_000)).toBe(60_000);
+    expect(git.pollIntervalFor(30_000)).toBe(60_000);
+  });
 });

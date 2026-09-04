@@ -1,6 +1,6 @@
 // Child of hooks.test.ts: exercises transcript.ts in-process against a fixture JSONL under a
 // private HENRY_HOME (set by the parent). Prints "TAIL PASS" and exits 0 on success.
-import { appendFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import * as transcript from "../src/transcript";
 import * as db from "../src/db";
@@ -73,6 +73,18 @@ await waitFor("carried-over totals", () => db.listSessionUsage()[sid]?.inputToke
 
 transcript.stopTailing(sid);
 assert(!transcript.isTailing(sid), "isTailing after stop");
+
+// A cold start on a transcript bigger than one read chunk (1MB): every line is still counted,
+// including the one straddling the chunk boundary, and the daemon is not blocked for the whole
+// file. Four ~600KB lines put boundaries inside lines 2 and 4.
+const sid2 = crypto.randomUUID();
+const big = join(home, "big.jsonl");
+const pad = "x".repeat(600_000);
+writeFileSync(big, [1, 2, 3, 4].map((i) => line(`b${i}`, { input_tokens: 10, output_tokens: 0 }, { pad })).join("\n") + "\n");
+assert(statSync(big).size > (1 << 20), "fixture is bigger than one chunk");
+transcript.startTailing({ ...session, id: sid2, claudeSessionId: "c-" + sid2 }, big);
+await waitFor("chunked cold read counts every line", () => db.listSessionUsage()[sid2]?.inputTokens === 40);
+transcript.stopTailing(sid2);
 // Windows releases a closed fs.watch handle a moment later; the directory is busy until then.
 for (let i = 0; i < 20; i++) {
   try {

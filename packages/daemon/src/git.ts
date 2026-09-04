@@ -20,6 +20,14 @@ import * as rules from "./rules";
 const STATE_TTL_MS = 2000;
 const DEBOUNCE_MS = 300;
 const POLL_MS = 10_000;
+// A refresh costs ~5 git processes, of which `status --untracked-files=all` dominates: ~13ms
+// on a tidy repo, but proportional to the untracked tree, so a large un-ignored build dir or
+// node_modules can push it into seconds. Those repos back off to a slower sweep — fs.watch
+// still reports their changes at once, so only the belt-and-braces poll gets rarer.
+const POLL_SLOW_MS = 30_000;
+const POLL_VERY_SLOW_MS = 60_000;
+const SLOW_MS = 250;
+const VERY_SLOW_MS = 1_000;
 const DIFF_CAP_BYTES = 2 * 1024 * 1024;
 
 // ---- types ----
@@ -91,6 +99,9 @@ const sinceCache = new Map<string, number>();
 const knownWorktrees = new Map<string, Set<string>>();
 const watchers = new Map<string, FSWatcher[]>();
 const debounces = new Map<string, ReturnType<typeof setTimeout>>();
+/** Per common dir: when the poll may sweep it again, and the interval it earned. */
+const pollDue = new Map<string, number>();
+const pollDelay = new Map<string, number>();
 let poll: ReturnType<typeof setInterval> | undefined;
 let started = false;
 
@@ -971,8 +982,24 @@ function scheduleRefresh(commonDir: string): void {
   );
 }
 
+/** The poll interval a refresh of this duration earns. */
+export function pollIntervalFor(took: number): number {
+  return took >= VERY_SLOW_MS ? POLL_VERY_SLOW_MS : took >= SLOW_MS ? POLL_SLOW_MS : POLL_MS;
+}
+
+/** When this common dir may be polled again, given how long its last refresh took. */
+function nextPollDelay(commonDir: string, took: number): number {
+  const delay = pollIntervalFor(took);
+  if (delay !== (pollDelay.get(commonDir) ?? POLL_MS)) {
+    pollDelay.set(commonDir, delay);
+    if (delay > POLL_MS) console.log(`[git] ${commonDir} took ${took}ms to refresh; polling it every ${delay / 1000}s`);
+  }
+  return delay;
+}
+
 /** Refresh every touched checkout that shares this common dir, then broadcast. */
 async function refreshShared(commonDir: string): Promise<void> {
+  const started = Date.now();
   const touched = new Set<string>();
   for (const [path, info] of repos) {
     if (info.commonDir !== commonDir || !repoSessions.get(path)?.size) continue;
@@ -983,6 +1010,8 @@ async function refreshShared(commonDir: string): Promise<void> {
     }
     for (const sid of repoSessions.get(path) ?? []) touched.add(sid);
   }
+  // A watcher-driven refresh re-arms the poll too: it just did the poll's job.
+  pollDue.set(commonDir, Date.now() + nextPollDelay(commonDir, Date.now() - started));
   for (const sid of touched) broadcastSession(sid);
 }
 
@@ -1024,9 +1053,10 @@ export function start(): void {
     if (info) associate(r.session_id, info);
   }
   poll = setInterval(() => {
+    const now = Date.now();
     const dirs = new Set<string>();
     for (const [path, info] of repos) if (repoSessions.get(path)?.size) dirs.add(info.commonDir);
-    for (const d of dirs) void refreshShared(d);
+    for (const d of dirs) if ((pollDue.get(d) ?? 0) <= now) void refreshShared(d);
   }, POLL_MS);
   poll.unref();
   const dirs = new Set([...repos.values()].filter((i) => repoSessions.get(i.path)?.size).map((i) => i.commonDir));
@@ -1039,6 +1069,8 @@ export function stop(): void {
   poll = undefined;
   for (const t of debounces.values()) clearTimeout(t);
   debounces.clear();
+  pollDue.clear();
+  pollDelay.clear();
   for (const list of watchers.values()) for (const w of list) w.close();
   watchers.clear();
   started = false;
