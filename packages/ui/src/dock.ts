@@ -185,6 +185,25 @@ export function closePeek(id?: string) {
   if (!g.panels.some((x) => isFilePanel(x.id))) stageStrip(g)[0]?.api.setActive();
 }
 
+/** Where the keyboard was when a picker opened, so closing it puts you back in the terminal. */
+export function focusOrigin(): Element | null {
+  return document.activeElement;
+}
+
+/**
+ * Put the keyboard back after a picker closes: where it was if that was in the stage, else on
+ * the terminal or peek in view. Modals steal focus and Dockview does not hand it back on its own.
+ */
+export function restoreFocus(origin: Element | null) {
+  if (origin instanceof HTMLElement && origin.isConnected && origin.closest(".term, .peek")) return origin.focus();
+  const g = stageGroup();
+  if (!g) return;
+  const candidates = g.element.querySelectorAll<HTMLElement>(".xterm-helper-textarea, .peek-body");
+  for (const el of candidates) {
+    if (el.offsetParent !== null) return el.focus();
+  }
+}
+
 export function stageStep(dir: -1 | 1) {
   const g = stageGroup();
   if (!g) return;

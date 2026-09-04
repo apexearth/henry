@@ -197,6 +197,27 @@ describe("git", () => {
     expect(vsHead["d.txt"]).toBeUndefined();
   });
 
+  test("grepRepo is literal and smart-case, sees untracked files, and windows long lines", async () => {
+    writeFileSync(join(repo, "grep-me.txt"), "Needle here\nneedle again\nno hay\n" + "x".repeat(1000) + "needle" + "y".repeat(1000) + "\n");
+    const lower = await git.grepRepo(repo, "needle");
+    const relOf = (h: { rel: string; line: number }) => `${h.rel}:${h.line}`;
+    expect(lower.hits.map(relOf)).toEqual(["grep-me.txt:1", "grep-me.txt:2", "grep-me.txt:4"]);
+    expect(lower.hits[0].col).toBe(1);
+    const long = lower.hits[2];
+    expect(long.text.length).toBeLessThan(300);
+    expect(long.text.slice(long.col - 1, long.col - 1 + 6)).toBe("needle");
+    const upper = await git.grepRepo(repo, "Needle");
+    expect(upper.hits.map(relOf)).toEqual(["grep-me.txt:1"]);
+    expect((await git.grepRepo(repo, "a.b")).hits).toEqual([]); // literal: no regex dot
+    expect((await git.grepRepo(repo, "")).hits).toEqual([]);
+    expect(await git.grepRepo(repo, "needle", 2)).toMatchObject({ truncated: true });
+    // Every repo under the root: hits carry the repo they came from.
+    const all = await git.grepRepos(root, "needle");
+    expect(all.hits.every((h) => h.repo === repo)).toBe(true);
+    expect(all.hits.length).toBe(3);
+    rmSync(join(repo, "grep-me.txt"));
+  });
+
   test("logSinceBaseline lists commits after the baseline", async () => {
     const { baseline, commits } = await git.logSinceBaseline("s1", repo);
     expect(baseline).toBe(baselineSha);

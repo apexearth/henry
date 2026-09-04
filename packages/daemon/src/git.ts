@@ -10,7 +10,7 @@
 // imported by tests without starting the server. server.ts wires it in startServer().
 import { existsSync, readFileSync, readdirSync, statSync, realpathSync, watch, type FSWatcher } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
-import type { ChangedFile, FileDiff, HenryEvent, RepoPickerEntry, RepoState, ServerMessage, SessionFiles } from "@henry/shared";
+import type { ChangedFile, FileDiff, GrepHit, GrepResult, HenryEvent, RepoPickerEntry, RepoState, ServerMessage, SessionFiles } from "@henry/shared";
 import * as db from "./db";
 import { isWindows } from "./platform";
 import * as rules from "./rules";
@@ -772,6 +772,79 @@ export async function listFiles(anyPath: string): Promise<string[]> {
   const files = r.code === 0 ? r.out.split("\0").filter(Boolean) : [];
   indexCache.set(info.path, { at: Date.now(), files });
   return files;
+}
+
+const GREP_CAP_HITS = 500;
+const GREP_CAP_BYTES = 4 * 1024 * 1024;
+const GREP_LINE_CHARS = 240;
+const GREP_CONCURRENCY = 4;
+
+/**
+ * Literal text search of one repo: tracked and untracked files, binaries skipped, case-sensitive
+ * only when the query has an upper-case letter (smart case). `git grep` rather than ripgrep so
+ * it runs wherever Henry does. Hits come in `git grep` order (path, then line).
+ */
+export async function grepRepo(repoPath: string, q: string, cap = GREP_CAP_HITS): Promise<GrepResult> {
+  const info = resolveRepo(repoPath);
+  if (!info || !q) return { hits: [], truncated: false };
+  const args = ["grep", "-n", "--column", "-I", "-z", "--untracked", "--no-color", "-F"];
+  if (q === q.toLowerCase()) args.push("-i");
+  args.push("-e", q, "--");
+  const r = await run(info.path, args, { maxBytes: GREP_CAP_BYTES });
+  // Exit 1 is "no match"; anything else (not a repo, bad args) reads as no hits too.
+  if (r.code !== 0) return { hits: [], truncated: false };
+  const hits: GrepHit[] = [];
+  const lines = r.out.split("\n");
+  // The last segment is either the empty tail after the final \n or a line the byte cap cut short.
+  let truncated = !r.out.endsWith("\n");
+  for (let i = 0; i < lines.length - 1; i++) {
+    const parts = lines[i].split("\0");
+    if (parts.length < 4) continue;
+    const [rel, ln, col] = parts;
+    if (hits.length >= cap) {
+      truncated = true;
+      break;
+    }
+    hits.push({ repo: info.path, rel, ...window(Number(ln), Number(col), parts.slice(3).join("\0")) });
+  }
+  return { hits, truncated };
+}
+
+/** A minified line can be a megabyte: keep a window around the match, re-basing `col` into it. */
+function window(line: number, col: number, text: string): { line: number; col: number; text: string } {
+  if (text.length <= GREP_LINE_CHARS) return { line, col, text };
+  const start = Math.max(0, Math.min(col - 1 - 40, text.length - GREP_LINE_CHARS));
+  const head = start > 0 ? "…" : "";
+  const tail = start + GREP_LINE_CHARS < text.length ? "…" : "";
+  return { line, col: col - start + head.length, text: head + text.slice(start, start + GREP_LINE_CHARS) + tail };
+}
+
+/** Text search across every checkout under `root`, a few repos at a time, hits grouped by repo. */
+export async function grepRepos(root: string, q: string): Promise<GrepResult> {
+  const repos = (await listRepos(root)).filter((e) => !e.folder);
+  const results: GrepResult[] = new Array(repos.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < repos.length) {
+      const i = next++;
+      results[i] = await grepRepo(repos[i].path, q);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(GREP_CONCURRENCY, repos.length) }, worker));
+  const hits: GrepHit[] = [];
+  let truncated = false;
+  for (const r of results) {
+    if (!r) continue;
+    truncated ||= r.truncated;
+    for (const h of r.hits) {
+      if (hits.length >= GREP_CAP_HITS) {
+        truncated = true;
+        break;
+      }
+      hits.push(h);
+    }
+  }
+  return { hits, truncated };
 }
 
 /**

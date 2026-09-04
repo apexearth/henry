@@ -2,6 +2,7 @@
 // then recent peeks, then every file in that session's repos (the one its cwd is in first),
 // then other sessions' repos. Type to fuzzy-filter; ↑↓ then Enter opens a peek.
 import { useEffect, useMemo, useRef, useState } from "react";
+import { focusOrigin, restoreFocus } from "./dock";
 import { openPeek } from "./FileView";
 import { recentFiles, repoIndex, splitPath, useSessionFiles } from "./files";
 import { joinPath, under } from "./platform";
@@ -67,6 +68,11 @@ export function FilePicker({ onClose }: { onClose: () => void }) {
   const [index, setIndex] = useState(0);
   const [indexes, setIndexes] = useState<Record<string, string[]>>({});
   const listRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const origin = focusOrigin();
+    return () => restoreFocus(origin);
+  }, []);
 
   // Repos in scope, in preference order. Membership decides the tier; order breaks ties.
   const scope = useMemo(() => {

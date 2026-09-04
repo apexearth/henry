@@ -379,6 +379,12 @@ export async function handleApi(req: Request, url: URL, fromPeer: boolean): Prom
       }
       if (pathname === "/api/session/files") return json(await git.sessionFiles(url.searchParams.get("sessionId") ?? ""));
       if (pathname === "/api/repo/files") return json(await git.listFiles(url.searchParams.get("repo") ?? ""));
+      // Text search for the explorer: one repo, or every checkout under the repos root.
+      if (pathname === "/api/repo/grep") {
+        const q = url.searchParams.get("q") ?? "";
+        const repo = url.searchParams.get("repo");
+        return json(repo ? await git.grepRepo(repo, q) : await git.grepRepos(config.reposRoot, q));
+      }
       if (pathname === "/api/file/diff") {
         const d = await git.fileDiff(url.searchParams.get("sessionId") || undefined, url.searchParams.get("path") ?? "");
         return d ? json(d) : json({ error: "not in a repo" }, 404);

@@ -218,6 +218,9 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 .peek-meta { color: var(--fg-dim); font-size: 11px; margin-left: auto; }
 .peek-close { background: none; border: none; padding: 0 4px; color: var(--fg-dim); font-size: 14px; }
 .peek-close:hover { color: var(--fg); }
+.peek-find { display: flex; align-items: center; gap: 10px; padding: 4px 10px; border-bottom: 1px solid var(--border); background: var(--bg-2); font-size: 12px; flex: none; }
+.peek-find input { width: 260px; padding: 2px 6px; }
+.peek-find .hint { color: var(--fg-dim); font-size: 11px; white-space: nowrap; }
 .peek-body { flex: 1; overflow: auto; outline: none; font-size: 12px; line-height: 1.5; }
 .peek-body pre { margin: 0; font: inherit; }
 .peek-line { display: flex; white-space: pre; }
@@ -276,6 +279,17 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 .explorer-git { flex: none; display: flex; gap: 8px; color: var(--fg-dim); font-size: 11px; }
 .explorer-git .dirty { color: var(--warn); }
 .explorer-git .branch { max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
+/* Text mode: one row per grep hit, the file named once above its first hit. */
+.explorer-hit { flex-direction: column; align-items: stretch; gap: 2px; padding-top: 3px; padding-bottom: 3px; }
+.explorer-hit.first { margin-top: 4px; border-top: 1px solid var(--border); padding-top: 6px; }
+.explorer-hit.first:first-child { margin-top: 0; border-top: none; }
+.explorer-hit-file { font-size: 12px; }
+.explorer-hit-file .path { margin-left: auto; }
+.explorer-hit-line { display: flex; gap: 8px; font-size: 11px; color: var(--fg-dim); overflow: hidden; }
+.explorer-hit-no { flex: none; min-width: 4ch; text-align: right; color: var(--fg-faint); }
+.explorer-hit-text { overflow: hidden; text-overflow: ellipsis; white-space: pre; }
+.explorer-hit-text mark, .peek-line mark { background: var(--accent-soft); color: var(--fg); border-radius: 2px; }
+.peek-line mark.cur { background: var(--accent); color: var(--bg); }
 .explorer-right { flex: 1; min-width: 0; background: var(--bg); }
 .explorer-right .peek-head { padding-left: 12px; }
 .explorer-empty { height: 100%; display: flex; flex-direction: column; gap: 8px; align-items: center; justify-content: center; color: var(--fg-dim); text-align: center; padding: 20px; }
@@ -301,6 +315,16 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 .picker-machines .hint { color: var(--fg-dim); font-size: 11px; }
 .chip { background: none; border: 1px dotted var(--border); border-radius: 10px; padding: 1px 8px; font-size: 11px; color: var(--fg-dim); }
 .chip.sel { border-style: solid; border-color: currentColor; background: var(--bg-3); color: var(--fg); }
+/* The explorer's mode toggle, read top-down as "file name" or "file search": the mode in use
+   in white, the other small and muted under it, and a big ⇥ for the key that flips them.
+   After .chip.sel on purpose: same specificity, so order decides. */
+.chip-mode, .chip-mode.sel { border: none; background: none; padding: 0 4px; display: flex; align-items: center; gap: 8px; text-align: left; max-width: none; }
+.chip-mode .mode-stack { display: flex; flex-direction: column; line-height: 1.15; }
+.chip-mode .mode-head { font-size: 11px; color: var(--fg-dim); }
+.chip-mode .mode-on { font-size: 14px; color: var(--fg); }
+.chip-mode .mode-off { font-size: 11px; color: var(--fg-faint); }
+.chip-mode:hover .mode-off { color: var(--fg-dim); }
+.chip-mode kbd { font-size: 26px; padding: 0; border: none; background: none; color: var(--accent); line-height: 1; }
 .remotes-pop { width: 420px; font-size: 12px; }
 .remotes-pop h4 { margin: 8px 0 4px; font-size: 10px; letter-spacing: .04em; text-transform: uppercase; color: var(--fg-dim); font-weight: normal; }
 .remotes-pop .me, .remotes-pop .peer-row { display: flex; gap: 8px; align-items: center; padding: 4px 0; }

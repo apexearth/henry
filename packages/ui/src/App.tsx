@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import { HenryMark } from "./HenryMark";
 import { ThemeMenu } from "./ThemeMenu";
 import { RemotesMenu } from "./RemotesMenu";
-import { Explorer } from "./Explorer";
+import { Explorer, type ExplorerProps } from "./Explorer";
 import { FilePicker } from "./FilePicker";
+import { sendFind } from "./FileView";
 import { Layout } from "./Layout";
 import { Setup } from "./Setup";
 import { Keys } from "./Keys";
@@ -17,7 +18,7 @@ export function App() {
   const firstRun = useStore((s) => s.hydrated && s.firstRun);
   const reposRoot = useStore((s) => s.config?.reposRoot);
   const [finder, setFinder] = useState(false);
-  const [explorer, setExplorer] = useState(false);
+  const [explorer, setExplorer] = useState<Pick<ExplorerProps, "text"> | null>(null);
   const [setup, setSetup] = useState(false);
   const [keys, setKeys] = useState(false);
 
@@ -32,11 +33,12 @@ export function App() {
           e.preventDefault();
           return;
         }
-        // Otherwise Esc closes the file peek in view.
+        // Otherwise Esc closes the peek's find bar if one is open, else the file peek in view.
         const p = getDockApi()?.activePanel;
         if (p && isFilePanel(p.id)) {
           e.preventDefault();
-          closePeek(p.id);
+          if (document.querySelector(".peek-find")) sendFind("close");
+          else closePeek(p.id);
         }
         return;
       }
@@ -62,11 +64,19 @@ export function App() {
         setFinder((v) => !v);
         return;
       }
-      // ⌘F opens the explorer (repos and files, with a preview). ⌃F too, outside the terminal
-      // where it is forward-char. Chrome lets a page take ⌘F, unlike ⌘N.
-      if ((e.key === "f" || e.key === "F") && !e.shiftKey && !e.altKey && (e.metaKey || !(e.target as HTMLElement | null)?.closest?.(".xterm"))) {
+      // ⌘F over a file peek in view finds within it; anywhere else it opens the explorer (repos,
+      // files and text, with a preview). ⌘⇧F is the explorer in text mode regardless, seeded from
+      // the peek's find bar when one is open. ⌃F too, outside the terminal where it is
+      // forward-char. Chrome lets a page take ⌘F, unlike ⌘N.
+      if ((e.key === "f" || e.key === "F") && !e.altKey && (e.metaKey || !(e.target as HTMLElement | null)?.closest?.(".xterm"))) {
         e.preventDefault();
-        setExplorer((v) => !v);
+        if (e.shiftKey) {
+          setExplorer({ text: document.querySelector<HTMLInputElement>(".peek-find input")?.value ?? "" });
+          return;
+        }
+        const p = getDockApi()?.activePanel;
+        if (p && isFilePanel(p.id) && !document.querySelector(".modal-bg")) sendFind("open");
+        else setExplorer((v) => (v ? null : {}));
         return;
       }
       // Cmd+←/→ (Alt+←/→ off macOS) walk the stage: the session, then its peeks.
@@ -106,7 +116,7 @@ export function App() {
             repos {reposRoot}
           </button>
         )}
-        <button className="topbar-btn" onClick={() => setExplorer(true)} title={`browse repos and files (${MOD}F)`}>explore</button>
+        <button className="topbar-btn" onClick={() => setExplorer({})} title={`browse repos and files, or search their text (${MOD}F)`}>explore</button>
         <RemotesMenu />
         <ThemeMenu />
         <button className="topbar-btn" onClick={() => setKeys(true)} title={`keyboard shortcuts (${MOD}/)`}>keys</button>
@@ -114,7 +124,7 @@ export function App() {
       </div>
       <Layout />
       {finder && <FilePicker onClose={() => setFinder(false)} />}
-      {explorer && <Explorer onClose={() => setExplorer(false)} />}
+      {explorer && <Explorer onClose={() => setExplorer(null)} text={explorer.text} />}
       {keys && <Keys onClose={() => setKeys(false)} />}
       {firstRun ? <Setup /> : setup && <Setup onClose={() => setSetup(false)} />}
     </div>

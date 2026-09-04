@@ -1,9 +1,12 @@
 // ⌘F: browse this machine's repos and their files without leaving Henry. Left: a filter over
 // every checkout under the repos root (name · branch · dirty), or, once one is picked, over its
-// files; right: the selected file, read-only, uncommitted lines tinted. Where you were (repo,
-// query, selection) is remembered per browser, so ⌘F flips back to the same place.
+// files; right: the selected file, read-only, uncommitted lines tinted. Tab flips the filter to
+// text mode: `git grep` over the scoped repo (or every repo), one row per hit, ↑↓ previews the
+// hit's line. Where you were (repo, mode, query, selection) is remembered per browser, so ⌘F
+// flips back to the same place.
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ChangedFile, RepoState } from "@henry/shared";
+import type { ChangedFile, GrepHit, GrepResult, RepoState } from "@henry/shared";
+import { focusOrigin, restoreFocus } from "./dock";
 import { FileView, openPeek } from "./FileView";
 import { repoIndex, splitPath } from "./files";
 import { joinPath } from "./platform";
@@ -11,23 +14,28 @@ import { hueText, nameHue } from "./theme";
 
 type Row =
   | { kind: "repo"; key: string; repo: RepoState; score: number }
-  | { kind: "file"; key: string; abs: string; rel: string; repo: RepoState; status?: ChangedFile["status"]; score: number };
+  | { kind: "file"; key: string; abs: string; rel: string; repo: RepoState; status?: ChangedFile["status"]; score: number }
+  | { kind: "hit"; key: string; abs: string; rel: string; repo: RepoState; line: number; col: number; text: string; first: boolean };
 
 const MAX_ROWS = 400;
+const MIN_TEXT_QUERY = 2;
+const TEXT_DEBOUNCE_MS = 150;
 const STATE_KEY = "henry.explorer";
 
 interface Saved {
   /** Repo path the list is scoped to; absent: the repo list. */
   scope?: string;
+  /** Text mode: the filter is a `git grep`, not a file-name match. */
+  text?: boolean;
   query: string;
-  /** Row key (repo path, or absolute file path) that was selected. */
+  /** Row key (repo path, absolute file path, or `path:line` for a hit) that was selected. */
   sel?: string;
 }
 
 function load(): Saved {
   try {
     const v = JSON.parse(localStorage.getItem(STATE_KEY) ?? "{}") as Partial<Saved>;
-    return { scope: typeof v.scope === "string" ? v.scope : undefined, query: typeof v.query === "string" ? v.query : "", sel: typeof v.sel === "string" ? v.sel : undefined };
+    return { scope: typeof v.scope === "string" ? v.scope : undefined, text: v.text === true, query: typeof v.query === "string" ? v.query : "", sel: typeof v.sel === "string" ? v.sel : undefined };
   } catch {
     return { query: "" };
   }
@@ -87,11 +95,35 @@ async function fetchChanges(repoPath: string): Promise<ChangedFile[]> {
   return r.ok ? ((await r.json()) as ChangedFile[]) : [];
 }
 
-export function Explorer({ onClose }: { onClose: () => void }) {
+async function fetchGrep(q: string, repoPath: string | undefined, signal: AbortSignal): Promise<GrepResult> {
+  const p = new URLSearchParams({ q });
+  if (repoPath) p.set("repo", repoPath);
+  const r = await fetch(`/api/repo/grep?${p}`, { signal });
+  return r.ok ? ((await r.json()) as GrepResult) : { hits: [], truncated: false };
+}
+
+/** The matched span of a hit line: the server's column, checked against the text (smart case). */
+function matchSpan(text: string, col: number, q: string): [number, number] | undefined {
+  const at = col - 1;
+  const sensitive = q !== q.toLowerCase();
+  const same = (a: string, b: string) => (sensitive ? a === b : a.toLowerCase() === b.toLowerCase());
+  if (at >= 0 && same(text.slice(at, at + q.length), q)) return [at, at + q.length];
+  const i = sensitive ? text.indexOf(q) : text.toLowerCase().indexOf(q.toLowerCase());
+  return i >= 0 ? [i, i + q.length] : undefined;
+}
+
+export interface ExplorerProps {
+  onClose: () => void;
+  /** Open in text mode with this query, overriding what was remembered (⌘⇧F from a peek's find). */
+  text?: string;
+}
+
+export function Explorer({ onClose, text: textArg }: ExplorerProps) {
   const [saved] = useState(load);
   const [scope, setScope] = useState<string | undefined>(saved.scope);
-  const [query, setQuery] = useState(saved.query);
-  const [selKey, setSelKey] = useState<string | undefined>(saved.sel);
+  const [text, setText] = useState(textArg !== undefined ? true : saved.text === true);
+  const [query, setQuery] = useState(textArg ?? saved.query);
+  const [selKey, setSelKey] = useState<string | undefined>(textArg !== undefined ? undefined : saved.sel);
   const [repos, setRepos] = useState<RepoState[]>(reposCache ?? []);
   const [loaded, setLoaded] = useState(reposCache !== null);
   const [indexes, setIndexes] = useState<Record<string, string[]>>({});
@@ -100,7 +132,12 @@ export function Explorer({ onClose }: { onClose: () => void }) {
   const rightRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => save({ scope, query, sel: selKey }), [scope, query, selKey]);
+  useEffect(() => save({ scope, text, query, sel: selKey }), [scope, text, query, selKey]);
+
+  useEffect(() => {
+    const origin = focusOrigin();
+    return () => restoreFocus(origin);
+  }, []);
 
   useEffect(() => {
     let on = true;
@@ -117,9 +154,10 @@ export function Explorer({ onClose }: { onClose: () => void }) {
   }, []);
 
   const scopeRepo = useMemo(() => repos.find((r) => r.path === scope), [repos, scope]);
-  const tokens = useMemo(() => query.toLowerCase().split(/\s+/).filter(Boolean), [query]);
+  const tokens = useMemo(() => (text ? [] : query.toLowerCase().split(/\s+/).filter(Boolean)), [query, text]);
+  const grepQuery = text ? query.trim() : "";
 
-  // Indexes: the scoped repo's always; every repo's once you type without a scope.
+  // Indexes: the scoped repo's always; every repo's once you type a name without a scope.
   const wanted = useMemo(() => (scope ? (scopeRepo ? [scopeRepo] : []) : tokens.length ? repos : []), [scope, scopeRepo, tokens.length, repos]);
   useEffect(() => {
     let on = true;
@@ -143,8 +181,51 @@ export function Explorer({ onClose }: { onClose: () => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scopeRepo]);
 
-  const rows = useMemo(() => {
-    const out: Row[] = [];
+  // Text mode: grep a beat after the last keystroke; a newer query aborts the one in flight.
+  // `grep` holds the result and the query it answers, so a stale result is never painted.
+  const [grep, setGrep] = useState<{ q: string; scope?: string; res: GrepResult } | null>(null);
+  const [searching, setSearching] = useState(false);
+  useEffect(() => {
+    if (grepQuery.length < MIN_TEXT_QUERY) {
+      setGrep(null);
+      setSearching(false);
+      return;
+    }
+    const ctl = new AbortController();
+    setSearching(true);
+    const t = setTimeout(() => {
+      fetchGrep(grepQuery, scope, ctl.signal)
+        .then((res) => {
+          if (ctl.signal.aborted) return;
+          setGrep({ q: grepQuery, scope, res });
+          setSearching(false);
+        })
+        .catch(() => {});
+    }, TEXT_DEBOUNCE_MS);
+    return () => {
+      clearTimeout(t);
+      ctl.abort();
+    };
+  }, [grepQuery, scope]);
+  const grepLive = grep && grep.q === grepQuery && grep.scope === scope ? grep.res : null;
+
+  const rows = useMemo((): Row[] => {
+    if (text) {
+      const hits: Row[] = [];
+      if (!grepLive) return hits;
+      const byPath = new Map(repos.map((r) => [r.path, r]));
+      let prev = "";
+      for (const h of grepLive.hits) {
+        const repo = byPath.get(h.repo);
+        if (!repo) continue;
+        const abs = joinPath(repo.path, h.rel);
+        hits.push({ kind: "hit", key: `${abs}:${h.line}`, abs, rel: h.rel, repo, line: h.line, col: h.col, text: h.text, first: abs !== prev });
+        prev = abs;
+        if (hits.length >= MAX_ROWS) break;
+      }
+      return hits;
+    }
+    const out: Exclude<Row, { kind: "hit" }>[] = [];
     if (scopeRepo) {
       const status = new Map((changes[scopeRepo.path] ?? []).map((c) => [c.path, c.status] as const));
       for (const rel of indexes[scopeRepo.path] ?? []) {
@@ -171,7 +252,7 @@ export function Explorer({ onClose }: { onClose: () => void }) {
     }
     out.sort((a, b) => b.score - a.score || a.key.localeCompare(b.key));
     return out.slice(0, MAX_ROWS);
-  }, [scopeRepo, repos, indexes, changes, tokens]);
+  }, [text, grepLive, scopeRepo, repos, indexes, changes, tokens]);
 
   const sel = Math.max(0, rows.findIndex((r) => r.key === selKey));
   const selected = rows[sel];
@@ -180,10 +261,10 @@ export function Explorer({ onClose }: { onClose: () => void }) {
   }, [sel, rows]);
 
   // The preview follows the selection a beat behind, so arrowing through files doesn't fetch each one.
-  const [preview, setPreview] = useState<string | undefined>();
+  const [preview, setPreview] = useState<{ path: string; line?: number } | undefined>();
   useEffect(() => {
-    const path = selected?.kind === "file" ? selected.abs : undefined;
-    const t = setTimeout(() => setPreview(path), 120);
+    const next = selected?.kind === "file" ? { path: selected.abs } : selected?.kind === "hit" ? { path: selected.abs, line: selected.line } : undefined;
+    const t = setTimeout(() => setPreview(next), 120);
     return () => clearTimeout(t);
   }, [selected]);
 
@@ -193,20 +274,25 @@ export function Explorer({ onClose }: { onClose: () => void }) {
   };
   const enterScope = (repo: RepoState) => {
     setScope(repo.path);
-    setQuery("");
+    if (!text) setQuery("");
     setSelKey(undefined);
   };
   const leaveScope = () => {
     setSelKey(scope);
     setScope(undefined);
-    setQuery("");
+    if (!text) setQuery("");
+    inputRef.current?.focus();
+  };
+  const toggleText = () => {
+    setText((v) => !v);
+    setSelKey(undefined);
     inputRef.current?.focus();
   };
   const pick = (row: Row | undefined) => {
     if (!row) return;
     if (row.kind === "repo") enterScope(row.repo);
     else {
-      void openPeek(row.abs);
+      void openPeek(row.abs, undefined, row.kind === "hit" ? row.line : undefined);
       onClose();
     }
   };
@@ -217,7 +303,10 @@ export function Explorer({ onClose }: { onClose: () => void }) {
 
   const onKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Escape") return onClose();
-    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    if (e.key === "Tab") {
+      e.preventDefault();
+      toggleText();
+    } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
       move(e.key === "ArrowDown" ? 1 : -1);
     } else if (e.key === "PageDown" || e.key === "PageUp") {
@@ -233,9 +322,15 @@ export function Explorer({ onClose }: { onClose: () => void }) {
   };
 
   const indexed = scopeRepo ? indexes[scopeRepo.path]?.length : undefined;
-  const foot = scopeRepo
-    ? indexed === undefined ? "listing files…" : tokens.length ? `${rows.length}${rows.length === MAX_ROWS ? "+" : ""} of ${indexed} files` : `${indexed} files${indexed > MAX_ROWS ? `, first ${MAX_ROWS} shown, type to narrow` : ""}`
-    : !loaded ? "reading repos…" : tokens.length ? `${rows.length}${rows.length === MAX_ROWS ? "+" : ""} match${rows.length === 1 ? "" : "es"}` : `${repos.length} repos, type a repo or file name`;
+  const files = grepLive ? new Set(grepLive.hits.map((h) => h.repo + "\0" + h.rel)).size : 0;
+  const foot = text
+    ? grepQuery.length < MIN_TEXT_QUERY ? `type ${MIN_TEXT_QUERY}+ characters to search ${scopeRepo ? scopeRepo.name : "every repo"}` : searching && !grepLive ? "searching…" : !grepLive ? "" : `${grepLive.hits.length}${grepLive.truncated ? "+" : ""} hit${grepLive.hits.length === 1 ? "" : "s"} in ${files} file${files === 1 ? "" : "s"}${searching ? " · searching…" : ""}`
+    : scopeRepo
+      ? indexed === undefined ? "listing files…" : tokens.length ? `${rows.length}${rows.length === MAX_ROWS ? "+" : ""} of ${indexed} files` : `${indexed} files${indexed > MAX_ROWS ? `, first ${MAX_ROWS} shown, type to narrow` : ""}`
+      : !loaded ? "reading repos…" : tokens.length ? `${rows.length}${rows.length === MAX_ROWS ? "+" : ""} match${rows.length === 1 ? "" : "es"}` : `${repos.length} repos, type a repo or file name`;
+  const empty = !loaded ? "loading…"
+    : text ? (grepQuery.length < MIN_TEXT_QUERY ? "" : searching ? "searching…" : grepLive ? "no match" : "")
+      : scopeRepo && indexed === undefined ? "listing files…" : tokens.length ? "no match" : "no repos under the repos root";
 
   return (
     <div className="modal-bg explorer-bg" onMouseDown={onClose}>
@@ -247,8 +342,16 @@ export function Explorer({ onClose }: { onClose: () => void }) {
                 {scopeRepo.name} ×
               </button>
             )}
+            <button className="chip chip-mode" onClick={toggleText} title={text ? "file search: matching file contents. Tab or click for file names" : "file name: matching paths. Tab or click to search file contents"}>
+              <span className="mode-stack">
+                <span className="mode-head">file</span>
+                <span className="mode-on">{text ? "search" : "name"}</span>
+                <span className="mode-off">{text ? "name" : "search"}</span>
+              </span>
+              <kbd>⇥</kbd>
+            </button>
             <input ref={inputRef} className="picker-input" autoFocus value={query} spellCheck={false}
-              placeholder={scopeRepo ? "file name — ↑↓ preview, ↩ opens" : "repo or file name"}
+              placeholder={text ? `text in ${scopeRepo ? scopeRepo.name : "every repo"} — ↑↓ preview, ↩ opens` : scopeRepo ? "file name — ↑↓ preview, ↩ opens" : "repo or file name"}
               onChange={(e) => setQuery(e.target.value)} onKeyDown={onKey} />
           </div>
           <div className="list" ref={listRef}>
@@ -265,6 +368,20 @@ export function Explorer({ onClose }: { onClose: () => void }) {
                   <span className="branch">{r.repo.branch}</span>
                 </span>
               </div>
+            ) : r.kind === "hit" ? (
+              <div key={r.key} className={"row explorer-hit" + (i === sel ? " sel" : "") + (r.first ? " first" : "")} onMouseEnter={() => setSelKey(r.key)} onClick={() => setSelKey(r.key)} onDoubleClick={() => pick(r)} title={`${r.abs}:${r.line}`}>
+                {r.first && (
+                  <span className="file-cell explorer-hit-file">
+                    <span>{splitPath(r.rel).name}</span>
+                    <span className="kind-word">{splitPath(r.rel).dir}</span>
+                    {!scopeRepo && <span className="path" style={{ color: hueText(nameHue(r.repo.name)) }}>{r.repo.name}</span>}
+                  </span>
+                )}
+                <span className="explorer-hit-line">
+                  <span className="explorer-hit-no">{r.line}</span>
+                  <HitText text={r.text} span={matchSpan(r.text, r.col, grepQuery)} />
+                </span>
+              </div>
             ) : (
               <div key={r.key} className={"row" + (i === sel ? " sel" : "")} onMouseEnter={() => setSelKey(r.key)} onClick={() => setSelKey(r.key)} onDoubleClick={() => pick(r)} title={r.abs}>
                 <span className="file-cell">
@@ -275,7 +392,7 @@ export function Explorer({ onClose }: { onClose: () => void }) {
                 {!scopeRepo && <span className="path" style={{ color: hueText(nameHue(r.repo.name)) }}>{r.repo.name}</span>}
               </div>
             ))}
-            {!rows.length && <div className="row placeholder">{!loaded ? "loading…" : scopeRepo && indexed === undefined ? "listing files…" : tokens.length ? "no match" : "no repos under the repos root"}</div>}
+            {!rows.length && empty && <div className="row placeholder">{empty}</div>}
           </div>
           <div className="foot hint">
             <span>{foot}</span>
@@ -283,14 +400,26 @@ export function Explorer({ onClose }: { onClose: () => void }) {
           </div>
         </div>
         <div className="explorer-right" ref={rightRef}>
-          {preview ? <FileView key={preview} path={preview} active={false} local /> : (
+          {preview ? <FileView key={preview.path} path={preview.path} line={preview.line} active={false} local /> : (
             <div className="explorer-empty">
-              {scopeRepo ? "select a file to read it here" : "pick a repo, or type a file name"}
+              {text ? "type to search file contents" : scopeRepo ? "select a file to read it here" : "pick a repo, or type a file name"}
               <div className="hint">↩ on a file opens it as a peek in the stage · PgUp/PgDn scroll the preview</div>
             </div>
           )}
         </div>
       </div>
     </div>
+  );
+}
+
+function HitText({ text, span }: { text: string; span?: [number, number] }) {
+  const t = text.trimStart();
+  if (!span) return <span className="explorer-hit-text">{t}</span>;
+  const cut = text.length - t.length;
+  const [a, b] = [Math.max(0, span[0] - cut), Math.max(0, span[1] - cut)];
+  return (
+    <span className="explorer-hit-text">
+      {t.slice(0, a)}<mark>{t.slice(a, b)}</mark>{t.slice(b)}
+    </span>
   );
 }

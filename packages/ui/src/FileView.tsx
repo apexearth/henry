@@ -1,5 +1,6 @@
 // A file peek: read-only view of one file, shown over the session in the stage group.
-// Opened by ⌘-clicking a path (terminal output, diff headers); Esc or × closes it.
+// Opened by ⌘-clicking a path (terminal output, diff headers); Esc or × closes it. ⌘F over
+// the peek in view opens a find bar (App.tsx routes it here as a `henry:find` event).
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FileDiff, FilePeek } from "@henry/shared";
 import { parseDiff } from "./DiffView";
@@ -72,6 +73,38 @@ function fmtSize(n: number): string {
   return n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
+/** "open" shows (or refocuses) the find bar of the peek in view; "close" hides it. */
+export type FindAction = "open" | "close";
+export const FIND_EVENT = "henry:find";
+export function sendFind(action: FindAction): void {
+  window.dispatchEvent(new CustomEvent<FindAction>(FIND_EVENT, { detail: action }));
+}
+
+const FIND_CAP = 5000;
+type Span = [start: number, end: number];
+
+/** Every occurrence of `q` (smart case), in file order, keyed by 1-based line. */
+function findAll(lines: string[], q: string): { at: { line: number; i: number }[]; byLine: Map<number, Span[]> } {
+  const at: { line: number; i: number }[] = [];
+  const byLine = new Map<number, Span[]>();
+  if (!q) return { at, byLine };
+  const sensitive = q !== q.toLowerCase();
+  const needle = sensitive ? q : q.toLowerCase();
+  for (let n = 0; n < lines.length && at.length < FIND_CAP; n++) {
+    const s = sensitive ? lines[n] : lines[n].toLowerCase();
+    let i = s.indexOf(needle);
+    if (i < 0) continue;
+    const spans: Span[] = [];
+    while (i >= 0 && at.length < FIND_CAP) {
+      at.push({ line: n + 1, i: spans.length });
+      spans.push([i, i + needle.length]);
+      i = s.indexOf(needle, i + needle.length);
+    }
+    byLine.set(n + 1, spans);
+  }
+  return { at, byLine };
+}
+
 interface Props {
   path: string;
   line?: number;
@@ -88,6 +121,8 @@ export function FileView({ path, line, active, local = false }: Props) {
   const [html, setHtml] = useState<string[] | null>(null);
   const body = useRef<HTMLDivElement>(null);
   const hit = useRef<HTMLDivElement>(null);
+  const cur = useRef<HTMLDivElement>(null);
+  const findInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let on = true;
@@ -130,14 +165,50 @@ export function FileView({ path, line, active, local = false }: Props) {
   const tint = useMemo(() => (fd?.diff ? tintsOf(fd.diff) : null), [fd]);
 
   // Dockview hides inactive panels, which drops their scroll position: re-centre on return.
+  // The explorer's preview is never active but still follows the line of the hit it shows.
   useEffect(() => {
-    if (!active) return;
-    body.current?.focus();
-    if (peek && line) hit.current?.scrollIntoView({ block: "center" });
-  }, [active, peek, line]);
+    if (active) body.current?.focus();
+    if ((active || local) && peek && line) hit.current?.scrollIntoView({ block: "center" });
+  }, [active, local, peek, line]);
 
-  const lines = peek?.content ? peek.content.split("\n") : [];
-  if (lines.length && lines[lines.length - 1] === "") lines.pop();
+  const lines = useMemo(() => {
+    const ls = peek?.content ? peek.content.split("\n") : [];
+    if (ls.length && ls[ls.length - 1] === "") ls.pop();
+    return ls;
+  }, [peek]);
+
+  // Find within the file: the bar lives only on the peek in view, so leaving it closes the bar.
+  const [find, setFind] = useState<{ q: string; n: number } | null>(null);
+  useEffect(() => {
+    if (!active) {
+      setFind(null);
+      return;
+    }
+    const onFind = (e: Event) => {
+      const action = (e as CustomEvent<FindAction>).detail;
+      if (action === "close") {
+        setFind(null);
+        body.current?.focus();
+        return;
+      }
+      setFind((f) => f ?? { q: "", n: 0 });
+      requestAnimationFrame(() => findInput.current?.select());
+    };
+    window.addEventListener(FIND_EVENT, onFind);
+    return () => window.removeEventListener(FIND_EVENT, onFind);
+  }, [active]);
+  const found = useMemo(() => findAll(lines, find?.q ?? ""), [lines, find?.q]);
+  const curIdx = find && found.at.length ? ((find.n % found.at.length) + found.at.length) % found.at.length : -1;
+  const curAt = curIdx >= 0 ? found.at[curIdx] : undefined;
+  useEffect(() => {
+    cur.current?.scrollIntoView({ block: "center" });
+  }, [curAt]);
+  const onFindKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      setFind((f) => f && { ...f, n: f.n + (e.shiftKey ? -1 : 1) });
+    }
+  };
   const dir = path.slice(0, path.lastIndexOf("/") + 1);
   const name = path.slice(dir.length);
   const shown = peek?.rel ? { dir: peek.rel.slice(0, peek.rel.lastIndexOf("/") + 1), name } : { dir, name };
@@ -161,6 +232,17 @@ export function FileView({ path, line, active, local = false }: Props) {
         </span>
         {!local && <button className="peek-close" onClick={() => closePeek(filePanelId(path))} title="close (Esc)">×</button>}
       </div>
+      {find && (
+        <div className="peek-find">
+          <input ref={findInput} value={find.q} spellCheck={false} placeholder="find in file" autoFocus
+            onChange={(e) => setFind({ q: e.target.value, n: 0 })} onKeyDown={onFindKey} />
+          <span className="hint">
+            {find.q ? found.at.length ? `${curIdx + 1} of ${found.at.length}${found.at.length >= FIND_CAP ? "+" : ""}` : "no match" : ""}
+          </span>
+          <span style={{ flex: 1 }} />
+          <span className="hint">↩ next · ⇧↩ previous · Esc closes</span>
+        </div>
+      )}
       <div className="peek-body" ref={body} tabIndex={0}>
         {peek === null && <div className="peek-note">This file no longer exists.</div>}
         {peek?.binary && <div className="peek-note">Binary file, nothing to show.</div>}
@@ -168,7 +250,8 @@ export function FileView({ path, line, active, local = false }: Props) {
           <pre>
             {lines.map((t, i) => (
               <Line key={i} no={i + 1} text={t} html={html && i < html.length ? html[i] : undefined} hit={i + 1 === line}
-                add={tint?.adds.has(i + 1) ?? false} dels={tint?.dels.get(i + 1)} hitRef={hit} />
+                add={tint?.adds.has(i + 1) ?? false} dels={tint?.dels.get(i + 1)} hitRef={hit}
+                marks={found.byLine.get(i + 1)} cur={curAt?.line === i + 1 ? curAt.i : undefined} curRef={cur} />
             ))}
             {tint?.dels.get(lines.length + 1)?.map((t, i) => (
               <div key={"tail" + i} className="peek-line del"><span className="peek-no" />{t}</div>
@@ -180,15 +263,41 @@ export function FileView({ path, line, active, local = false }: Props) {
   );
 }
 
-function Line({ no, text, html, hit, add, dels, hitRef }: { no: number; text: string; html?: string; hit: boolean; add: boolean; dels?: string[]; hitRef: React.RefObject<HTMLDivElement> }) {
+interface LineProps {
+  no: number;
+  text: string;
+  html?: string;
+  hit: boolean;
+  add: boolean;
+  dels?: string[];
+  hitRef: React.RefObject<HTMLDivElement>;
+  /** Find matches on this line; a line with any loses its syntax colours to show them. */
+  marks?: Span[];
+  /** Index into `marks` of the current match. */
+  cur?: number;
+  curRef: React.RefObject<HTMLDivElement>;
+}
+
+function Line({ no, text, html, hit, add, dels, hitRef, marks, cur, curRef }: LineProps) {
+  let content: React.ReactNode;
+  if (marks?.length) {
+    const parts: React.ReactNode[] = [];
+    let at = 0;
+    marks.forEach(([a, b], i) => {
+      parts.push(text.slice(at, a), <mark key={i} className={i === cur ? "cur" : undefined}>{text.slice(a, b)}</mark>);
+      at = b;
+    });
+    parts.push(text.slice(at));
+    content = <span>{parts}</span>;
+  } else content = html !== undefined ? <span dangerouslySetInnerHTML={{ __html: html }} /> : text;
   return (
     <>
       {dels?.map((t, i) => (
         <div key={i} className="peek-line del"><span className="peek-no" />{t}</div>
       ))}
-      <div className={"peek-line" + (hit ? " hit" : "") + (add ? " add" : "")} ref={hit ? hitRef : undefined}>
+      <div className={"peek-line" + (hit ? " hit" : "") + (add ? " add" : "")} ref={cur !== undefined ? curRef : hit ? hitRef : undefined}>
         <span className="peek-no">{no}</span>
-        {html !== undefined ? <span dangerouslySetInnerHTML={{ __html: html }} /> : text}
+        {content}
       </div>
     </>
   );

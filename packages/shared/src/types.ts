@@ -293,3 +293,23 @@ export interface FileDiff {
   baseline: string;
   diff: string;
 }
+
+/** One `git grep` hit, for the explorer's text mode. */
+export interface GrepHit {
+  /** Absolute path of the repo the hit is in. */
+  repo: string;
+  /** Relative to the repo root. */
+  rel: string;
+  line: number;
+  /** 1-based column of the match within `text`. */
+  col: number;
+  /** The matching line, cut to a window around the match when it is very long. */
+  text: string;
+}
+
+/** GET /api/repo/grep?q=[&repo=]: literal, smart-case text search of one repo or every repo. */
+export interface GrepResult {
+  hits: GrepHit[];
+  /** Some hits were dropped: the per-search cap or the output cap was reached. */
+  truncated: boolean;
+}

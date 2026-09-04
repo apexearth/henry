@@ -286,10 +286,24 @@ ahead/behind; typing matches repo names first, then `repo/path` across every rep
 Enter on a repo scopes the list to its files (`GET /api/repo/changes?repo=` marks the
 uncommitted ones), Backspace on an empty filter goes back up. ↑↓ previews on the right, read
 where the peek would read it but against HEAD, since no session owns the view; Enter opens
-the file as a peek in the stage and closes the overlay. The place you were (repo, filter,
+the file as a peek in the stage and closes the overlay. The place you were (repo, mode, filter,
 selection) is remembered per browser, so ⌘F flips back to it. Local repos only: it browses the
 machine the window is attached to. Not an editor, and no folder tree: filtering is the
 navigation. ⌃F works outside the terminal, where it stays forward-char.
+
+**Tab flips the filter to text.** The same overlay searches file contents: `GET
+/api/repo/grep?q=[&repo=]` is `git grep` (literal, smart case, tracked and untracked files,
+binaries skipped) over the scoped repo or, unscoped, every checkout under the repos root a few
+at a time. git rather than ripgrep because git is the one tool Henry already needs on every
+machine. Hits are capped (500) and long lines windowed around the match on the daemon; the
+UI debounces typing and drops stale answers. One row per hit, the file named above its first;
+↑↓ previews the hit's line on the right, Enter opens the peek at that line. ⌘⇧F opens the
+explorer straight into text mode.
+
+**⌘F over a peek finds in that file.** When a file peek is in view, ⌘F is find-in-file: a bar
+under the peek header, smart case, ↩/⇧↩ walk the matches, matched lines show the term marked
+(and lose syntax colour for it), Esc closes the bar before it closes the peek. ⌘⇧F from there
+carries the term into the explorer's text mode, so "this word, but everywhere" is one key.
 
 **Appearance.** Three choices in the topbar "theme" popover (tone, highlight, shade) derive
 the whole palette in OKLCH; `theme.ts` writes it as CSS variables on `<html>` and the
@@ -365,8 +379,8 @@ henry/
       src/Terminal.tsx         # xterm + webgl addon
       src/RepoPicker.tsx       # "+ new": typed picker over repos × {claude, terminal}
       src/FilePicker.tsx       # ⌘K: find a file to peek at
-      src/Explorer.tsx         # ⌘F: browse repos and files, preview on the right
-      src/FileView.tsx         # read-only file peek (stage) and the explorer's preview
+      src/Explorer.tsx         # ⌘F: browse repos and files or grep their text, preview on the right
+      src/FileView.tsx         # read-only file peek (stage, with ⌘F find) and the explorer's preview
       src/panels/{Repos,Flags,Playbook,Usage}.tsx
       src/DiffView.tsx
       src/GitTree.tsx          # repo modals: shell, commit graph (tree), one commit + patch
