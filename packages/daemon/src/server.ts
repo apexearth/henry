@@ -371,6 +371,12 @@ export async function handleApi(req: Request, url: URL, fromPeer: boolean): Prom
         const repoPath = url.searchParams.get("repoPath") ?? "";
         return json(await git.logSinceBaseline(sessionId, repoPath));
       }
+      // Commit graph of one repo, every branch. `sessionId` only routes it to the right machine.
+      if (pathname === "/api/repo/tree") return json(await git.commitGraph(url.searchParams.get("repoPath") ?? "", Number(url.searchParams.get("limit")) || undefined));
+      if (pathname === "/api/repo/commit") {
+        const c = await git.commitDetail(url.searchParams.get("repoPath") ?? "", url.searchParams.get("sha") ?? "");
+        return c ? json(c) : json({ error: "no such commit" }, 404);
+      }
       if (pathname === "/api/session/files") return json(await git.sessionFiles(url.searchParams.get("sessionId") ?? ""));
       if (pathname === "/api/repo/files") return json(await git.listFiles(url.searchParams.get("repo") ?? ""));
       if (pathname === "/api/file/diff") {

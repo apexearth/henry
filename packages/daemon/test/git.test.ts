@@ -206,6 +206,37 @@ describe("git", () => {
     expect(commits[0].ts).toBeGreaterThan(Date.now() - 60_000);
   });
 
+  test("commitGraph draws every branch with decorations, newest first", async () => {
+    const { head, lines, truncated } = await git.commitGraph(repo);
+    expect(head).toBe(g(repo, "rev-parse", "--short", "HEAD"));
+    expect(truncated).toBe(false);
+    const commits = lines.filter((l) => l.sha);
+    expect(commits.length).toBe(Number(g(repo, "rev-list", "--all", "--count")));
+    expect(commits[0]).toMatchObject({ sha: head, subject: "local d", author: "t" });
+    expect(commits[0].refs).toContain("HEAD -> main");
+    expect(commits.some((c) => c.refs?.includes("feat"))).toBe(true);
+    for (const l of lines) expect(l.graph).toMatch(/^[*|\\/ _.-]*$/);
+    expect(lines.some((l) => l.graph.startsWith("*"))).toBe(true);
+    // A cap that cuts the history reports it.
+    const capped = await git.commitGraph(repo, 1);
+    expect(capped.lines.filter((l) => l.sha)).toHaveLength(1);
+    expect(capped.truncated).toBe(true);
+    expect(await git.commitGraph(join(tmp, "nowhere"))).toEqual({ head: "", lines: [], truncated: false });
+  });
+
+  test("commitDetail returns metadata and the patch vs the first parent", async () => {
+    const c = await git.commitDetail(repo, "HEAD");
+    expect(c).toMatchObject({ sha: g(repo, "rev-parse", "--short", "HEAD"), fullSha: g(repo, "rev-parse", "HEAD"), subject: "local d", author: "t", email: "t@example.com" });
+    expect(c!.parents).toEqual([g(repo, "rev-parse", "--short", "HEAD~1")]);
+    expect(c!.refs).toContain("HEAD -> main");
+    expect(c!.ts).toBeGreaterThan(Date.now() - 60_000);
+    expect(c!.diff).toContain("diff --git a/d.txt b/d.txt");
+    expect(c!.diff).toContain("new file mode");
+    expect(await git.commitDetail(repo, "0000000")).toBeUndefined();
+    expect(await git.commitDetail(repo, "--output=/tmp/x")).toBeUndefined();
+    expect(await git.commitDetail(join(tmp, "nowhere"), "HEAD")).toBeUndefined();
+  });
+
   test("worktree detection via noteSessionPath and listRepos", async () => {
     git.noteSessionPath("s2", join(wt, "a.txt"));
     const upd = await nextMsg("repos:update", (m) => m.sessionId === "s2");

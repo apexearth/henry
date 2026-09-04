@@ -57,6 +57,17 @@ export interface LogEntry {
   subject: string;
 }
 
+/** One row of `git log --graph`: the ASCII graph column plus the commit on it, if any. */
+export interface GraphLine {
+  graph: string;
+  sha?: string;
+  /** Decorations as git prints them: "HEAD -> main, origin/main, tag: v1". */
+  refs?: string;
+  subject?: string;
+  ts?: number;
+  author?: string;
+}
+
 // ---- module state ----
 
 let emit: (msg: ServerMessage) => void = () => {};
@@ -796,6 +807,81 @@ export async function logSinceBaseline(sessionId: string, repoPath: string): Pro
     commits.push({ sha, ts: Number(ts) * 1000, subject: rest.join("\t") });
   }
   return { baseline, commits };
+}
+
+const GRAPH_CAP_BYTES = 512 * 1024;
+const GRAPH_MAX_COMMITS = 400;
+
+/**
+ * The commit graph across every branch and tag, newest first, as `git log --graph` draws it.
+ * Rows with a commit carry its fields; the rest are pure graph connectors. `head` lets the
+ * UI mark the current commit even when nothing is decorated.
+ */
+export async function commitGraph(repoPath: string, limit = GRAPH_MAX_COMMITS): Promise<{ head: string; lines: GraphLine[]; truncated: boolean }> {
+  const info = resolveRepo(repoPath);
+  if (!info) return { head: "", lines: [], truncated: false };
+  const n = Math.max(1, Math.min(limit, GRAPH_MAX_COMMITS));
+  // \x1f separates the graph column from the fields; a row without one is a connector.
+  const fmt = "--format=%x1f%h%x1f%D%x1f%s%x1f%ct%x1f%an";
+  const [head, { code, out }] = await Promise.all([
+    run(info.path, ["rev-parse", "--short", "HEAD"]),
+    run(info.path, ["log", "--graph", "--all", "--date-order", "--no-color", `-n${n + 1}`, fmt], { maxBytes: GRAPH_CAP_BYTES }),
+  ]);
+  if (code !== 0) return { head: "", lines: [], truncated: false };
+  const lines: GraphLine[] = [];
+  let commits = 0;
+  for (const raw of out.split("\n")) {
+    if (!raw) continue;
+    const i = raw.indexOf("\x1f");
+    if (i < 0) {
+      lines.push({ graph: raw.trimEnd() });
+      continue;
+    }
+    if (++commits > n) break;
+    const [sha, refs, subject, ts, author] = raw.slice(i + 1).split("\x1f");
+    lines.push({ graph: raw.slice(0, i).trimEnd(), sha, refs: refs || undefined, subject, ts: Number(ts) * 1000, author });
+  }
+  return { head: head.code === 0 ? head.out.trim() : "", lines, truncated: commits > n };
+}
+
+export interface CommitDetail {
+  sha: string;
+  fullSha: string;
+  parents: string[];
+  refs?: string;
+  author: string;
+  email: string;
+  ts: number;
+  subject: string;
+  body: string;
+  /** Patch vs the first parent (the whole tree for a root commit), capped like a repo diff. */
+  diff: string;
+}
+
+/** One commit's metadata and patch, for the commit view. `sha` is anything rev-parse accepts. */
+export async function commitDetail(repoPath: string, sha: string): Promise<CommitDetail | undefined> {
+  const info = resolveRepo(repoPath);
+  if (!info || !/^[\w./~^-]{1,80}$/.test(sha) || sha.startsWith("-")) return undefined;
+  const fmt = "--format=%h%x1f%H%x1f%p%x1f%D%x1f%an%x1f%ae%x1f%ct%x1f%s%x1f%b%x1e";
+  const meta = await run(info.path, ["show", "--no-patch", fmt, `${sha}^{commit}`, "--"]);
+  if (meta.code !== 0) return undefined;
+  const [short, fullSha, parents, refs, author, email, ts, subject, body] = meta.out.split("\x1e")[0].split("\x1f");
+  // --first-parent keeps a merge's patch to what the merge itself brought in.
+  const patch = await run(info.path, ["show", "--first-parent", "--no-color", "--no-ext-diff", "--format=", "-m", "--patch", fullSha, "--"], { maxBytes: DIFF_CAP_BYTES + 1 });
+  let diff = patch.out;
+  if (diff.length > DIFF_CAP_BYTES) diff = diff.slice(0, DIFF_CAP_BYTES) + `\n# diff truncated at ${Math.round(DIFF_CAP_BYTES / 1024 / 1024)}MB\n`;
+  return {
+    sha: short,
+    fullSha,
+    parents: parents ? parents.split(" ") : [],
+    refs: refs || undefined,
+    author,
+    email,
+    ts: Number(ts) * 1000,
+    subject,
+    body: body.replace(/\s+$/, ""),
+    diff,
+  };
 }
 
 // ---- watching ----

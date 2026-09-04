@@ -1,9 +1,10 @@
 // Milestone 3: per-repo cards (branch, ahead/behind, upstream, commits since baseline,
-// dirty count, worktree path); Diff button -> DiffView in a full-screen modal; "all sessions" toggle groups by session.
+// dirty count, worktree path); diff / tree buttons open full-screen modals, commit hashes open
+// the commit; "all sessions" toggle groups by session.
 import { useEffect, useState } from "react";
-import { createPortal } from "react-dom";
 import type { RepoState, Session } from "@henry/shared";
 import { DiffView } from "../DiffView";
+import { CommitModal, RepoModal, TreeModal, relTime, shortPath } from "../GitTree";
 import { baseName } from "../platform";
 import { diffKey, requestDiff, useStore } from "../ws";
 import { hueText, nameHue } from "../theme";
@@ -19,24 +20,6 @@ interface LogEntry {
   sha: string;
   ts: number;
   subject: string;
-}
-
-function relTime(ms?: number): string {
-  if (!ms) return "never";
-  const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
-  if (s < 45) return "just now";
-  const m = Math.round(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.round(m / 60);
-  if (h < 48) return `${h}h ago`;
-  const d = Math.round(h / 24);
-  if (d < 30) return `${d}d ago`;
-  return new Date(ms).toLocaleDateString();
-}
-
-function shortPath(p: string): string {
-  const home = p.match(/^\/(?:Users|home)\/[^/]+/)?.[0];
-  return home ? "~" + p.slice(home.length) : p;
 }
 
 /** Ticks once a minute so relative times stay honest without a store update. */
@@ -71,6 +54,8 @@ interface CardProps {
 
 function RepoCard({ sessionId, repo, diff, onRequestDiff }: CardProps) {
   const [showDiff, setShowDiff] = useState(false);
+  const [showTree, setShowTree] = useState(false);
+  const [commit, setCommit] = useState<string | null>(null);
   const [showLog, setShowLog] = useState(false);
   const [log, setLog] = useState<LogEntry[] | null>(null);
   const [logErr, setLogErr] = useState<string | null>(null);
@@ -123,6 +108,7 @@ function RepoCard({ sessionId, repo, diff, onRequestDiff }: CardProps) {
         )}
         <span className="rc-spacer" />
         <button className={`rc-diffbtn ${showDiff ? "on" : ""}`} onClick={toggleDiff}>{showDiff ? "hide diff" : "diff"}</button>
+        <button className={`rc-diffbtn ${showTree ? "on" : ""}`} onClick={() => setShowTree(!showTree)} title="commit graph of every branch">tree</button>
       </div>
       <div className="rc-head">
         <span className="rc-path" title={repo.path}>{shortPath(repo.path)}</span>
@@ -157,7 +143,7 @@ function RepoCard({ sessionId, repo, diff, onRequestDiff }: CardProps) {
           {log && log.length === 0 && <div className="rc-dim">no commits since baseline{repo.baseline ? ` ${repo.baseline.slice(0, 7)}` : ""}</div>}
           {log && log.map((c) => (
             <div key={c.sha} className="rc-logline">
-              <span className="rc-sha">{c.sha}</span>
+              <button className="rc-sha" onClick={() => setCommit(c.sha)} title="open this commit">{c.sha}</button>
               <span className="rc-subject" title={c.subject}>{c.subject}</span>
               <span className="rc-when">{relTime(c.ts)}</span>
             </div>
@@ -165,51 +151,22 @@ function RepoCard({ sessionId, repo, diff, onRequestDiff }: CardProps) {
         </div>
       )}
       {showDiff && (
-        <DiffModal repo={repo} diff={diff} requested={requested} onRefresh={onRequestDiff} onClose={() => setShowDiff(false)} />
-      )}
-    </div>
-  );
-}
-
-interface DiffModalProps {
-  repo: RepoState;
-  diff?: { diff: string; baseline: string };
-  requested: boolean;
-  onRefresh: () => void;
-  onClose: () => void;
-}
-
-// The side panel is too narrow for a diff, so it opens over the whole app. Portaled to
-// body so the panel's overflow/stacking cannot clip it.
-function DiffModal({ repo, diff, requested, onRefresh, onClose }: DiffModalProps) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  return createPortal(
-    <div className="dm-bg" onMouseDown={onClose}>
-      <div className="dm" onMouseDown={(e) => e.stopPropagation()}>
-        <div className="dm-head">
-          <span className="rc-name" style={{ color: hueText(nameHue(repo.name)) }}>{repo.name}</span>
-          <span className="rc-path dm-path" title={repo.path}>{shortPath(repo.path)}</span>
-          <span className="rc-spacer" />
-          <button className="rc-link" onClick={onRefresh} title="re-request the diff from the daemon">refresh</button>
-          <button className="dm-close" onClick={onClose} title="close (Esc)">×</button>
-        </div>
-        <div className="dm-body">
+        <RepoModal
+          repo={repo}
+          subtitle={<span className="rc-dim">diff</span>}
+          actions={<button className="rc-link" onClick={onRequestDiff} title="re-request the diff from the daemon">refresh</button>}
+          onClose={() => setShowDiff(false)}
+        >
           {diff ? (
             <DiffView repoPath={repo.path} baseline={diff.baseline} diff={diff.diff} />
           ) : (
             <div className="rc-dim rc-loading">{requested ? "loading diff…" : ""}</div>
           )}
-        </div>
-      </div>
-    </div>,
-    document.body,
+        </RepoModal>
+      )}
+      {showTree && <TreeModal sessionId={sessionId} repo={repo} onOpenCommit={setCommit} onClose={() => setShowTree(false)} />}
+      {commit && <CommitModal sessionId={sessionId} repo={repo} sha={commit} onOpenCommit={setCommit} onClose={() => setCommit(null)} />}
+    </div>
   );
 }
 
@@ -302,7 +259,8 @@ a.rc-link:hover { border-color: var(--accent); }
 .rc-link:hover, .rc-link.on { color: var(--accent); }
 .rc-log { border-top: 1px solid var(--border); padding-top: 4px; display: flex; flex-direction: column; gap: 2px; font-size: 11px; }
 .rc-logline { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: baseline; }
-.rc-sha { color: var(--accent); }
+.rc-sha { color: var(--accent); background: none; border: none; padding: 0; cursor: pointer; font: inherit; }
+.rc-sha:hover { text-decoration: underline; }
 .rc-subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rc-when { color: var(--fg-dim); white-space: nowrap; }
 .rc-err { color: var(--alarm); }

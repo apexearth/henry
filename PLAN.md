@@ -302,7 +302,11 @@ Tool tabs:
 - **Repos** — every repo this session has touched: branch, ahead/behind upstream,
   has-upstream, commits since session baseline, dirty count, worktree path, and a ↗
   link to the upstream remote's web page (scp/ssh/https git URLs become https).
-  Click a repo → diff vs baseline (unified/split).
+  `diff` → diff vs baseline (unified/split). `tree` → the commit graph of every branch,
+  as `git log --graph --all` draws it (`GET /api/repo/tree`, capped at 400 commits).
+  Any commit hash (tree rows, the commits-since-baseline log, a commit's parents) opens
+  that commit: metadata, message and its patch vs the first parent (`GET /api/repo/commit`).
+  These are full-screen modals over the app and stack; Esc closes the top one.
 - **Flags** — feed of `notable`/`alarm` events with unread badge; each links back
   to the tool call and the rule that fired.
 - **Playbook** — the overseer's running log for this session, newest first, plus a
@@ -365,6 +369,7 @@ henry/
       src/FileView.tsx         # read-only file peek (stage) and the explorer's preview
       src/panels/{Repos,Flags,Playbook,Usage}.tsx
       src/DiffView.tsx
+      src/GitTree.tsx          # repo modals: shell, commit graph (tree), one commit + patch
 ```
 
 ## Data flow
