@@ -10,7 +10,9 @@
 // middle who swapped ephemeral keys produces transcripts neither signature verifies.
 // Pairing proves knowledge of a one-time code with an HMAC keyed by the shared secret, so
 // a passive observer cannot brute-force the code from the wire; an active attacker gets
-// one online guess per attempt, and the listener allows five per code.
+// one online guess per attempt, and the listener allows five per code. Both sides prove
+// it, each under its role: a daemon at a mistyped address (or a man in the middle on an
+// open interface) cannot accept a pairing it does not know the code for.
 import {
   createCipheriv,
   createDecipheriv,
@@ -28,8 +30,9 @@ import {
   type KeyObject,
 } from "node:crypto";
 
-export const FED_VERSION = 1;
-const LABEL = "henry-fed-v1";
+// v2: the listener proves the pairing code too. A v1 daemon is told plainly to update.
+export const FED_VERSION = 2;
+const LABEL = "henry-fed-v2";
 const NONCE_LEN = 16;
 const KEY_LEN = 32;
 
@@ -102,8 +105,9 @@ export function isHello(m: unknown): m is Hello {
 export interface Derived {
   transcript: Buffer;
   channel: Channel;
-  /** Keyed by the shared secret: proves a pairing code without exposing it. */
-  pairProof: (code: string) => Buffer;
+  /** Keyed by the shared secret: proves a pairing code without exposing it. Each side
+   * proves under its own role, so the joiner's proof cannot be echoed back as the listener's. */
+  pairProof: (code: string, role: Role) => Buffer;
 }
 
 /** One side's ephemeral state for one connection. Make a fresh one per connection, never reuse. */
@@ -149,7 +153,7 @@ export class Handshake {
     return {
       transcript,
       channel: this.role === "client" ? new Channel(c2s, s2c) : new Channel(s2c, c2s),
-      pairProof: (code) => createHmac("sha256", pairKey).update(normalizeCode(code)).digest(),
+      pairProof: (code, role) => createHmac("sha256", pairKey).update(`${role}\0${normalizeCode(code)}`).digest(),
     };
   }
 }
