@@ -77,3 +77,41 @@ describe("first-run setup", () => {
     expect(written).toEqual({ reposRoot: root, defaultRepo: root });
   });
 });
+
+describe("settings", () => {
+  test("the playbook ships off", async () => {
+    const { overseer } = (await state()).config;
+    expect(overseer.onStop).toBe(false);
+    expect(overseer.onFlag).toBe(false);
+  });
+
+  test("a patch writes only its own keys and leaves the rest alone", async () => {
+    expect((await post({ retentionDays: 7, overseer: { onStop: true } })).status).toBe(200);
+    const s = await state();
+    expect(s.config.retentionDays).toBe(7);
+    expect(s.config.overseer.onStop).toBe(true);
+    // Untouched keys keep their defaults rather than being dropped or overwritten.
+    expect(s.config.overseer.onFlag).toBe(false);
+    expect(s.config.reposRoot).toBe(root);
+    const written = JSON.parse(readFileSync(join(home, "config.json"), "utf8"));
+    expect(written.retentionDays).toBe(7);
+    expect(written.overseer).toEqual({ onStop: true });
+  });
+
+  test("unknown keys and the port are ignored", async () => {
+    expect((await post({ port: 1234, nonsense: true, rules: { protectedBranches: ["main", "release"], bogus: 1 } })).status).toBe(200);
+    const s = await state();
+    expect(s.config.port).toBe(PORT);
+    expect(s.config.rules.protectedBranches).toEqual(["main", "release"]);
+    const written = JSON.parse(readFileSync(join(home, "config.json"), "utf8"));
+    expect(written.port).toBeUndefined();
+    expect(written.nonsense).toBeUndefined();
+    expect(written.rules.bogus).toBeUndefined();
+  });
+
+  test("rejects an empty patch and a negative retention", async () => {
+    expect((await post({})).status).toBe(400);
+    expect((await post({ retentionDays: -1 })).status).toBe(400);
+    expect((await state()).config.retentionDays).toBe(7);
+  });
+});

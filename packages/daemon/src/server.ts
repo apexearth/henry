@@ -3,9 +3,9 @@
 import { existsSync, statSync } from "node:fs";
 import { join, normalize } from "node:path";
 import type { ServerWebSocket } from "bun";
-import type { ClientMessage, ServerMessage, StateSnapshot, Usage } from "@henry/shared";
+import type { ClientMessage, HenryConfig, ServerMessage, StateSnapshot, Usage } from "@henry/shared";
 import * as activity from "./activity";
-import { config, expandHome, isFirstRun, setReposRoot } from "./config";
+import { config, expandHome, isFirstRun, onConfigReload, setConfig, setReposRoot } from "./config";
 import * as db from "./db";
 import * as engagement from "./engagement";
 import * as federation from "./federation";
@@ -99,6 +99,28 @@ function readUiBuild(): string | undefined {
     return undefined;
   }
 }
+// Retention: history older than config.retentionDays goes at startup and every 6h after.
+// The interval reads the config at fire time, so changing the setting takes effect at the
+// next sweep without a restart.
+const SWEEP_MS = 6 * 60 * 60_000;
+let sweepTimer: ReturnType<typeof setInterval> | undefined;
+function sweepHistory(): void {
+  try {
+    const c = db.pruneHistory(config.retentionDays);
+    if (c && c.events + c.flags + c.playbook + c.snapshots) {
+      console.log(`[henry] pruned history older than ${config.retentionDays}d: ${c.events} events, ${c.flags} flags, ${c.playbook} playbook, ${c.snapshots} usage snapshots`);
+      broadcast({ type: "state", ...buildState() });
+    }
+  } catch (e) {
+    console.error("[henry] retention sweep failed:", e);
+  }
+}
+function startRetention(): void {
+  sweepHistory();
+  sweepTimer = setInterval(sweepHistory, SWEEP_MS);
+  sweepTimer.unref();
+}
+
 let uiBuildTimer: ReturnType<typeof setInterval> | undefined;
 function watchUiBuild(): void {
   uiBuildTimer = setInterval(() => {
@@ -309,6 +331,10 @@ export async function startServer(): Promise<void> {
   federation.init({ handleMessage, localState: peerState, handleApi: (req, fromPeer) => handleApi(req, new URL(req.url), fromPeer), toWindows, publishSession, buildState });
   federation.start();
   watchUiBuild();
+  startRetention();
+  // Settings reach windows however they were changed: the settings modal, `henry` CLI, or an
+  // editor saving ~/.henry/config.json (config.ts watches it).
+  onConfigReload(() => broadcast({ type: "state", ...buildState() }));
   console.log(`[henry] listening on http://127.0.0.1:${config.port} (db: ${db.dbPath})`);
 }
 
@@ -342,21 +368,35 @@ export async function handleApi(req: Request, url: URL, fromPeer: boolean): Prom
       if (pathname === "/api/events") {
         return json(db.listEvents({ sessionId: url.searchParams.get("session") ?? undefined, limit: Number(url.searchParams.get("limit")) || 200 }));
       }
-      // First-run setup: choose the folder that holds every repo. Validated here, not in the
-      // UI, because only the daemon can see the filesystem.
+      // Settings, and the first-run repos folder. Folder paths are validated here, not in the
+      // UI, because only the daemon can see the filesystem. A body carrying just `reposRoot`
+      // is the first-run/change-folder case and also seeds defaultRepo.
       if (req.method === "POST" && pathname === "/api/config") {
-        const body = (await readJson(req)) as { reposRoot?: string };
-        const typed = (body.reposRoot ?? "").trim().replace(/(.)[\\/]+$/, "$1");
-        if (!typed) return json({ error: "path required" }, 400);
-        const root = expandHome(typed);
-        let isDir = false;
-        try {
-          isDir = statSync(root).isDirectory();
-        } catch {}
-        if (!isDir) return json({ error: `${root} is not a folder` }, 400);
-        setReposRoot(typed);
+        const body = (await readJson(req)) as Partial<HenryConfig>;
+        if (!body || typeof body !== "object" || Array.isArray(body)) return json({ error: "object required" }, 400);
+        if (!Object.keys(body).length) return json({ error: "nothing to change" }, 400);
+        const onlyRoot = Object.keys(body).length === 1 && typeof body.reposRoot === "string";
+        for (const key of ["reposRoot", "defaultRepo"] as const) {
+          const raw = body[key];
+          if (raw === undefined) continue;
+          const typed = String(raw).trim().replace(/(.)[\\/]+$/, "$1");
+          if (!typed) return json({ error: `${key} required` }, 400);
+          let isDir = false;
+          try {
+            isDir = statSync(expandHome(typed)).isDirectory();
+          } catch {}
+          if (!isDir) return json({ error: `${expandHome(typed)} is not a folder` }, 400);
+          body[key] = typed;
+        }
+        if (typeof body.retentionDays === "number" && (!Number.isFinite(body.retentionDays) || body.retentionDays < 0)) {
+          return json({ error: "retentionDays must be 0 or more" }, 400);
+        }
+        if (onlyRoot) setReposRoot(body.reposRoot as string);
+        else setConfig(body);
+        // A shorter retention applies now rather than at the next 6h sweep.
+        sweepHistory();
         broadcast({ type: "state", ...buildState() });
-        return json({ ok: true, reposRoot: config.reposRoot });
+        return json({ ok: true, config });
       }
       if (pathname === "/api/repos") {
         // `root` previews another folder (first-run setup) without changing config.
@@ -432,6 +472,7 @@ async function federationApi(req: Request, url: URL): Promise<Response> {
 /** Stops the daemon's own listeners. sessiond and the sessions in it keep running. */
 export function stopServer(): void {
   clearInterval(uiBuildTimer);
+  clearInterval(sweepTimer);
   federation.stop();
   activity.stop();
   engagement.stop();

@@ -30,15 +30,47 @@ export function isFirstRun(): boolean {
   return !userHasRoot;
 }
 
+function writeUser(next: Record<string, unknown>): void {
+  if (!existsSync(henryDir)) mkdirSync(henryDir, { recursive: true });
+  writeFileSync(configPath, JSON.stringify(next, null, 2) + "\n");
+}
+
 /** Record the chosen repos folder (as typed, "~" allowed) and reload. defaultRepo follows it
  * unless the user already set one. */
 export function setReposRoot(root: string): void {
   const user = readUser();
   const next: Partial<HenryConfig> = { ...user, reposRoot: root };
   if (!user.defaultRepo) next.defaultRepo = root;
-  if (!existsSync(henryDir)) mkdirSync(henryDir, { recursive: true });
-  writeFileSync(configPath, JSON.stringify(next, null, 2) + "\n");
+  writeUser(next as Record<string, unknown>);
   reloadConfig();
+}
+
+// What the settings UI may write. `port` is deliberately absent: changing it would strand the
+// window that asked, and it only takes effect on restart anyway.
+const SETTABLE = {
+  root: ["host", "reposRoot", "defaultRepo", "retentionDays"],
+  overseer: ["backend", "model", "onStop", "onFlag", "apiKey", "stopMinIntervalSec"],
+  federation: ["listen", "port"],
+  rules: ["protectedBranches", "alarm", "notable", "crossRepoWrite", "commitOnProtected", "pushToProtected", "maxSubagentsPer10m"],
+} as const;
+
+/** Merge a patch from the settings UI into config.json; unknown keys are dropped. Only the
+ * keys present in the patch change, so two windows editing different sections do not clobber
+ * each other. Returns the reloaded live config. */
+export function setConfig(patch: Partial<HenryConfig>): HenryConfig {
+  const user = readUser() as Record<string, unknown>;
+  const incoming = patch as Record<string, unknown>;
+  const next: Record<string, unknown> = { ...user };
+  for (const k of SETTABLE.root) if (k in incoming) next[k] = incoming[k];
+  for (const group of ["overseer", "federation", "rules"] as const) {
+    const sub = incoming[group];
+    if (!sub || typeof sub !== "object") continue;
+    const merged = { ...((user[group] as Record<string, unknown>) ?? {}) };
+    for (const k of SETTABLE[group]) if (k in sub) merged[k] = (sub as Record<string, unknown>)[k];
+    next[group] = merged;
+  }
+  writeUser(next);
+  return reloadConfig();
 }
 
 function load(): HenryConfig {

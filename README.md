@@ -68,8 +68,12 @@ on Windows, in place of `claude`):
 bun run smoke
 ```
 
-Config lives in `~/.henry/config.json` (defaults in `packages/shared/src/types.ts`);
-the database is `~/.henry/henry.db`; sessiond writes `~/.henry/sessiond.json` (port, token,
+Config lives in `~/.henry/config.json` (defaults in `packages/shared/src/types.ts`), edited
+from Settings (⌘, / Ctrl+,) or by hand — the daemon watches the file and hot-reloads either
+way. `retentionDays` (30) is how much history is kept: events, flags, playbook entries and
+usage snapshots older than that are swept at startup and every 6h, `0` keeps everything.
+The playbook is off by default (`overseer.onStop`/`onFlag`); each entry is an LLM call.
+The database is `~/.henry/henry.db`; sessiond writes `~/.henry/sessiond.json` (port, token,
 pid) and `~/.henry/sessiond.log`. `HENRY_HOME` and `HENRY_PORT` override all of it for tests.
 `config.host` (default: short `os.hostname()`) is stamped on every session the daemon
 creates, groundwork for running daemons on several machines.

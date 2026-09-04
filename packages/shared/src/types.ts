@@ -194,9 +194,12 @@ export interface HenryConfig {
   reposRoot: string;
   /** Absolute after load. */
   defaultRepo: string;
+  /** Days of events, flags, playbook entries and usage snapshots to keep; 0 keeps everything. */
+  retentionDays: number;
   overseer: {
     backend: OverseerBackend;
     model: string;
+    /** Off by default: the playbook costs an LLM call per turn and most users never open it. */
     onStop: boolean;
     onFlag: boolean;
     /** Optional; ANTHROPIC_API_KEY in the environment takes precedence. */
@@ -229,7 +232,8 @@ export const DEFAULT_CONFIG: HenryConfig = {
   port: 14711,
   reposRoot: "~/code",
   defaultRepo: "~/code",
-  overseer: { backend: "auto", model: "claude-opus-5", onStop: true, onFlag: true },
+  retentionDays: 30,
+  overseer: { backend: "auto", model: "claude-opus-5", onStop: false, onFlag: false },
   federation: { listen: "tailscale", port: 14712 },
   rules: {
     protectedBranches: ["main", "master"],

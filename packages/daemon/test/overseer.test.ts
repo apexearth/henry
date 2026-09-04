@@ -13,6 +13,7 @@ delete process.env.HENRY_PORT;
 
 const overseer = await import("../src/overseer");
 const db = await import("../src/db");
+const { config } = await import("../src/config");
 type BackendRequest = import("../src/overseer").BackendRequest;
 
 afterAll(async () => {
@@ -66,6 +67,10 @@ beforeEach(async () => {
   overseer.resetForTests();
   calls = [];
   broadcasts = [];
+  // Both triggers ship off (each entry is an LLM call); these tests are about what the
+  // scheduler does once they are on. "no-ops when disabled" flips them back itself.
+  config.overseer.onStop = true;
+  config.overseer.onFlag = true;
   overseer.setBroadcastForTests((m) => broadcasts.push(m));
   overseer.setGitForTests({
     getSessionRepos: () => [repo],
@@ -278,7 +283,6 @@ describe("debounce and coalescing", () => {
   });
 
   test("onStop/onFlag are no-ops when disabled in config", async () => {
-    const { config } = await import("../src/config");
     const s = makeSession();
     const was = { ...config.overseer };
     config.overseer.onStop = false;

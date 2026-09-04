@@ -42,6 +42,8 @@ CREATE TABLE IF NOT EXISTS events (
   summary TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS events_session_ts ON events(session_id, ts);
+-- Ordering and the retention sweep are both by ts alone, which (session_id, ts) cannot serve.
+CREATE INDEX IF NOT EXISTS events_ts ON events(ts);
 
 CREATE TABLE IF NOT EXISTS flags (
   id TEXT PRIMARY KEY,
@@ -363,6 +365,45 @@ export function upsertSessionUsage(sessionId: string, u: SessionUsage): void {
       cache_read = excluded.cache_read, cache_write = excluded.cache_write, cost_usd = excluded.cost_usd, model = excluded.model,
       context_tokens = excluded.context_tokens, context_window = excluded.context_window`)
     .run(sessionId, u.inputTokens, u.outputTokens, u.cacheRead, u.cacheWrite, u.costUsd, u.model ?? null, u.contextTokens ?? null, u.contextWindow ?? null);
+}
+
+// ---- retention ----
+
+export interface PruneCounts {
+  events: number;
+  flags: number;
+  playbook: number;
+  snapshots: number;
+}
+
+/**
+ * Drop history older than `days` (0 keeps everything). Sessions are never swept: the rail owns
+ * their lifetime, and an old session with no events still costs one row. Deleted pages go on
+ * the freelist and get reused; the file only shrinks when a quarter of it is free, which the
+ * caller pays for at most once per sweep.
+ */
+export function pruneHistory(days: number): PruneCounts | undefined {
+  if (!Number.isFinite(days) || days <= 0) return undefined;
+  const cutoff = Date.now() - days * 24 * 60 * 60_000;
+  const del = (table: string) => db.prepare(`DELETE FROM ${table} WHERE ts < ?`).run(cutoff).changes;
+  const counts = db.transaction((): PruneCounts => ({
+    events: del("events"),
+    flags: del("flags"),
+    playbook: del("playbook"),
+    // The newest snapshot is the live 5h/7d usage; keep it however old it is.
+    snapshots: db.prepare("DELETE FROM usage_snapshots WHERE ts < ? AND ts <> (SELECT MAX(ts) FROM usage_snapshots)").run(cutoff).changes,
+  }))();
+  const total = counts.events + counts.flags + counts.playbook + counts.snapshots;
+  if (total) {
+    try {
+      const free = (db.prepare("PRAGMA freelist_count").get() as { freelist_count: number }).freelist_count;
+      const pages = (db.prepare("PRAGMA page_count").get() as { page_count: number }).page_count;
+      if (pages > 0 && free / pages > 0.25) db.exec("VACUUM");
+    } catch (e) {
+      console.error("[db] vacuum failed:", e);
+    }
+  }
+  return counts;
 }
 
 export function listSessionUsage(): Record<string, SessionUsage> {

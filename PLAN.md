@@ -145,9 +145,10 @@ the design changes; do not let it drift into a changelog.
   repos, flags and playbook and no output. An exited Claude session has a ↻ button that
   opens a new tab with `claude --resume <id>`. Every session carries `host` (config
   `host`, default short hostname), groundwork for daemons on several machines.
-- **The overseer runs once per real turn.** Stops with `stop_hook_active` (Claude sent
-  back by another Stop hook) are ignored, and Stop-triggered runs for one session are
-  at least `overseer.stopMinIntervalSec` (60) apart. Flags still run immediately.
+- **The overseer runs once per real turn, when it is turned on at all.** Stops with
+  `stop_hook_active` (Claude sent back by another Stop hook) are ignored, and Stop-triggered
+  runs for one session are at least `overseer.stopMinIntervalSec` (60) apart. Flags still
+  run immediately. Both triggers default off; see Config.
 - **Windows is a first-class host, with the same three processes.** The platform switches
   live in one daemon module (`platform.ts`) and one function in sessiond; everything else
   goes through Node's path/os modules. What differs: sessiond runs PTYs on ConPTY and
@@ -413,9 +414,23 @@ path resolves into it), record `HEAD` as that session's baseline for that repo.
   modal (no dismiss) explaining that Henry expects a single folder holding all repos as
   subfolders, with a live count of what it finds at the typed path. `POST /api/config
   {reposRoot}` validates the folder, writes it (and `defaultRepo`, unless already set) and
-  broadcasts state with `firstRun: false`. The same modal reopens from the topbar
-  (`repos <path>`) to change the folder later, with Cancel; the daemon never writes
-  config.json otherwise. Changing it moves the outside-root boundary for running sessions.
+  broadcasts state with `firstRun: false`. Changing it later moves the outside-root
+  boundary for running sessions.
+
+- **Settings (⌘, or the topbar) is the editor for the rest.** The same `POST /api/config`
+  takes a patch of any settable keys; only the keys present change, so two windows editing
+  different sections do not clobber each other, and unknown keys are dropped. `port` is not
+  settable from the UI — it would strand the window that asked. config.json stays
+  hand-editable: the daemon watches it, hot-reloads, and broadcasts state either way.
+
+- **The playbook ships off** (`overseer.onStop`/`onFlag` default `false`). Every entry is an
+  LLM call after every turn, which is not worth paying for a panel the user may never open.
+  The panel says so and offers the switch; asking the overseer a question works regardless.
+
+- **History is swept to `retentionDays` (30).** Events, flags, playbook entries and usage
+  snapshots older than the window go at startup and every 6h, and immediately when the
+  setting shrinks; `0` keeps everything. Sessions are never swept — the rail owns their
+  lifetime. The newest usage snapshot survives at any age, since it is the live 5h/7d bars.
 
 ```json
 {
@@ -423,7 +438,8 @@ path resolves into it), record `HEAD` as that session's baseline for that repo.
   "host": "mbp",
   "reposRoot": "~/code",
   "defaultRepo": "~/code",
-  "overseer": { "backend": "auto", "model": "claude-opus-5", "onStop": true, "onFlag": true, "stopMinIntervalSec": 60 },
+  "retentionDays": 30,
+  "overseer": { "backend": "auto", "model": "claude-opus-5", "onStop": false, "onFlag": false, "stopMinIntervalSec": 60 },
   "federation": { "listen": "tailscale", "port": 14712 },
   "rules": {
     "protectedBranches": ["main", "master"],

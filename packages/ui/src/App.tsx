@@ -7,6 +7,7 @@ import { FilePicker } from "./FilePicker";
 import { sendFind } from "./FileView";
 import { Layout } from "./Layout";
 import { Setup } from "./Setup";
+import { Settings } from "./Settings";
 import { Keys } from "./Keys";
 import { closePeek, getDockApi, isFilePanel, resetLayout, showSession, stageStep } from "./dock";
 import { MOD, arrowMod, isMac, mod } from "./platform";
@@ -19,7 +20,7 @@ export function App() {
   const reposRoot = useStore((s) => s.config?.reposRoot);
   const [finder, setFinder] = useState(false);
   const [explorer, setExplorer] = useState<Pick<ExplorerProps, "text"> | null>(null);
-  const [setup, setSetup] = useState(false);
+  const [settings, setSettings] = useState(false);
   const [keys, setKeys] = useState(false);
 
   useEffect(() => onMenu("reset-layout", resetLayout), []);
@@ -49,6 +50,12 @@ export function App() {
       if (mod(e) && !e.altKey && !e.shiftKey && e.key === "/") {
         e.preventDefault();
         setKeys((v) => !v);
+        return;
+      }
+      // ⌘, (Ctrl+, off macOS) opens settings, the way every other app does.
+      if (mod(e) && !e.altKey && !e.shiftKey && e.key === ",") {
+        e.preventDefault();
+        setSettings((v) => !v);
         return;
       }
       // Ctrl+Shift+R resets the layout in the Windows shell, which has no menu to own it
@@ -112,13 +119,14 @@ export function App() {
         <span className={"conn" + (connected ? " on" : "")} title={connected ? "connected" : "reconnecting"}>●</span>
         <span style={{ flex: 1 }} />
         {reposRoot && (
-          <button className="topbar-btn" onClick={() => setSetup(true)} title="the folder holding all your repos; click to change">
+          <button className="topbar-btn" onClick={() => setSettings(true)} title={`the folder holding all your repos; click for settings (${MOD},)`}>
             repos {reposRoot}
           </button>
         )}
         <button className="topbar-btn" onClick={() => setExplorer({})} title={`browse repos and files, or search their text (${MOD}F)`}>explore</button>
         <RemotesMenu />
         <ThemeMenu />
+        <button className="topbar-btn" onClick={() => setSettings(true)} title={`settings (${MOD},)`}>settings</button>
         <button className="topbar-btn" onClick={() => setKeys(true)} title={`keyboard shortcuts (${MOD}/)`}>keys</button>
         <button className="topbar-btn" onClick={resetLayout} title="back to rail | terminals | tools">reset layout</button>
       </div>
@@ -126,7 +134,8 @@ export function App() {
       {finder && <FilePicker onClose={() => setFinder(false)} />}
       {explorer && <Explorer onClose={() => setExplorer(null)} text={explorer.text} />}
       {keys && <Keys onClose={() => setKeys(false)} />}
-      {firstRun ? <Setup /> : setup && <Setup onClose={() => setSetup(false)} />}
+      {/* First run owns the screen until a repos root is set; after that everything is in Settings. */}
+      {firstRun ? <Setup /> : settings && <Settings onClose={() => setSettings(false)} />}
     </div>
   );
 }

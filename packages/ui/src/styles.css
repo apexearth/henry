@@ -352,6 +352,9 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 
 /* Keyboard shortcut list (topbar "keys"). */
 .modal.keys { width: 560px; }
+/* Settings: label | control rows, so the controls line up down the page. */
+.modal.settings { width: 600px; }
+.modal.settings input[type="number"], .modal.settings select { padding: 4px 6px; }
 .modal.keys .list { padding: 4px 0 8px; }
 .keys-section { padding: 6px 12px 2px; }
 .keys-h { color: var(--fg-dim); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; padding: 4px 0; }

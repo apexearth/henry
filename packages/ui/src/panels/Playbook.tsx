@@ -112,8 +112,37 @@ function Body({ text, headline: showHeadline = true }: { text: string; headline?
   );
 }
 
+/** Both triggers off: the panel would sit empty forever, so say so and offer the switch. */
+function OffBanner() {
+  const [busy, setBusy] = useState(false);
+  const turnOn = async () => {
+    setBusy(true);
+    try {
+      await fetch("/api/config", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ overseer: { onStop: true, onFlag: true } }),
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div style={st.summary}>
+      <div style={st.summaryHead}><span>the overseer is off</span></div>
+      <div style={{ lineHeight: 1.45 }}>
+        Nothing is written automatically. Turning it on costs an LLM call after each turn and on
+        every flag. Asking a question below works either way.
+      </div>
+      <button style={{ marginTop: 8 }} disabled={busy} onClick={() => void turnOn()}>{busy ? "turning on…" : "turn on"}</button>
+    </div>
+  );
+}
+
 export function PlaybookPanel({ sessionId, entries }: PlaybookPanelProps) {
   const all = useStore((s) => s.playbook);
+  const overseer = useStore((s) => s.config?.overseer);
+  const off = !!overseer && !overseer.onStop && !overseer.onFlag;
   const [view, setView] = useState<View>("session");
   const [status, setStatus] = useState<Status | null>(null);
   const [prompt, setPrompt] = useState("");
@@ -176,6 +205,8 @@ export function PlaybookPanel({ sessionId, entries }: PlaybookPanelProps) {
         </button>
       </div>
 
+      {off && <OffBanner />}
+
       {summary && (
         <div style={st.summary}>
           <div style={st.summaryHead}>
@@ -186,7 +217,7 @@ export function PlaybookPanel({ sessionId, entries }: PlaybookPanelProps) {
         </div>
       )}
 
-      {!items.length && (
+      {!items.length && !off && (
         <div style={st.empty}>
           {view === "global"
             ? "No global entries yet. The overseer writes one across all running sessions at most every 10 minutes, after a session entry."
