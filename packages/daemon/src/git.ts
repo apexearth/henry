@@ -10,9 +10,10 @@
 // imported by tests without starting the server. server.ts wires it in startServer().
 import { existsSync, readFileSync, readdirSync, statSync, realpathSync, watch, type FSWatcher } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
-import type { ChangedFile, FileDiff, GrepHit, GrepResult, HenryEvent, RepoPickerEntry, RepoState, ServerMessage, SessionFiles } from "@henry/shared";
+import type { ChangedFile, FileDiff, GrepHit, GrepResult, HenryEvent, RepoPickerEntry, RepoPrs, RepoState, ServerMessage, SessionFiles } from "@henry/shared";
 import * as db from "./db";
 import { isWindows } from "./platform";
+import * as prs from "./prs";
 import * as rules from "./rules";
 
 // ---- constants ----
@@ -416,6 +417,10 @@ async function readBase(info: RepoInfo): Promise<RepoBase | undefined> {
     const url = remoteWebUrl(remotes.out, parsed.upstream?.split("/")[0] ?? "origin");
     if (url) base.remoteUrl = url;
   }
+  // Only repos a session is actually in: `allRepoStates` walks every checkout under the
+  // repos root, and that must not turn into a `gh` call per repo. Cheap unless the cached
+  // list has aged out; the fetch itself runs on its own.
+  if (repoSessions.get(info.path)?.size) prs.track(info.path, base.remoteUrl);
   if (log.code === 0 && log.out.trim()) {
     const tab = log.out.indexOf("\t");
     base.lastCommitAt = Number(log.out.slice(0, tab)) * 1000;
@@ -451,6 +456,8 @@ function toState(info: RepoInfo, base: RepoBase | undefined, sessionId?: string)
   if (base?.remoteUrl) state.remoteUrl = base.remoteUrl;
   if (info.worktreeOf) state.worktreeOf = info.worktreeOf;
   if (base?.lastCommitAt) state.lastCommitAt = base.lastCommitAt;
+  const openPrs = prs.count(info.path);
+  if (openPrs !== undefined) state.openPrs = openPrs;
   if (sessionId) {
     const b = db.getBaseline(sessionId, info.path);
     if (b) {
@@ -653,6 +660,33 @@ export function getAllSessionRepos(): Record<string, RepoState[]> {
   const out: Record<string, RepoState[]> = {};
   for (const sid of sessionRepos.keys()) out[sid] = getSessionRepos(sid);
   return out;
+}
+
+// ---- pull requests ----
+
+/** Open PRs of one checkout, from `gh` (GitHub remotes only). `force` skips the cache TTL. */
+export async function pullRequests(repoPath: string, force = false): Promise<RepoPrs> {
+  const info = resolveRepo(repoPath);
+  if (!info) return { repo: repoPath, name: basename(repoPath), prs: [], note: "not a repo" };
+  const base = await refresh(info, false);
+  return { repo: info.path, name: info.name, ...(await prs.list(info.path, base?.remoteUrl, force)) };
+}
+
+/**
+ * Open PRs across every touched checkout, for the topbar. Worktrees of one repo share a
+ * remote, so the list is deduped by slug: the same PR is never counted twice.
+ */
+export async function allPullRequests(): Promise<RepoPrs[]> {
+  const out: RepoPrs[] = [];
+  const seen = new Set<string>();
+  for (const [path, info] of repos) {
+    if (!repoSessions.get(path)?.size) continue;
+    const r = await pullRequests(path);
+    if (!r.slug || seen.has(r.slug)) continue;
+    seen.add(r.slug);
+    out.push(r);
+  }
+  return out.sort((a, b) => b.prs.length - a.prs.length || a.name.localeCompare(b.name));
 }
 
 /** Forget a session's associations (kept in the DB; only the live map is cleared). */
@@ -1044,6 +1078,10 @@ function ensureWatch(info: RepoInfo): void {
 export function start(): void {
   if (started) return;
   started = true;
+  // A PR count arrives long after the git refresh that asked for it: push the cards again.
+  prs.setOnChange((repoPath) => {
+    for (const sid of repoSessions.get(repoPath) ?? []) broadcastSession(sid);
+  });
   const rows = db.db.prepare("SELECT session_id, repo_path FROM repo_baselines").all() as { session_id: string; repo_path: string }[];
   for (const r of rows) {
     const s = db.getSession(r.session_id);

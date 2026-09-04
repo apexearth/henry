@@ -67,6 +67,31 @@ export interface RepoState {
   baseline?: string;
   commitsSinceBaseline: number;
   lastCommitAt?: number;
+  /** Open pull requests on the GitHub remote. Absent while unknown: not a github.com remote,
+   * no usable `gh`, or the first fetch has not answered yet. */
+  openPrs?: number;
+}
+
+/** One open pull request, as `gh pr list` reports it. */
+export interface PullRequest {
+  number: number;
+  title: string;
+  author: string;
+  draft: boolean;
+  /** Head branch, so a card can tie a PR to the branch it is on. */
+  branch: string;
+  url: string;
+  updatedAt: number;
+}
+
+/** Open PRs of one checkout. `note` says why the list is empty when it is not simply "none". */
+export interface RepoPrs {
+  repo: string;
+  name: string;
+  /** owner/name on github.com. */
+  slug?: string;
+  prs: PullRequest[];
+  note?: string;
 }
 
 export type HookEventName =

@@ -411,6 +411,11 @@ export async function handleApi(req: Request, url: URL, fromPeer: boolean): Prom
         const repoPath = url.searchParams.get("repoPath") ?? "";
         return json(await git.logSinceBaseline(sessionId, repoPath));
       }
+      // Open PRs: one checkout, or every touched checkout (topbar). `sessionId` only routes.
+      if (pathname === "/api/repo/prs") {
+        return json(await git.pullRequests(url.searchParams.get("repoPath") ?? "", url.searchParams.get("refresh") === "1"));
+      }
+      if (pathname === "/api/prs") return json({ repos: await git.allPullRequests() });
       // Commit graph of one repo, every branch. `sessionId` only routes it to the right machine.
       if (pathname === "/api/repo/tree") return json(await git.commitGraph(url.searchParams.get("repoPath") ?? "", Number(url.searchParams.get("limit")) || undefined));
       if (pathname === "/api/repo/commit") {

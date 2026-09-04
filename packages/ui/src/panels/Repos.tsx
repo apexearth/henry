@@ -2,10 +2,11 @@
 // dirty count, worktree path); diff / tree buttons open full-screen modals, commit hashes open
 // the commit; "all sessions" toggle groups by session.
 import { useEffect, useState } from "react";
-import type { RepoState, Session } from "@henry/shared";
+import type { PullRequest, RepoPrs, RepoState, Session } from "@henry/shared";
 import { DiffView } from "../DiffView";
 import { CommitModal, RepoModal, TreeModal, relTime, shortPath } from "../GitTree";
 import { baseName } from "../platform";
+import { PrIcon, openPrTotal } from "../PrsMenu";
 import { diffKey, requestDiff, useStore } from "../ws";
 import { hueText, nameHue } from "../theme";
 
@@ -59,6 +60,10 @@ function RepoCard({ sessionId, repo, diff, onRequestDiff }: CardProps) {
   const [showLog, setShowLog] = useState(false);
   const [log, setLog] = useState<LogEntry[] | null>(null);
   const [logErr, setLogErr] = useState<string | null>(null);
+  const [showPrs, setShowPrs] = useState(false);
+  const [prs, setPrs] = useState<PullRequest[] | null>(null);
+  const [prNote, setPrNote] = useState<string | null>(null);
+  const [prErr, setPrErr] = useState<string | null>(null);
   const [requested, setRequested] = useState(false);
   useMinuteTick();
 
@@ -87,6 +92,34 @@ function RepoCard({ sessionId, repo, diff, onRequestDiff }: CardProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repo.commitsSinceBaseline, repo.head]);
 
+  // `refresh` skips the daemon's PR cache, for when you just opened or merged one.
+  const loadPrs = async (refresh = false) => {
+    setPrErr(null);
+    try {
+      const q = new URLSearchParams({ sessionId, repoPath: repo.path });
+      if (refresh) q.set("refresh", "1");
+      const res = await fetch(`/api/repo/prs?${q}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const body = (await res.json()) as RepoPrs;
+      setPrs(body.prs);
+      setPrNote(body.note ?? null);
+    } catch (e) {
+      setPrErr((e as Error).message);
+    }
+  };
+
+  const togglePrs = () => {
+    const next = !showPrs;
+    setShowPrs(next);
+    if (next) void loadPrs();
+  };
+
+  // The daemon re-broadcasts when a count changes; keep an open list in step with it.
+  useEffect(() => {
+    if (showPrs) void loadPrs();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [repo.openPrs]);
+
   const toggleDiff = () => {
     const next = !showDiff;
     setShowDiff(next);
@@ -105,6 +138,16 @@ function RepoCard({ sessionId, repo, diff, onRequestDiff }: CardProps) {
           <span className="rc-wt" title={repo.worktreeOf ?? "worktree"}>
             worktree{repo.worktreeOf ? ` of ${baseName(repo.worktreeOf)}` : ""}
           </span>
+        )}
+        {repo.openPrs !== undefined && (
+          <button
+            className={`rc-prs ${repo.openPrs ? "some" : "none"} ${showPrs ? "on" : ""}`}
+            onClick={togglePrs}
+            title={repo.openPrs ? `${repo.openPrs} open pull request${repo.openPrs === 1 ? "" : "s"} on the remote — click to list them` : "no open pull requests on the remote"}
+          >
+            <PrIcon />
+            {repo.openPrs} open PR{repo.openPrs === 1 ? "" : "s"}
+          </button>
         )}
         <span className="rc-spacer" />
         <button className={`rc-diffbtn ${showDiff ? "on" : ""}`} onClick={toggleDiff}>{showDiff ? "hide diff" : "diff"}</button>
@@ -150,6 +193,30 @@ function RepoCard({ sessionId, repo, diff, onRequestDiff }: CardProps) {
           ))}
         </div>
       )}
+      {showPrs && (
+        <div className="rc-log">
+          <div className="rc-prs-head">
+            <span className="rc-dim">open pull requests</span>
+            <span className="rc-spacer" />
+            <button className="rc-link" onClick={() => void loadPrs(true)} title="ask GitHub again now">refresh</button>
+          </div>
+          {prErr && <div className="rc-err">PRs failed: {prErr}</div>}
+          {!prErr && prs === null && <div className="rc-dim">loading…</div>}
+          {prs?.length === 0 && <div className="rc-dim">{prNote ?? "none open"}</div>}
+          {prs?.map((p) => (
+            <div key={p.number} className="rc-logline rc-prline">
+              <a className="rc-sha" href={p.url} target="_blank" rel="noopener noreferrer" title={`open #${p.number} on GitHub`}>#{p.number}</a>
+              {/* The title is clipped from the right, so "draft" leads or it would vanish. */}
+              <span className="rc-subject" title={`${p.title}${p.branch ? ` (${p.branch})` : ""}`}>
+                {p.draft && <span className="rc-tag rc-draft">draft</span>}
+                {p.title}
+              </span>
+              <span className="rc-when">{p.author} · {relTime(p.updatedAt)}</span>
+            </div>
+          ))}
+          {prs !== null && prs.length > 0 && prNote && <div className="rc-dim">{prNote}</div>}
+        </div>
+      )}
       {showDiff && (
         <RepoModal
           repo={repo}
@@ -190,12 +257,19 @@ export function ReposPanel({ sessionId, repos, diffs, onRequestDiff }: ReposPane
       : [];
 
   const total = groups.reduce((n, g) => n + g.repos.length, 0);
+  const prs = openPrTotal(groups.flatMap((g) => g.repos));
   return (
     <div className="repos">
       <style>{REPOS_CSS}</style>
       <div className="repos-bar">
         <span className="rc-dim">
           {all ? `${total} repo${total === 1 ? "" : "s"} across ${groups.length} session${groups.length === 1 ? "" : "s"}` : sessionId ? `${repos.length} repo${repos.length === 1 ? "" : "s"} touched` : "no session"}
+          {prs.known > 0 && (
+            <>
+              <span className="rc-sep"> · </span>
+              <span className={prs.total ? "rc-prs-total" : ""}>{prs.total} open PR{prs.total === 1 ? "" : "s"}</span>
+            </>
+          )}
         </span>
         <label className="repos-toggle" title="show repos for every session, grouped by session">
           <input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} /> all sessions
@@ -257,6 +331,15 @@ a.rc-link:hover { border-color: var(--accent); }
 .rc-dirty { color: var(--warn); }
 .rc-link { background: none; border: none; padding: 0; color: var(--fg-dim); cursor: pointer; font-size: 11px; }
 .rc-link:hover, .rc-link.on { color: var(--accent); }
+.rc-prs { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; font-size: 11px; border-radius: 10px; white-space: nowrap; }
+.rc-prs.some { color: var(--accent); border-color: var(--accent); font-weight: bold; }
+.rc-prs.none { color: var(--fg-dim); }
+.rc-prs.on { background: var(--bg-3); }
+.rc-prs-total { color: var(--accent); font-weight: bold; }
+.rc-prs-head { display: flex; align-items: center; gap: 8px; }
+.rc-prline a.rc-sha { font-weight: bold; text-decoration: none; }
+.rc-prline a.rc-sha:hover { text-decoration: underline; }
+.rc-draft { margin-right: 6px; color: var(--fg-dim); }
 .rc-log { border-top: 1px solid var(--border); padding-top: 4px; display: flex; flex-direction: column; gap: 2px; font-size: 11px; }
 .rc-logline { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: baseline; }
 .rc-sha { color: var(--accent); background: none; border: none; padding: 0; cursor: pointer; font: inherit; }

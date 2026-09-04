@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { HenryMark } from "./HenryMark";
 import { ThemeMenu } from "./ThemeMenu";
 import { RemotesMenu } from "./RemotesMenu";
+import { PrsMenu } from "./PrsMenu";
 import { Explorer, type ExplorerProps } from "./Explorer";
 import { FilePicker } from "./FilePicker";
 import { sendFind } from "./FileView";
@@ -123,6 +124,7 @@ export function App() {
             repos {reposRoot}
           </button>
         )}
+        <PrsMenu />
         <button className="topbar-btn" onClick={() => setExplorer({})} title={`browse repos and files, or search their text (${MOD}F)`}>explore</button>
         <RemotesMenu />
         <ThemeMenu />

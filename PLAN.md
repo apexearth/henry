@@ -47,6 +47,12 @@ the design changes; do not let it drift into a changelog.
   utilization (verified in build 2.1.259). Henry's installed status command posts
   that JSON to the daemon. Token/cost totals per session come from the transcript
   JSONL `usage` fields as a secondary view.
+- **Open PRs come from `gh`, and only from `gh`.** The count on a repo card and the topbar
+  chip are `gh pr list` for the checkout's github.com remote: no GitHub token of Henry's own,
+  no new dependency, nothing stored. It is the one place the daemon reaches past the machine,
+  so it is cached 5 min per checkout (15 min after a failure), capped at 100 PRs, killed after
+  15s, and silent when `gh` is missing or the repo is invisible to the user's auth — a repo
+  card simply has no PR badge then. Read-only: Henry never opens, merges or comments.
 - **Overseer runs at my altitude.** It reads Henry's event DB, git summaries, and the
   repo's `ACTIVE-WORK.md`. It never reads code. Two backends: Anthropic API with
   `claude-opus-5` when `ANTHROPIC_API_KEY` is present; otherwise headless
@@ -360,6 +366,7 @@ henry/
       src/hooks.ts             # POST /hook, POST /statusline ingest
       src/transcript.ts        # tail ~/.claude/projects/**/<session>.jsonl
       src/git.ts               # repo discovery, worktrees, status, ahead/behind, diff
+      src/prs.ts               # open PRs per checkout via `gh pr list`, cached and best-effort
       src/rules.ts             # ~/.henry/config.json rules → classify events
       src/activity.ts          # working | needsInput | waiting | idle, derived from hooks
       src/engagement.ts        # my prompts + keystrokes per session: lastInputAt, prompt sparkline
@@ -378,6 +385,7 @@ henry/
       src/dock.ts              # default layout, localStorage persistence, open/focus helpers
       src/ws.ts                # client, reconnect, state store
       src/Terminal.tsx         # xterm + webgl addon
+      src/PrsMenu.tsx          # topbar open-PR count + the list behind it
       src/RepoPicker.tsx       # "+ new": typed picker over repos × {claude, terminal}
       src/FilePicker.tsx       # ⌘K: find a file to peek at
       src/Explorer.tsx         # ⌘F: browse repos and files or grep their text, preview on the right
@@ -425,6 +433,12 @@ unbounded input is trimmed at the door.
   4KB each with the shape intact. Rules classify the whole payload first, so nothing is
   missed; what a 300KB screenshot response leaves behind is a readable head. Uncapped, this
   was ~19MB of SQLite for two days of use, all of it also crossing the WS to every window.
+- **PR lists are read at most every 5 minutes per checkout** (15 after a failure), only for
+  repos a live session is in, and never on the git refresh path: `git.ts` marks the cached
+  list stale, the `gh` call runs on its own and re-broadcasts the cards if the count moved.
+  The explorer's sweep of every repo under the root deliberately gets no PR counts — that
+  would be one `gh` per repo. Worktrees of one repo are folded by remote before any total,
+  so the same PR is never counted twice.
 - **The transcript tailer reads 1MB per pass** and comes back through the event loop.
   A cold start begins at byte 0 and transcripts reach tens of MB; one synchronous pass would
   stall hooks and the WS for the length of the file.
