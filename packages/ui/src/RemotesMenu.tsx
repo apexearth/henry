@@ -119,35 +119,37 @@ function Remotes({ peers }: { peers: PeerStatus[] }) {
       <h4>paired machines</h4>
       {!list.length && <div className="dim">none yet</div>}
       {list.map((p) => (
-        <div key={p.name} className="peer-row" title={`identity ${p.fingerprint}\npaired ${new Date(p.pairedAt).toLocaleString()}\nlast seen ${ago(p.lastSeenAt, now)}${p.error ? `\n${p.error}` : ""}`}>
-          <span className={"dot " + (p.enabled ? p.link : "off")} />
-          <span className="name" style={{ color: hueText(nameHue(p.name)) }}>{p.name}</span>
-          {editing === p.name ? (
-            <form className="grow" onSubmit={(e) => { e.preventDefault(); void act(() => post("/api/federation/peer/url", { name: p.name, address: draft }).then(() => setEditing(null)), draft.trim() ? `dialing ${p.name} at ${draft.trim()}` : `no longer dialing ${p.name}`); }}>
-              <input autoFocus value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="host:port (empty: stop dialing)" spellCheck={false} autoCapitalize="off"
-                onKeyDown={(e) => { if (e.key === "Escape") setEditing(null); }} />
-              <button type="submit" className="small" disabled={busy}>save</button>
-              <button type="button" className="small" onClick={() => setEditing(null)}>cancel</button>
-            </form>
-          ) : (
+        <div key={p.name} title={`identity ${p.fingerprint}\npaired ${new Date(p.pairedAt).toLocaleString()}\nlast seen ${ago(p.lastSeenAt, now)}${p.error ? `\n${p.error}` : ""}`}>
+          <div className="peer-row">
+            <span className={"dot " + (p.enabled ? p.link : "off")} />
+            <span className="name" style={{ color: hueText(nameHue(p.name)) }}>{p.name}</span>
             <span className="grow dim">
               {!p.enabled ? "disabled" : p.url ? `${LINK_TEXT[p.link]} · ${bare(p.url)}` : "reaches us only"}
               {p.inbound ? " · sees us" : ""}
               {p.link === "connected" ? ` · ${p.sessions} session${p.sessions === 1 ? "" : "s"}` : ""}
             </span>
+            <button className="small" disabled={busy || editing === p.name} title="change the address this machine is dialed at (its port or IP changed)"
+              onClick={() => { setDraft(p.url ? bare(p.url) : ""); setEditing(p.name); }}>
+              address
+            </button>
+            <button className="small" disabled={busy} title={p.enabled ? "stop dialing and refuse this machine" : "dial and accept this machine again"}
+              onClick={() => act(() => post("/api/federation/peer/enable", { name: p.name, enabled: !p.enabled }))}>
+              {p.enabled ? "pause" : "resume"}
+            </button>
+            <button className="small" disabled={busy} title="forget this machine: it must pair again to connect"
+              onClick={() => act(() => post("/api/federation/peer/forget", { name: p.name }), `forgot ${p.name}`)}>
+              ×
+            </button>
+          </div>
+          {editing === p.name && (
+            // Own line under the row: the row's name and buttons leave no room for an input.
+            <form className="peer-edit" onSubmit={(e) => { e.preventDefault(); void act(() => post("/api/federation/peer/url", { name: p.name, address: draft }).then(() => setEditing(null)), draft.trim() ? `dialing ${p.name} at ${draft.trim()}` : `no longer dialing ${p.name}`); }}>
+              <input autoFocus value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="host:port (empty: stop dialing)" spellCheck={false} autoCapitalize="off"
+                onKeyDown={(e) => { if (e.key === "Escape") setEditing(null); }} />
+              <button type="submit" className="small" disabled={busy}>save</button>
+              <button type="button" className="small" onClick={() => setEditing(null)}>cancel</button>
+            </form>
           )}
-          <button className="small" disabled={busy || editing === p.name} title="change the address this machine is dialed at (its port or IP changed)"
-            onClick={() => { setDraft(p.url ? bare(p.url) : ""); setEditing(p.name); }}>
-            address
-          </button>
-          <button className="small" disabled={busy} title={p.enabled ? "stop dialing and refuse this machine" : "dial and accept this machine again"}
-            onClick={() => act(() => post("/api/federation/peer/enable", { name: p.name, enabled: !p.enabled }))}>
-            {p.enabled ? "pause" : "resume"}
-          </button>
-          <button className="small" disabled={busy} title="forget this machine: it must pair again to connect"
-            onClick={() => act(() => post("/api/federation/peer/forget", { name: p.name }), `forgot ${p.name}`)}>
-            ×
-          </button>
         </div>
       ))}
 
