@@ -2,11 +2,11 @@
 // scratch homes on loopback ports that pair, relay a session from beta into alpha's state,
 // drive its PTY through alpha, proxy /api/*, and part ways. Never touches ~/.henry or :14711.
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync, statSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ClientMessage, FederationStatus, ServerMessage, StateSnapshot } from "@henry/shared";
-import { Channel, Handshake, fingerprint, newIdentity, newPairingCode, normalizeCode, proofsEqual, signTranscript, verifyTranscript } from "../src/fed-crypto";
+import { Channel, Handshake, fingerprint, isHello, newIdentity, newPairingCode, normalizeCode, proofsEqual, signTranscript, verifyTranscript, type Derived, type IdentityKeys } from "../src/fed-crypto";
 import { stopSessiond, waitFor } from "./sessiond-helper";
 import { echoExpr, isWindows, testShell } from "./shell";
 
@@ -62,11 +62,14 @@ describe("fed-crypto", () => {
     const code = newPairingCode();
     expect(code).toMatch(/^[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}$/);
     expect(normalizeCode(code.toLowerCase().replace(/-/g, " "))).toBe(code.replace(/-/g, ""));
-    const proof = dc.pairProof(code).toString("base64url");
-    expect(proofsEqual(ds.pairProof(code), proof)).toBe(true);
-    expect(proofsEqual(ds.pairProof(newPairingCode()), proof)).toBe(false);
+    const proof = dc.pairProof(code, "client").toString("base64url");
+    expect(proofsEqual(ds.pairProof(code, "client"), proof)).toBe(true);
+    expect(proofsEqual(ds.pairProof(newPairingCode(), "client"), proof)).toBe(false);
     const other = new Handshake("server", b, "beta").derive(hc.hello());
-    expect(proofsEqual(other.pairProof(code), proof)).toBe(false);
+    expect(proofsEqual(other.pairProof(code, "client"), proof)).toBe(false);
+    // The listener's proof is a different value: the joiner's cannot be echoed back as it.
+    expect(proofsEqual(ds.pairProof(code, "server"), proof)).toBe(false);
+    expect(proofsEqual(dc.pairProof(code, "server"), ds.pairProof(code, "server").toString("base64url"))).toBe(true);
   });
 
   test("fingerprints are stable and short", () => {
@@ -167,6 +170,72 @@ class Win {
       this.ws.close();
     } catch {}
   }
+}
+
+/**
+ * A daemon dialed in to `url` as `me`, speaking the wire protocol directly (what a peer's
+ * daemon would send). Lets a test send frames no well-behaved daemon emits.
+ */
+async function rawPeer(url: string, me: IdentityKeys, name: string): Promise<{ send(m: unknown): void; next(type: string, ms?: number): Promise<Record<string, unknown> | undefined>; close(): void }> {
+  const ws = new WebSocket(url);
+  ws.binaryType = "arraybuffer";
+  const hs = new Handshake("client", me, name);
+  const inbox: Record<string, unknown>[] = [];
+  let derived: Derived | undefined;
+  await new Promise<void>((resolve, reject) => {
+    ws.onerror = () => reject(new Error(`cannot reach ${url}`));
+    ws.onclose = (ev) => reject(new Error(ev.reason || `closed (${ev.code})`));
+    ws.onopen = () => ws.send(JSON.stringify(hs.hello()));
+    ws.onmessage = (ev) => {
+      if (typeof ev.data === "string") {
+        const m = JSON.parse(ev.data);
+        if (!isHello(m)) return reject(new Error("bad hello"));
+        derived = hs.derive(m);
+        ws.send(derived.channel.seal({ t: "auth", sig: signTranscript(me, "client", derived.transcript) }));
+        return;
+      }
+      const m = derived!.channel.open(new Uint8Array(ev.data as ArrayBuffer)) as Record<string, unknown>;
+      if (m.t === "err") return reject(new Error(String(m.reason)));
+      if (m.t === "ok") return resolve();
+      inbox.push(m);
+    };
+  });
+  ws.onclose = null;
+  return {
+    send: (m) => ws.send(derived!.channel.seal(m)),
+    next: (type, ms = 1500) =>
+      waitFor(type, () => {
+        const i = inbox.findIndex((m) => m.type === type);
+        return i >= 0 ? inbox.splice(i, 1)[0] : undefined;
+      }, ms).catch(() => undefined),
+    close: () => ws.close(),
+  };
+}
+
+/** A listener that runs the handshake correctly but accepts any pairing: it never saw the code. */
+function fakeListener(): { port: number; stop(): void } {
+  const id = newIdentity();
+  const srv = Bun.serve<{ hs: Handshake; derived?: Derived }>({
+    hostname: "127.0.0.1",
+    port: randomPort(),
+    fetch(req, s) {
+      return s.upgrade(req, { data: { hs: new Handshake("server", id, "impostor") } }) ? undefined : new Response("no", { status: 400 });
+    },
+    websocket: {
+      message(ws, raw) {
+        if (typeof raw === "string") {
+          const m = JSON.parse(raw);
+          ws.send(JSON.stringify(ws.data.hs.hello()));
+          ws.data.derived = ws.data.hs.derive(m);
+          return;
+        }
+        const d = ws.data.derived!;
+        d.channel.open(raw as Uint8Array);
+        ws.send(d.channel.seal({ t: "ok", name: "impostor", sig: signTranscript(id, "server", d.transcript) }));
+      },
+    },
+  });
+  return { port: srv.port!, stop: () => srv.stop(true) };
 }
 
 afterAll(async () => {
@@ -298,6 +367,55 @@ describe("two daemons", () => {
     expect(write.status).toBe(403);
   }, 30000);
 
+  test("a listener that does not know the code cannot get itself paired", async () => {
+    const fake = fakeListener();
+    try {
+      const before = (await fedStatus(alpha)).peers.length;
+      const res = await post(alpha, "/api/federation/pair", { address: `127.0.0.1:${fake.port}`, code: newPairingCode() });
+      expect(res.status).toBe(502);
+      expect(((await res.json()) as { error: string }).error).toContain("does not know this pairing code");
+      expect((await fedStatus(alpha)).peers.length).toBe(before);
+    } finally {
+      fake.stop();
+    }
+  }, 30000);
+
+  test("a peer cannot reach our other peers through us", async () => {
+    // gamma pairs with alpha only. beta, dialed in to alpha, must not see or drive gamma.
+    const gamma = await startDaemon("gamma");
+    const { code } = (await (await post(gamma, "/api/federation/pairing/start")).json()) as { code: string };
+    expect((await post(alpha, "/api/federation/pair", { address: `127.0.0.1:${gamma.fedPort}`, code })).status).toBe(200);
+    await waitFor("alpha → gamma", async () => ((await fedStatus(alpha)).peers.find((p) => p.name === "gamma")?.link === "connected" ? true : undefined));
+    const wg = await new Win().open(gamma);
+    wg.send({ type: "session:create", cwd: gamma.home, title: "on-gamma", command: testShell.command, args: testShell.args, requestId: "g1" });
+    const gammaSession = (await wg.next("session:update", (m) => m.requestId === "g1")).session.id;
+    await waitFor("gamma's session in alpha", async () => (await state(alpha)).sessions.find((s) => s.id === gammaSession));
+
+    const betaId = (JSON.parse(readFileSync(join(beta.home, "federation.json"), "utf8")) as { identity: IdentityKeys }).identity;
+    const alphaUrl = (await fedStatus(beta)).peers.find((p) => p.name === "alpha")!.url!;
+    const asBeta = await rawPeer(alphaUrl, betaId, "beta");
+    // What alpha shows a peer is its own state: gamma's session is not in it.
+    const shown = (await asBeta.next("state", 5000)) as { sessions: { id: string }[] };
+    expect(shown.sessions.some((s) => s.id === gammaSession)).toBe(false);
+
+    asBeta.send({ type: "session:create", peer: "gamma", cwd: gamma.home, title: "via-alpha", command: testShell.command, args: testShell.args, requestId: "x1" });
+    asBeta.send({ type: "attach", sessionId: gammaSession, reqId: "x2" });
+    asBeta.send({ type: "pty:input", sessionId: gammaSession, data: echoExpr("leaked", "5+5") });
+    expect(await asBeta.next("session:update")).toBeUndefined();
+    expect(await asBeta.next("pty:scrollback")).toBeUndefined();
+    // The channel itself is fine: a request for alpha's own state is answered.
+    asBeta.send({ type: "state:request" });
+    expect(await asBeta.next("state", 5000)).toBeDefined();
+    expect((await state(gamma)).sessions.length).toBe(1);
+    wg.send({ type: "attach", sessionId: gammaSession });
+    await wg.next("pty:scrollback");
+    wg.send({ type: "pty:input", sessionId: gammaSession, data: echoExpr("mine", "1+1") });
+    await wg.seen(gammaSession, "mine-2");
+    expect(wg.output.get(gammaSession)).not.toContain("leaked-10");
+    asBeta.close();
+    wg.close();
+  }, 60000);
+
   test("killing through alpha ends the session on beta; forgetting the peer drops its sessions", async () => {
     const wa = await new Win().open(alpha);
     wa.send({ type: "session:kill", sessionId: betaSession });
@@ -306,7 +424,7 @@ describe("two daemons", () => {
     expect((await state(beta)).sessions.find((s) => s.id === betaSession)?.status).toBe("exited");
 
     expect((await post(alpha, "/api/federation/peer/forget", { name: "beta" })).status).toBe(200);
-    await wa.next("peers:update", (m) => m.peers.length === 0);
+    await wa.next("peers:update", (m) => !m.peers.some((p) => p.name === "beta"));
     expect((await state(alpha)).sessions.find((s) => s.id === betaSession)).toBeUndefined();
     // Beta still remembers alpha but can no longer connect: alpha refuses the unknown key.
     await waitFor("beta's redial refused as unpaired", async () => {

@@ -3,7 +3,7 @@
 // the windows attached here. When the link drops, its sessions leave the rail until it is
 // back; nothing about them is persisted here, the peer's own DB has all of it.
 import type { Flag, PlaybookEntry, RepoState, ServerMessage, Session, SessionUsage, StateSnapshot } from "@henry/shared";
-import { FED_VERSION, Handshake, fingerprint, isHello, signTranscript, verifyTranscript, type Channel, type Derived, type IdentityKeys } from "./fed-crypto";
+import { FED_VERSION, Handshake, fingerprint, isHello, proofsEqual, signTranscript, verifyTranscript, type Channel, type Derived, type IdentityKeys } from "./fed-crypto";
 import type { FedRequest, FedResponse, PeerRecord } from "./federation";
 
 /** What one daemon shows another: its own state minus config and window concerns. */
@@ -75,15 +75,17 @@ async function dial(
           derived = hs.derive(m);
           const sig = signTranscript(me.identity, "client", derived.transcript);
           const auth =
-            mode.t === "auth" ? { t: "auth", sig } : { t: "pair", sig, proof: derived.pairProof(mode.code).toString("base64url"), listenUrl: mode.listenUrl };
+            mode.t === "auth" ? { t: "auth", sig } : { t: "pair", sig, proof: derived.pairProof(mode.code, "client").toString("base64url"), listenUrl: mode.listenUrl };
           ws.send(derived.channel.seal(auth));
           return;
         }
         if (!derived || !theirHello) throw new Error("binary before hello");
-        const m = derived.channel.open(new Uint8Array(ev.data as ArrayBuffer)) as { t?: string; reason?: string; sig?: unknown; name?: string };
+        const m = derived.channel.open(new Uint8Array(ev.data as ArrayBuffer)) as { t?: string; reason?: string; sig?: unknown; name?: string; proof?: unknown };
         if (m.t === "err") throw new Error(m.reason || "refused");
         if (m.t !== "ok") throw new Error("expected ok");
         if (!verifyTranscript(theirHello.id, "server", derived.transcript, m.sig)) throw new Error("peer failed to prove its identity");
+        // Whoever answered must hold the code too; otherwise we would pin a stranger's key.
+        if (mode.t === "pair" && !proofsEqual(derived.pairProof(mode.code, "server"), m.proof)) throw new Error("the daemon at that address does not know this pairing code");
         clearTimeout(timer);
         done = true;
         ws.onerror = ws.onclose = ws.onmessage = null;

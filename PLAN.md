@@ -184,7 +184,10 @@ until it is back. Two machines that both listen dial each other, so each window 
 - **Listening is tailnet-only by default.** `federation.listen: "tailscale"` binds the
   machine's 100.64/10 address on `federation.port` (14712) and serves nothing but `/fed`:
   no UI, no `/api`, no hooks. `"off"` never listens; an explicit address binds that
-  (`0.0.0.0` works, with a warning). Loopback :14711 is unchanged.
+  (`0.0.0.0` works, with a warning). Loopback :14711 is unchanged. The address is
+  re-resolved every 30s and on config reload, and the listener rebinds when it moves: a
+  tailnet switch or re-login changes the 100.x address, and a socket bound to the old one
+  stays open but unreachable.
 - **Identity is a per-machine Ed25519 key** in `~/.henry/federation.json` (0600), next
   to the peer list. Pairing pins the other side's key; from then on every connection is
   mutually authenticated: an X25519 ephemeral exchange, HKDF, AES-256-GCM per direction
@@ -194,13 +197,18 @@ until it is back. Two machines that both listen dial each other, so each window 
 - **Pairing is a one-time code.** "Show a pairing code" (remotes menu, or `henry pair`)
   opens a ten-minute window with a 60-bit code; the joiner proves it under the shared
   secret (a passive observer learns nothing; an active one gets five online guesses, then
-  the code is revoked). The joiner also advertises its own listen URL, so one pairing
+  the code is revoked), and the listener proves it back under its own role, so a daemon at
+  a mistyped address, or a man in the middle on an open interface, cannot accept a pairing
+  and get its key pinned. The joiner also advertises its own listen URL, so one pairing
   links both ways. Both sides show fingerprints to compare afterwards. Five failed
   handshakes from one address lock it out for a minute.
 - **A paired machine is you.** It can attach, type, start and kill sessions and read files
   in repos there, exactly what a window can. Pause or forget a peer from the remotes menu
   (`henry peers forget <name>`); a forgotten key is refused at the next handshake.
   `/api/federation/*` is never proxied and never served to a peer.
+- **Trust is not transitive.** A peer sees and drives this daemon's own sessions only.
+  Messages from a peer that name a session relayed from another peer, or ask to create one
+  there, are dropped: reaching that machine takes its own pairing.
 - **In the rail** a peer's sessions sit under their own delimiter (its name, coloured like a
   repo name, on a dotted rule) below this machine's, whatever the grouping; "+ new" offers
   the connected machines as a place to start the session. File peeks and ⌘K read from the machine of the

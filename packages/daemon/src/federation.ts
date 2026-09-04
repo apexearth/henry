@@ -23,6 +23,8 @@ import { localHost } from "./sessions";
 export interface Client {
   attached: Set<string>;
   readonly open: boolean;
+  /** A dialed-in daemon. It gets this daemon's sessions only, never those relayed from other peers. */
+  readonly fromPeer: boolean;
   send(msg: ServerMessage): void;
   subscribe(sessionId: string): void;
   unsubscribe(sessionId: string): void;
@@ -63,6 +65,7 @@ const PAIRING_MAX_ATTEMPTS = 5;
 const HANDSHAKE_TIMEOUT_MS = 10_000;
 const LOCKOUT_FAILURES = 5;
 const LOCKOUT_MS = 60_000;
+const REBIND_CHECK_MS = 30_000;
 const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/;
 
 let deps: Deps;
@@ -72,6 +75,7 @@ const inbound = new Set<Inbound>();
 let listener: ReturnType<typeof Bun.serve<Inbound>> | undefined;
 let listening: { address: string; port: number } | undefined;
 let listenError: string | undefined;
+let rebindTimer: ReturnType<typeof setInterval> | undefined;
 let pairing: { code: string; expiresAt: number; attempts: number; timer: ReturnType<typeof setTimeout> } | undefined;
 const failures = new Map<string, { n: number; until: number }>();
 
@@ -225,6 +229,7 @@ class Inbound implements Client {
   peer?: PeerRecord;
   private timer?: ReturnType<typeof setTimeout>;
   attached = new Set<string>();
+  readonly fromPeer = true;
   private subscribed = new Set<string>();
 
   constructor(readonly ip: string) {}
@@ -305,6 +310,9 @@ class Inbound implements Client {
     const { transcript } = this.derived!;
     const them = this.theirHello!;
     if (!verifyTranscript(them.id, "client", transcript, msg.sig)) return this.fail("bad signature");
+    // Our own proof of the code goes back in the ok, so the joiner knows it reached the
+    // daemon the code was shown on, not whatever answered at that address.
+    let proof: string | undefined;
     if (msg.t === "auth") {
       const rec = store.peers.find((p) => p.publicKey === them.id);
       if (!rec) return this.fail(`unknown identity ${fingerprint(them.id)} (not paired)`);
@@ -313,13 +321,14 @@ class Inbound implements Client {
       touch(rec);
     } else if (msg.t === "pair") {
       if (!pairing || Date.now() > pairing.expiresAt) return this.fail("no pairing in progress");
-      if (!proofsEqual(this.derived!.pairProof(pairing.code), msg.proof)) {
+      if (!proofsEqual(this.derived!.pairProof(pairing.code, "client"), msg.proof)) {
         if (++pairing.attempts >= PAIRING_MAX_ATTEMPTS) {
           console.error("[fed] pairing code revoked after too many wrong attempts");
           stopPairing();
         }
         return this.fail("wrong pairing code");
       }
+      proof = this.derived!.pairProof(pairing.code, "server").toString("base64url");
       const url = typeof msg.listenUrl === "string" && /^ws:\/\/[^/\s]+\/fed$/.test(msg.listenUrl) ? msg.listenUrl : undefined;
       this.peer = rememberPeer(them.name, them.id, url);
       stopPairing();
@@ -327,7 +336,7 @@ class Inbound implements Client {
     } else return this.fail("expected auth or pair");
     clearTimeout(this.timer);
     failures.delete(this.ip);
-    this.send({ t: "ok", name: localName(), sig: signTranscript(store.identity, "server", transcript) } as unknown as ServerMessage);
+    this.send({ t: "ok", name: localName(), sig: signTranscript(store.identity, "server", transcript), proof } as unknown as ServerMessage);
     this.send({ type: "state", ...deps.localState() } as ServerMessage);
     console.log(`[fed] ${this.peer.name} connected from ${this.ip}`);
     notifyPeers();
@@ -405,17 +414,26 @@ export function init(d: Deps): void {
   deps = d;
 }
 
+/** Rebind when the wanted address or port no longer matches the bound one, or when a
+ * previous attempt failed (Tailscale not up yet at daemon start). */
+function rebindIfMoved(): void {
+  const want = resolveListen();
+  if (want.address !== listening?.address || (want.address && config.federation.port !== listening?.port)) startListener();
+}
+
 export function start(): void {
   store = loadStore();
   startListener();
   syncLinks();
-  onConfigReload(() => {
-    const want = resolveListen();
-    if (want.address !== listening?.address || (want.address && config.federation.port !== listening?.port)) startListener();
-  });
+  onConfigReload(rebindIfMoved);
+  // The tailnet address can change under us (switching tailnets, re-login); the old socket
+  // stays bound to an address nobody can reach, so poll rather than trust the first bind.
+  rebindTimer = setInterval(rebindIfMoved, REBIND_CHECK_MS);
 }
 
 export function stop(): void {
+  clearInterval(rebindTimer);
+  rebindTimer = undefined;
   stopPairing();
   stopListener();
   for (const l of links.values()) l.close();

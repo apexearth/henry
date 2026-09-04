@@ -50,6 +50,7 @@ function publishSession(sessionId: string, msg: ServerMessage): void {
 function windowClient(ws: Ws): Client {
   return {
     attached: new Set<string>(),
+    fromPeer: false,
     get open() {
       return ws.readyState === 1;
     },
@@ -113,8 +114,14 @@ sessions.on("exit", (id, exitCode) => publishSession(id, { type: "pty:exit", ses
 sessions.on("update", (session) => broadcast({ type: "session:update", session }));
 
 async function handleMessage(client: Client, msg: ClientMessage): Promise<void> {
-  // A session relayed from a paired machine: its link answers, in the same shapes.
+  // A session relayed from a paired machine: its link answers, in the same shapes. Not for a
+  // peer, though: pairing is between two machines, and a peer must not reach our other peers
+  // through us (its own pairing with them is the only way).
   const link = "sessionId" in msg && msg.sessionId ? federation.linkOf(msg.sessionId) : undefined;
+  if (client.fromPeer && (link || (msg.type === "session:create" && msg.peer))) {
+    console.error(`[fed] refused ${msg.type} from a peer aimed at another peer`);
+    return;
+  }
   if (link) return handleRemote(client, msg, link);
   switch (msg.type) {
     case "attach": {
@@ -167,7 +174,7 @@ async function handleMessage(client: Client, msg: ClientMessage): Promise<void> 
       if (!sessions.get(msg.sessionId)) broadcast({ type: "state", ...buildState() });
       return;
     case "flags:markRead":
-      db.markFlagsRead(federation.markFlagsRead(msg.ids));
+      db.markFlagsRead(client.fromPeer ? msg.ids : federation.markFlagsRead(msg.ids));
       return;
     case "playbook:request":
       for (const entry of db.listPlaybook(msg.sessionId).reverse()) client.send({ type: "playbook:update", entry });
