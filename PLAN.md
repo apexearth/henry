@@ -278,6 +278,19 @@ repos (the one its cwd is in first) and finally other sessions' repos, fuzzy-mat
 path with a bias to file-name hits. `GET /api/repo/files?repo=` is `git ls-files` incl.
 untracked, cached 10 s. ⌃K works too, except in the terminal where it stays kill-line.
 
+**⌘F explores, so Zed stays closed.** ⌘K is for a file you can name; ⌘F is for looking
+around. It is a wide overlay: a filter on the left, the selected file on the right. With no
+repo picked the list is every checkout under the repos root (`GET /api/repos/state`: the
+Repos-panel state for all of them, read on demand, never watched) with branch, dirty count and
+ahead/behind; typing matches repo names first, then `repo/path` across every repo's index.
+Enter on a repo scopes the list to its files (`GET /api/repo/changes?repo=` marks the
+uncommitted ones), Backspace on an empty filter goes back up. ↑↓ previews on the right, read
+where the peek would read it but against HEAD, since no session owns the view; Enter opens
+the file as a peek in the stage and closes the overlay. The place you were (repo, filter,
+selection) is remembered per browser, so ⌘F flips back to it. Local repos only: it browses the
+machine the window is attached to. Not an editor, and no folder tree: filtering is the
+navigation. ⌃F works outside the terminal, where it stays forward-char.
+
 **Appearance.** Three choices in the topbar "theme" popover (tone, highlight, shade) derive
 the whole palette in OKLCH; `theme.ts` writes it as CSS variables on `<html>` and the
 terminal (background, foreground, cursor, selection, the 16 ANSI colors) reads the same
@@ -347,6 +360,9 @@ henry/
       src/ws.ts                # client, reconnect, state store
       src/Terminal.tsx         # xterm + webgl addon
       src/RepoPicker.tsx       # "+ new": typed picker over repos × {claude, terminal}
+      src/FilePicker.tsx       # ⌘K: find a file to peek at
+      src/Explorer.tsx         # ⌘F: browse repos and files, preview on the right
+      src/FileView.tsx         # read-only file peek (stage) and the explorer's preview
       src/panels/{Repos,Flags,Playbook,Usage}.tsx
       src/DiffView.tsx
 ```

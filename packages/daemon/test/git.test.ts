@@ -184,6 +184,19 @@ describe("git", () => {
     expect(sf.repos.find((r) => r.path === repo)?.files.length).toBe(changed.length);
   });
 
+  test("explorer: allRepoStates covers every checkout; changedFiles without a session is vs HEAD", async () => {
+    const states = await git.allRepoStates(root);
+    const byPath = Object.fromEntries(states.map((s) => [s.path, s]));
+    expect(byPath[repo]).toMatchObject({ name: "app", branch: "main", isWorktree: false });
+    expect(byPath[repo].dirty).toBeGreaterThan(0);
+    expect(byPath[join(root, "scratch")]).toBeUndefined(); // a folder, not a repo
+    // d.txt was committed after the baseline: changed for the session, clean vs HEAD.
+    const vsHead = Object.fromEntries((await git.changedFiles("", repo)).map((f) => [f.path, f.status]));
+    expect(vsHead["a.txt"]).toBe("M");
+    expect(vsHead["untracked.txt"]).toBe("?");
+    expect(vsHead["d.txt"]).toBeUndefined();
+  });
+
   test("logSinceBaseline lists commits after the baseline", async () => {
     const { baseline, commits } = await git.logSinceBaseline("s1", repo);
     expect(baseline).toBe(baselineSha);

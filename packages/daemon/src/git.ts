@@ -323,6 +323,16 @@ export async function listRepos(root: string): Promise<RepoPickerEntry[]> {
   return [...found.values()].sort((a, b) => a.path.localeCompare(b.path));
 }
 
+/**
+ * Live state of every checkout under `root`, for the ⌘F explorer's repo list. Repos no
+ * session has touched are read on demand (and cached like any other), never watched.
+ */
+export async function allRepoStates(root: string): Promise<RepoState[]> {
+  const entries = (await listRepos(root)).filter((e) => !e.folder);
+  const states = await Promise.all(entries.map((e) => getRepoState(e.path)));
+  return states.filter((s): s is RepoState => !!s);
+}
+
 // ---- live state ----
 
 function parseStatus(out: string): Pick<RepoBase, "branch" | "head" | "upstream" | "ahead" | "behind" | "dirty"> {

@@ -262,6 +262,25 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 .picker-files .file-cell .kind-word { margin-left: 0; overflow: hidden; text-overflow: ellipsis; }
 .picker-files .path { color: var(--fg-dim); font-size: 11px; flex: none; }
 
+/* ⌘F explorer: repos/files on the left, the selected file on the right (Explorer.tsx). */
+.explorer-bg { padding-top: 6vh; }
+.explorer { width: min(1240px, 94vw); height: 86vh; max-height: 86vh; flex-direction: row; overflow: hidden; }
+.explorer-left { flex: none; width: 380px; display: flex; flex-direction: column; border-right: 1px solid var(--border); min-width: 0; }
+.explorer-input { display: flex; gap: 6px; align-items: center; padding: 10px 12px; }
+.explorer-input .chip { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.explorer-input .picker-input { flex: 1; margin: 0; min-width: 0; }
+.explorer-left .list { flex: 1; }
+.explorer .file-cell { display: flex; gap: 8px; align-items: center; overflow: hidden; }
+.explorer .file-cell .kind-word { margin-left: 0; overflow: hidden; text-overflow: ellipsis; }
+.explorer .row .path { flex: none; }
+.explorer-git { flex: none; display: flex; gap: 8px; color: var(--fg-dim); font-size: 11px; }
+.explorer-git .dirty { color: var(--warn); }
+.explorer-git .branch { max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
+.explorer-right { flex: 1; min-width: 0; background: var(--bg); }
+.explorer-right .peek-head { padding-left: 12px; }
+.explorer-empty { height: 100%; display: flex; flex-direction: column; gap: 8px; align-items: center; justify-content: center; color: var(--fg-dim); text-align: center; padding: 20px; }
+.explorer-empty .hint { font-size: 11px; color: var(--fg-faint); }
+
 /* Peek: lines vs the session baseline. */
 .peek-line.add { background: rgba(63, 185, 80, 0.12); }
 .peek-line.del { background: rgba(248, 81, 73, 0.12); color: var(--fg-dim); text-decoration: line-through; }

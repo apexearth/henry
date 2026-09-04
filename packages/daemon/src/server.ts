@@ -363,6 +363,9 @@ export async function handleApi(req: Request, url: URL, fromPeer: boolean): Prom
         const root = url.searchParams.get("root");
         return json(await git.listRepos(root ? expandHome(root.trim()) : config.reposRoot));
       }
+      if (pathname === "/api/repos/state") return json(await git.allRepoStates(config.reposRoot));
+      // Uncommitted changes of one repo (vs HEAD: no session, so no baseline), for the explorer.
+      if (pathname === "/api/repo/changes") return json(await git.changedFiles("", url.searchParams.get("repo") ?? ""));
       if (pathname === "/api/repo/log") {
         const sessionId = url.searchParams.get("sessionId") ?? "";
         const repoPath = url.searchParams.get("repoPath") ?? "";

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { HenryMark } from "./HenryMark";
 import { ThemeMenu } from "./ThemeMenu";
 import { RemotesMenu } from "./RemotesMenu";
+import { Explorer } from "./Explorer";
 import { FilePicker } from "./FilePicker";
 import { Layout } from "./Layout";
 import { Setup } from "./Setup";
@@ -16,6 +17,7 @@ export function App() {
   const firstRun = useStore((s) => s.hydrated && s.firstRun);
   const reposRoot = useStore((s) => s.config?.reposRoot);
   const [finder, setFinder] = useState(false);
+  const [explorer, setExplorer] = useState(false);
   const [setup, setSetup] = useState(false);
   const [keys, setKeys] = useState(false);
 
@@ -60,6 +62,13 @@ export function App() {
         setFinder((v) => !v);
         return;
       }
+      // ⌘F opens the explorer (repos and files, with a preview). ⌃F too, outside the terminal
+      // where it is forward-char. Chrome lets a page take ⌘F, unlike ⌘N.
+      if ((e.key === "f" || e.key === "F") && !e.shiftKey && !e.altKey && (e.metaKey || !(e.target as HTMLElement | null)?.closest?.(".xterm"))) {
+        e.preventDefault();
+        setExplorer((v) => !v);
+        return;
+      }
       // Cmd+←/→ (Alt+←/→ off macOS) walk the stage: the session, then its peeks.
       if (arrowMod(e) && !e.ctrlKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
         e.preventDefault();
@@ -97,6 +106,7 @@ export function App() {
             repos {reposRoot}
           </button>
         )}
+        <button className="topbar-btn" onClick={() => setExplorer(true)} title={`browse repos and files (${MOD}F)`}>explore</button>
         <RemotesMenu />
         <ThemeMenu />
         <button className="topbar-btn" onClick={() => setKeys(true)} title={`keyboard shortcuts (${MOD}/)`}>keys</button>
@@ -104,6 +114,7 @@ export function App() {
       </div>
       <Layout />
       {finder && <FilePicker onClose={() => setFinder(false)} />}
+      {explorer && <Explorer onClose={() => setExplorer(false)} />}
       {keys && <Keys onClose={() => setKeys(false)} />}
       {firstRun ? <Setup /> : setup && <Setup onClose={() => setSetup(false)} />}
     </div>

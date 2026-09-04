@@ -20,13 +20,15 @@ const SECTIONS: [string, Key[]][] = [
   ]],
   ["files", [
     [isMac ? ["⌘K", "⌃K"] : ["Ctrl+K"], isMac ? "find a file to peek at (⌃K stays kill-line in the terminal)" : "find a file to peek at (outside the terminal, where it is kill-line)"],
+    [isMac ? ["⌘F", "⌃F"] : ["Ctrl+F"], isMac ? "explore: repos and their files, with a preview (⌃F stays forward-char in the terminal)" : "explore: repos and their files, with a preview (outside the terminal)"],
     [[isMac ? "⌘ click" : "Ctrl click"], "peek at a path in terminal output or a diff header"],
     [[`${ARROW_MOD}←`, `${ARROW_MOD}→`], "walk the stage: the session, then its peeks"],
     [["esc"], "close the peek in view, or the dialog that is open"],
   ]],
   ["pickers", [
     [["↑", "↓"], "move the selection"],
-    [["↩"], "open the selected file or start the session"],
+    [["↩"], "open the selected file or start the session; in the explorer, enter the repo or open the file in the stage"],
+    [["⌫"], "explorer: on an empty filter, back from a repo's files to the repo list"],
     [["esc"], "close"],
   ]],
   ["window", [

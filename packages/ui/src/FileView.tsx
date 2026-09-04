@@ -15,11 +15,12 @@ export function splitLineRef(ref: string): { path: string; line?: number } {
   return m ? { path: m[1], line: Number(m[2]) } : { path: ref };
 }
 
-export async function fetchPeek(path: string, cwd?: string): Promise<FilePeek | null> {
+export async function fetchPeek(path: string, cwd?: string, local = false): Promise<FilePeek | null> {
   const q = new URLSearchParams({ path });
   if (cwd) q.set("cwd", cwd);
   // Files are read where the session you are looking at runs: a relayed session's machine.
-  const peer = getState().sessions.find((x) => x.id === getState().activeSessionId)?.peer;
+  // The explorer browses this machine's repos, so it asks for local reads.
+  const peer = local ? undefined : getState().sessions.find((x) => x.id === getState().activeSessionId)?.peer;
   if (peer) q.set("peer", peer);
   const r = await fetch(`/api/file?${q}`);
   return r.ok ? ((await r.json()) as FilePeek) : null;
@@ -76,9 +77,11 @@ interface Props {
   line?: number;
   /** In view and in the active group: takes focus so Esc and scrolling keys work. */
   active: boolean;
+  /** Explorer preview: read on this machine, changes vs HEAD, and no dock buttons. */
+  local?: boolean;
 }
 
-export function FileView({ path, line, active }: Props) {
+export function FileView({ path, line, active, local = false }: Props) {
   const [peek, setPeek] = useState<FilePeek | null | undefined>(() => primed.get(path));
   // Highlighted HTML per line; null until ready or when the file is plain text. Painted after
   // the text so a big file shows up immediately and colours in a beat later.
@@ -91,11 +94,11 @@ export function FileView({ path, line, active }: Props) {
     const cached = primed.get(path);
     primed.delete(path);
     if (cached) setPeek(cached);
-    else fetchPeek(path).then((p) => on && setPeek(p));
+    else fetchPeek(path, undefined, local).then((p) => on && setPeek(p));
     return () => {
       on = false;
     };
-  }, [path]);
+  }, [path, local]);
 
   useEffect(() => {
     let on = true;
@@ -114,7 +117,7 @@ export function FileView({ path, line, active }: Props) {
     if (!peek?.repoPath) return;
     let on = true;
     const q = new URLSearchParams({ path: peek.path });
-    const sid = getState().activeSessionId;
+    const sid = local ? null : getState().activeSessionId;
     if (sid) q.set("sessionId", sid);
     fetch(`/api/file/diff?${q}`)
       .then((r) => (r.ok ? (r.json() as Promise<FileDiff>) : null))
@@ -123,7 +126,7 @@ export function FileView({ path, line, active }: Props) {
     return () => {
       on = false;
     };
-  }, [peek]);
+  }, [peek, local]);
   const tint = useMemo(() => (fd?.diff ? tintsOf(fd.diff) : null), [fd]);
 
   // Dockview hides inactive panels, which drops their scroll position: re-centre on return.
@@ -142,13 +145,13 @@ export function FileView({ path, line, active }: Props) {
   return (
     <div className="peek">
       <div className="peek-head">
-        <button className="peek-back" onClick={() => closePeek(filePanelId(path))} title="back to the session (Esc)">←</button>
+        {!local && <button className="peek-back" onClick={() => closePeek(filePanelId(path))} title="back to the session (Esc)">←</button>}
         <span className="peek-path" title={path}>
           {shown.dir}<b>{shown.name}</b>
         </span>
         {peek?.repoPath && <span className="peek-meta" style={{ marginLeft: 0 }}>{baseName(peek.repoPath)}</span>}
         {tint && (
-          <span className="peek-meta peek-diffstat" style={{ marginLeft: 0 }} title={`vs baseline ${fd?.baseline.slice(0, 7)}`}>
+          <span className="peek-meta peek-diffstat" style={{ marginLeft: 0 }} title={local ? "uncommitted" : `vs baseline ${fd?.baseline.slice(0, 7)}`}>
             {tint.adds.size > 0 && <span className="a">+{tint.adds.size}</span>}
             {tint.nDel > 0 && <span className="d">−{tint.nDel}</span>}
           </span>
@@ -156,7 +159,7 @@ export function FileView({ path, line, active }: Props) {
         <span className="peek-meta">
           {peek ? `${lines.length} lines · ${fmtSize(peek.size)}${peek.truncated ? " · truncated" : ""}` : peek === null ? "not found" : "loading…"}
         </span>
-        <button className="peek-close" onClick={() => closePeek(filePanelId(path))} title="close (Esc)">×</button>
+        {!local && <button className="peek-close" onClick={() => closePeek(filePanelId(path))} title="close (Esc)">×</button>}
       </div>
       <div className="peek-body" ref={body} tabIndex={0}>
         {peek === null && <div className="peek-note">This file no longer exists.</div>}
