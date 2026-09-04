@@ -10,7 +10,7 @@ try {
   // PowerShell may hand the JSON over with a byte-order mark in front.
   const payload = (text.charCodeAt(0) === 0xfeff ? text.slice(1) : text).trim() || "{}";
   const body = `{"henrySession":${JSON.stringify(process.env.HENRY_SESSION ?? "")},"henryHookEvent":${JSON.stringify(process.argv[2] ?? "")},"payload":${payload}}`;
-  await fetch(`http://127.0.0.1:${process.env.HENRY_PORT || 4711}/hook`, {
+  await fetch(`http://127.0.0.1:${process.env.HENRY_PORT || 14711}/hook`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body,

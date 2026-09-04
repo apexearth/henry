@@ -528,7 +528,7 @@ export function stopPairing(): void {
 export async function pair(address: string, code: string): Promise<PeerStatus> {
   const a = address.trim().replace(/^ws:\/\//, "").replace(/\/fed$/, "");
   if (!/^[A-Za-z0-9.:\[\]-]+$/.test(a)) throw new Error("address must be host or host:port");
-  // host, host:port, [v6], [v6]:port; a missing port is ours (both machines default to 4712).
+  // host, host:port, [v6], [v6]:port; a missing port is ours (both machines default to 14712).
   const hasPort = a.startsWith("[") ? /\]:\d+$/.test(a) : a.split(":").length === 2;
   const url = `ws://${hasPort ? a : `${a}:${config.federation.port}`}/fed`;
   if (!normalizeCode(code)) throw new Error("code required");

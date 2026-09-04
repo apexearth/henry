@@ -23,13 +23,18 @@ the design changes; do not let it drift into a changelog.
   session runs) or `--now` hangs everything up. Stopping the daemon never stops it.
 - **TypeScript end to end.** Bun runtime for the daemon, Vite + React + xterm.js for
   the UI. Agentic-first: the stack Claude writes and tests fastest.
-- **Browser or native, same page.** The daemon serves the UI at `http://127.0.0.1:4711`.
+- **Browser or native, same page.** The daemon serves the UI at `http://127.0.0.1:14711`.
   `packages/shell` is a Tauri window on that URL and nothing else: no IPC, no state, no
   bundled frontend. It exists for the macOS menu, since a browser tab never sees ⌘N or
   ⌘1..9. Menu items reach the page as `henry:menu` CustomEvents. On Windows the shell has
   no menu bar: wry turns WebView2's browser accelerators off, so the page's own bindings
   see every Ctrl chord and the bar would only cost a row. Both front ends run at once
   against the one daemon.
+- **Ports nobody else wants.** Daemon 14711, federation 14712, Vite dev 14713. Henry sits
+  next to whatever the user is developing, so it stays off 3000/5173/8080 and their
+  neighbours, off IANA-registered numbers, and below 32768 so no OS's ephemeral range can
+  land an outbound connection on it. `HENRY_PORT` overrides the daemon port everywhere
+  (daemon, hooks, Vite proxy, shell).
 - **Observe and flag, never block.** Henry's safeguard rules classify tool calls and
   git events as `info`, `notable`, or `alarm`. They never return a hook deny.
 - **3–4 top-level sessions** is the design point. Subagents show under their parent.
@@ -145,7 +150,7 @@ the design changes; do not let it drift into a changelog.
   node-pty there rejects signals, so `kill` terminates instead of delivering SIGHUP; the
   daemon starts sessiond through PowerShell's `Start-Process` (ShellExecute inherits no
   handles; a CreateProcess child inherits Bun's listening sockets, and a sessiond respawned
-  by a serving daemon then held :4711 after that daemon died, so no later daemon could
+  by a serving daemon then held :14711 after that daemon died, so no later daemon could
   bind); a
   plain terminal is PowerShell (`pwsh`, else `powershell`, else cmd.exe) with no `-l`; a
   `claude.cmd` twin of the PATH shim serves PowerShell/cmd while the sh one serves Git
@@ -177,9 +182,9 @@ to the peer's copy of the same handler). A dropped link takes its sessions out o
 until it is back. Two machines that both listen dial each other, so each window sees both.
 
 - **Listening is tailnet-only by default.** `federation.listen: "tailscale"` binds the
-  machine's 100.64/10 address on `federation.port` (4712) and serves nothing but `/fed`:
+  machine's 100.64/10 address on `federation.port` (14712) and serves nothing but `/fed`:
   no UI, no `/api`, no hooks. `"off"` never listens; an explicit address binds that
-  (`0.0.0.0` works, with a warning). Loopback :4711 is unchanged.
+  (`0.0.0.0` works, with a warning). Loopback :14711 is unchanged.
 - **Identity is a per-machine Ed25519 key** in `~/.henry/federation.json` (0600), next
   to the peer list. Pairing pins the other side's key; from then on every connection is
   mutually authenticated: an X25519 ephemeral exchange, HKDF, AES-256-GCM per direction
@@ -297,7 +302,7 @@ henry/
       src/types.ts             # Session, RepoState, Flag, PlaybookEntry, Usage
     daemon/
       src/index.ts             # cli: start | install | uninstall | status | sessiond status|restart
-      src/server.ts            # HTTP + WS on 127.0.0.1:4711, serves ui/dist
+      src/server.ts            # HTTP + WS on 127.0.0.1:14711, serves ui/dist
       src/sessions.ts          # session records, reconciliation with sessiond, attach/detach
       src/sessiond-client.ts   # finds/starts sessiond, NDJSON over loopback TCP, reconnect
       src/sessiond-cli.ts      # henry sessiond status | restart [--now]
@@ -342,7 +347,7 @@ claude (in PTY) ──hooks──▶ henry-hook.sh ──POST /hook──▶ dae
 sessiond (owns PTYs) ◀──TCP 127.0.0.1, token──▶ daemon (spawn, write, attach, scrollback)
 daemon ──WS──▶ every attached window (pty data, state deltas)
 daemon ──on Stop / on flag──▶ overseer ──▶ playbook rows ──WS──▶ windows
-daemon ◀──ws://<tailscale ip>:4712/fed, mutually authenticated──▶ peer daemon (its sessions, relayed)
+daemon ◀──ws://<tailscale ip>:14712/fed, mutually authenticated──▶ peer daemon (its sessions, relayed)
 ```
 
 Session identity: the daemon spawns `claude` with env `HENRY_SESSION=<uuid>`. Hook
@@ -365,12 +370,12 @@ path resolves into it), record `HEAD` as that session's baseline for that repo.
 
 ```json
 {
-  "port": 4711,
+  "port": 14711,
   "host": "mbp",
   "reposRoot": "~/code",
   "defaultRepo": "~/code",
   "overseer": { "backend": "auto", "model": "claude-opus-5", "onStop": true, "onFlag": true, "stopMinIntervalSec": 60 },
-  "federation": { "listen": "tailscale", "port": 4712 },
+  "federation": { "listen": "tailscale", "port": 14712 },
   "rules": {
     "protectedBranches": ["main", "master"],
     "alarm": ["git push --force", "git push -f", "git reset --hard", "rm -rf", "git branch -D", "git checkout -- ."],

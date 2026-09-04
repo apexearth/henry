@@ -1,6 +1,6 @@
 // Federation: the handshake primitives, then two throwaway daemons (alpha, beta) under
 // scratch homes on loopback ports that pair, relay a session from beta into alpha's state,
-// drive its PTY through alpha, proxy /api/*, and part ways. Never touches ~/.henry or :4711.
+// drive its PTY through alpha, proxy /api/*, and part ways. Never touches ~/.henry or :14711.
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";

@@ -4,8 +4,8 @@
   "version": "0.1.0",
   "identifier": "dev.apexearth.henry",
   "build": {
-    "devUrl": "http://127.0.0.1:4711",
-    "frontendDist": "http://127.0.0.1:4711"
+    "devUrl": "http://127.0.0.1:14711",
+    "frontendDist": "http://127.0.0.1:14711"
   },
   "app": {
     "windows": [],

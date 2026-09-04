@@ -154,7 +154,7 @@ function Remotes({ peers }: { peers: PeerStatus[] }) {
 
       <h4>join a machine</h4>
       <form onSubmit={(e) => { e.preventDefault(); void act(() => post<{ peer: PeerStatus }>("/api/federation/pair", { address, code }).then((r) => { setAddress(""); setCode(""); return r; }), "paired"); }}>
-        <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="100.x.y.z:4712" spellCheck={false} autoCapitalize="off" />
+        <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="100.x.y.z:14712" spellCheck={false} autoCapitalize="off" />
         <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="XXXX-XXXX-XXXX" spellCheck={false} autoCapitalize="characters" style={{ maxWidth: 140 }} />
         <button type="submit" disabled={busy || !address.trim() || !code.trim()}>join</button>
       </form>

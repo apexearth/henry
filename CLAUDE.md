@@ -8,7 +8,7 @@ Read `PLAN.md` first; it is the design contract. `README.md` covers running and 
 
 - `packages/sessiond` owns the PTYs. Node + node-pty only, loopback TCP + token. Survives
   daemon restarts. **Keep it boring**: no new deps, no imports from the rest of Henry.
-- `packages/daemon` (Bun) is the brain: HTTP/WS on 127.0.0.1:4711, SQLite in `~/.henry`,
+- `packages/daemon` (Bun) is the brain: HTTP/WS on 127.0.0.1:14711, SQLite in `~/.henry`,
   hooks ingest, transcript tailer, git watcher, rules, overseer. Restarts freely.
 - `packages/ui` (Vite + React + xterm.js): rail | terminal | panels. Hot-reloads.
 - `packages/shared`: types and the WS protocol. Change these first, then both sides.
@@ -17,7 +17,7 @@ Read `PLAN.md` first; it is the design contract. `README.md` covers running and 
 
 - `bun run dev` runs daemon + UI with reload; sessions keep running across daemon restarts.
 - `bun run build` (zero TS errors) and `bun run test` must pass before you're done.
-- **Never touch port 4711 or `~/.henry`** for testing: the user runs Henry live with real
+- **Never touch port 14711 or `~/.henry`** for testing: the user runs Henry live with real
   sessions. Use `HENRY_PORT=<free> HENRY_HOME=<scratch>` and stop processes by PID.
   `pkill -f` by pattern has killed the user's session once. Don't.
 - Never edit `~/.claude/settings.json`; `henry install` is the user's explicit action.

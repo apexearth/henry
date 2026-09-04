@@ -16,10 +16,10 @@ reconnects to the same live sessions with their scrollback intact.
 
 ```sh
 bun install
-bun run dev        # daemon (bun --watch) on :4711 + Vite on :5173
+bun run dev        # daemon (bun --watch) on :14711 + Vite on :14713
 ```
 
-Open http://127.0.0.1:5173 in dev. The window is a dockable workspace: drag a tool tab
+Open http://127.0.0.1:14713 in dev. The window is a dockable workspace: drag a tool tab
 (Sessions, Repos, Flags, ...) to split, stack, edge-dock or float it; the arrangement is
 saved per browser and "reset layout" in the top bar restores rail | terminal | tools. The
 terminal in the centre has no tabs: the rail picks which session is shown. To point
@@ -28,12 +28,12 @@ production-style run:
 
 ```sh
 bun run build      # typechecks every package, builds packages/ui/dist
-bun run start      # daemon serves ui/dist at http://127.0.0.1:4711
+bun run start      # daemon serves ui/dist at http://127.0.0.1:14711
 ```
 
 Several browser windows can open the same URL; they all attach to the one daemon and
 see the same sessions with live output. Only the Vite page hot-reloads on source edits;
-windows on :4711 show `ui/dist` and reload themselves as soon as `bun run build` writes a
+windows on :14711 show `ui/dist` and reload themselves as soon as `bun run build` writes a
 new one (the daemon polls `dist/index.html` and tells every window). Editing daemon source under `bun run dev` restarts
 only the daemon: sessions keep running in sessiond and the windows reconnect. `bun run
 sessiond` runs sessiond in the foreground for debugging (the daemon then attaches to it
@@ -83,7 +83,7 @@ CLI (`packages/daemon/src/index.ts`): `henry start | install | uninstall | statu
 
 Run Henry on each machine (they share nothing; every daemon has its own DB and sessiond),
 then pair them once and each window shows both. The daemon listens for peers on the
-machine's Tailscale address, port 4712, and nowhere else (`federation.listen` in
+machine's Tailscale address, port 14712, and nowhere else (`federation.listen` in
 `~/.henry/config.json`: `"tailscale"`, `"off"`, or an address). To pair: on machine A open
 **remotes** in the top bar and click "show a pairing code" (or run `henry pair`); on machine
 B open remotes → join, enter A's address and the code. That is all: A stores B's key and
@@ -166,7 +166,7 @@ Git Bash. What is different:
 - `bun run app` needs a Rust toolchain and WebView2 (preinstalled on Windows 10/11);
   `bun run app:bundle` writes an NSIS installer and an MSI.
 - `federation.listen: "tailscale"` finds the Tailscale adapter the same way; Windows Firewall
-  may ask once about port 4712.
+  may ask once about port 14712.
 
 ## sessiond, node-pty and Bun
 

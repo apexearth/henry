@@ -226,11 +226,11 @@ export interface HenryConfig {
 }
 
 export const DEFAULT_CONFIG: HenryConfig = {
-  port: 4711,
+  port: 14711,
   reposRoot: "~/code",
   defaultRepo: "~/code",
   overseer: { backend: "auto", model: "claude-opus-5", onStop: true, onFlag: true },
-  federation: { listen: "tailscale", port: 4712 },
+  federation: { listen: "tailscale", port: 14712 },
   rules: {
     protectedBranches: ["main", "master"],
     alarm: ["git push --force", "git push -f", "git reset --hard", "rm -rf", "git branch -D", "git checkout -- ."],

@@ -1,6 +1,6 @@
 // Sessions survive daemon restarts: PTYs live in henry-sessiond, the daemon reconnects.
 // Boots daemons as child processes under a scratch HENRY_HOME and random ports; never
-// touches ~/.henry or :4711. Run: bun test test/survival.test.ts
+// touches ~/.henry or :14711. Run: bun test test/survival.test.ts
 import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

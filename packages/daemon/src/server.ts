@@ -86,7 +86,7 @@ function localState(): StateSnapshot {
   };
 }
 
-// The Vite dev server (:5173) has HMR; windows on the daemon's own port see ui/dist, which
+// The Vite dev server (:14713) has HMR; windows on the daemon's own port see ui/dist, which
 // only changes on `bun run build`. Poll its index.html and tell every window to reload, so
 // a build is enough and nobody has to remember to refresh. Polling, not fs.watch: dist may
 // not exist yet, and vite empties and recreates it.
@@ -228,7 +228,7 @@ async function serveStatic(pathname: string): Promise<Response> {
     return new Response(
       `<!doctype html><meta charset=utf-8><title>Henry</title><body style="font:14px monospace;background:#111;color:#ddd;padding:2em">
 <h2>Henry daemon is running on :${config.port}</h2><p>No UI build found. Run <code>bun run dev</code> and open
-<a href="http://127.0.0.1:5173" style="color:#8cf">http://127.0.0.1:5173</a>, or <code>bun run build</code> then reload this page.</p>`,
+<a href="http://127.0.0.1:14713" style="color:#8cf">http://127.0.0.1:14713</a>, or <code>bun run build</code> then reload this page.</p>`,
       { headers: { "content-type": "text/html; charset=utf-8" } },
     );
   }

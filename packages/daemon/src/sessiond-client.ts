@@ -212,8 +212,8 @@ export class SessiondClient extends EventEmitter<SessiondClientEvents> {
     const env = { ...(this.opts.env ?? (process.env as Record<string, string>)), HENRY_HOME: this.henryDir };
     // Windows: a process made by CreateProcess inherits every inheritable handle of its
     // parent, and Bun's listening sockets are inheritable, so a sessiond started by a daemon
-    // that is already serving (a respawn after `henry sessiond restart`) would keep :4711
-    // open after that daemon exits, and every daemon after it dies with "Is port 4711 in
+    // that is already serving (a respawn after `henry sessiond restart`) would keep :14711
+    // open after that daemon exits, and every daemon after it dies with "Is port 14711 in
     // use?" until sessiond does (verified 2026-09-04). Start-Process creates the process
     // through ShellExecute, which inherits nothing (cmd's `start /b` does not: it uses
     // CreateProcess); the PowerShell in between exits at once, and Hidden keeps node's
