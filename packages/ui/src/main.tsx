@@ -1,5 +1,6 @@
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
+import { ErrorBoundary } from "./ErrorBoundary";
 import { connect } from "./ws";
 import { applyTheme } from "./theme";
 import { isMac } from "./platform";
@@ -11,4 +12,8 @@ import "./styles.css";
 document.documentElement.dataset.platform = isMac ? "mac" : "other";
 applyTheme();
 connect();
-createRoot(document.getElementById("root")!).render(<App />);
+createRoot(document.getElementById("root")!).render(
+  <ErrorBoundary>
+    <App />
+  </ErrorBoundary>,
+);

@@ -394,3 +394,10 @@ html:not([data-platform="mac"]) ::-webkit-scrollbar-button { display: none; widt
 html:not([data-platform="mac"]) .xterm .xterm-viewport { scrollbar-color: auto; }
 html:not([data-platform="mac"]) .xterm .xterm-viewport::-webkit-scrollbar { width: 10px; background: transparent; }
 html:not([data-platform="mac"]) .xterm .xterm-viewport::-webkit-scrollbar-thumb { background: var(--border); border: 2px solid transparent; border-radius: 6px; background-clip: padding-box; }
+
+/* Render-error fallback (ErrorBoundary): the only thing on screen when App throws. */
+.crash { height: 100%; overflow: auto; padding: 24px 28px; }
+.crash h3 { margin: 0 0 8px; color: var(--alarm); font-size: 13px; }
+.crash p { margin: 0 0 14px; max-width: 60ch; color: var(--fg-dim); font-size: 12px; }
+.crash pre { margin: 0 0 14px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-2); color: var(--fg-dim); font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.crash .row { display: flex; gap: 8px; }
