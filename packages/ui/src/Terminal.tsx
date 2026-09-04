@@ -101,7 +101,6 @@ export function TerminalView({ sessionId, visible, focused }: Props) {
     });
 
     let last = "";
-    let nudge: ReturnType<typeof setTimeout> | undefined;
     const doFit = () => {
       // A hidden dock tab has no size; fitting to it would shrink the PTY to nothing.
       if (!box.current?.clientWidth || !box.current.clientHeight) return;
@@ -113,16 +112,14 @@ export function TerminalView({ sessionId, visible, focused }: Props) {
         send({ type: "pty:resize", sessionId, cols: t.cols, rows: t.rows });
       }
     };
-    // On becoming visible again, re-assert the size unconditionally. The PTY may already agree
-    // with us while the app's last painted frame was wrapped for a different width, and a
-    // same-size TIOCSWINSZ raises no SIGWINCH — so drop a row and restore it to force a redraw.
+    // On becoming visible again, re-assert the size unconditionally and ask for a repaint. The
+    // PTY may already agree with us while the app's last painted frame was wrapped for a
+    // different width; how the daemon provokes the redraw depends on the PTY's platform.
     const resync = () => {
       if (!box.current?.clientWidth || !box.current.clientHeight) return;
       f.fit();
       last = `${t.cols}x${t.rows}`;
-      const { cols, rows } = t;
-      if (rows > 1) send({ type: "pty:resize", sessionId, cols, rows: rows - 1 });
-      nudge = setTimeout(() => send({ type: "pty:resize", sessionId, cols, rows }), 40);
+      send({ type: "pty:resize", sessionId, cols: t.cols, rows: t.rows, redraw: true });
     };
     doFit();
     const offTheme = onTheme(() => { t.options.theme = xtermTheme(); });
@@ -135,7 +132,6 @@ export function TerminalView({ sessionId, visible, focused }: Props) {
     return () => {
       ro.disconnect();
       offTheme();
-      clearTimeout(nudge);
       t.dispose();
       term.current = null;
     };

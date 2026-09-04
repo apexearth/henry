@@ -100,7 +100,6 @@ const GROUP_LABEL: Record<GroupBy, string> = {
   cwd: "by folder",
   repos: "by repo",
   attention: "by attention",
-  host: "by machine",
 };
 
 export function Rail() {
@@ -108,6 +107,7 @@ export function Rail() {
   const here = useStore(activeRowIndex);
   const groups = useStore(railGroups);
   const groupBy = useStore((s) => s.groupBy);
+  const host = useStore((s) => s.host);
   const sessions = useStore((s) => s.sessions);
   const showClosed = useStore((s) => s.showClosed);
   const active = useStore((s) => s.activeSessionId);
@@ -139,9 +139,11 @@ export function Rail() {
 
   // The repo sub-label repeats the header under "by folder" / "by repo", so it only shows
   // where it is the row's only repo cue.
-  const showSub = groupBy === "none" || groupBy === "attention" || groupBy === "host";
-  // The peer chip repeats the header under "by machine".
-  const showPeer = groupBy !== "host";
+  const showSub = groupBy === "none" || groupBy === "attention";
+  // Machines are delimited only once a paired machine's sessions are listed; on its own,
+  // this machine's list has no header to carry.
+  const relayed = groups.some((g) => g.peer);
+  const machineCount = (peer: string | undefined) => new Set(groups.filter((g) => g.peer === peer).flatMap((g) => g.sessions.map((x) => x.id))).size;
   const unread = (id: string) => flags.filter((f) => f.sessionId === id && !f.read);
   // Counted off the sessions themselves: under "by repo" a session can appear in several groups.
   const running = sessions.filter((s) => s.status === "running").length;
@@ -152,8 +154,15 @@ export function Rail() {
   return (
     <div className="rail">
       <div className="rail-list">
-        {groups.map((g) => (
+        {groups.map((g, gi) => (
           <div key={g.key} className="rail-group">
+            {relayed && (gi === 0 || groups[gi - 1]!.peer !== g.peer) && (
+              <div className={"rail-machine-h" + (g.peer ? " remote" : "")}
+                title={g.peer ? `sessions on ${g.peer} (remote, via its own Henry daemon)` : "sessions on this machine"}>
+                <span className="name" style={g.peer ? { color: hueText(nameHue(g.peer)) } : undefined}>{g.peer ?? host ?? "this machine"}</span>
+                <span className="n">{machineCount(g.peer)}</span>
+              </div>
+            )}
             {g.label && (
               <div className="rail-group-h" title={g.title}>
                 <span className="name" style={g.hue !== undefined ? { color: hueText(g.hue) } : undefined}>{g.label}</span>
@@ -186,7 +195,6 @@ export function Rail() {
                   {claude ? <ClaudeMark on={on} activity={on ? s.activity : undefined} /> : <ShellMark on={on} />}
                   <span className="title">{s.title}</span>
                   {s.title !== repo && showSub && <span className="sub" style={{ color: hueText(nameHue(repo)) }}>{repo}</span>}
-                  {s.peer && showPeer && <span className="peer" style={{ color: hueText(nameHue(s.peer)), borderColor: hueText(nameHue(s.peer)) }}>{s.peer}</span>}
                   {ago && <span className={"act act-" + s.activity}>{ago}</span>}
                   {u.length > 0 && <span className={"badge flag" + (hasAlarm ? " alarm" : "")}>⚑ {u.length}</span>}
                   {!on && s.claudeSessionId && !external && (

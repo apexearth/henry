@@ -6,6 +6,14 @@ import { basename, delimiter, dirname, join } from "node:path";
 
 export const isWindows = process.platform === "win32";
 
+/**
+ * How a window makes the program in a terminal repaint after showing it again. A same-size
+ * TIOCSWINSZ raises no SIGWINCH, so on POSIX the daemon drops a row and restores it. ConPTY
+ * repaints the whole screen on any resize and reflows its buffer on a shrink, which is what
+ * garbles a TUI, so on Windows one plain resize is both enough and all that is safe.
+ */
+export const redrawByShrink = !isWindows;
+
 /** "claude" for claude, claude.exe, claude.cmd, C:\x\claude.exe, /usr/local/bin/claude. */
 export function programName(command: string): string {
   return basename(command).replace(/\.(exe|cmd|bat)$/i, "");

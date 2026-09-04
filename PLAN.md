@@ -81,7 +81,10 @@ the design changes; do not let it drift into a changelog.
 - **Grouping is a rail-footer choice, persisted per browser.** Off by default; "by folder"
   buckets sessions on `cwd`, "by repo" on the repos the git watcher has seen the session
   touch, so a session working across two repos is listed under both (one that has touched
-  none falls into a last "no repo" bucket). Order within a group, and the keyboard order,
+  none falls into a last "no repo" bucket). Machines are split before any of that: this
+  machine's sessions first, then each paired peer's under a delimiter bearing its name, with
+  the chosen grouping applied inside each (no delimiters at all while every session is
+  local). Order within a group, and the keyboard order,
   stay the running-then-exited rail order. The active *row* is the one you picked (session
   plus group): it alone gets the full highlight, the same session's rows under other repos
   get a half-strength bar, and `⌘↑/↓` step from the picked row, not its first echo.
@@ -143,7 +146,10 @@ the design changes; do not let it drift into a changelog.
   Bash; hooks and the status line are `node henry-hook.mjs <Event>` (Claude Code runs
   hooks under Git Bash or PowerShell on Windows, neither of which has curl for sure),
   written with forward slashes since Git Bash eats backslashes; transcript slugs also
-  replace `\` and `:`. In the browser, Ctrl takes ⌘'s letters and digits, Alt takes the
+  replace `\` and `:`; a terminal shown again asks the daemon for a redraw
+  (`pty:resize` with `redraw`), which a POSIX pty gets as a one-row shrink and restore and
+  ConPTY as one plain resize, since it repaints on every resize and garbles a TUI on a
+  shrink (sessiond drops same-size resizes for the same reason). In the browser, Ctrl takes ⌘'s letters and digits, Alt takes the
   arrows (Ctrl+arrows are the terminal's) and Alt+N opens the picker (Chrome reserves
   Ctrl+N); duplicate is Ctrl+Shift+D. Tauri builds the platform's own bundles; the
   application menu is macOS-only.
@@ -180,9 +186,9 @@ until it is back. Two machines that both listen dial each other, so each window 
   in repos there, exactly what a window can. Pause or forget a peer from the remotes menu
   (`henry peers forget <name>`); a forgotten key is refused at the next handshake.
   `/api/federation/*` is never proxied and never served to a peer.
-- **In the rail** a relayed session carries a dotted chip with the peer's name (coloured
-  like a repo name); "by machine" grouping buckets on it; "+ new" offers the connected
-  machines as a place to start the session. File peeks and ⌘K read from the machine of the
+- **In the rail** a peer's sessions sit under their own delimiter (its name, coloured like a
+  repo name, on a dotted rule) below this machine's, whatever the grouping; "+ new" offers
+  the connected machines as a place to start the session. File peeks and ⌘K read from the machine of the
   session you are looking at. Global playbook and 5h/7d usage stay per machine (same
   account, same limits).
 

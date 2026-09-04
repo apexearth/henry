@@ -15,6 +15,8 @@
   --claude: #d97757;
   --border: #2a303b;
   --mono: ui-monospace, "JetBrains Mono", Menlo, Monaco, Consolas, monospace;
+  /* Every theme is dark: native widgets (the group-by popup, Windows scrollbars) must be too. */
+  color-scheme: dark;
 }
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
@@ -269,9 +271,13 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 /* Pixel size of each group, shown at its centre while a sash is dragged (Layout.tsx SizeOverlay). */
 .size-badge { position: fixed; transform: translate(-50%, -50%); pointer-events: none; z-index: 50; font-size: 12px; padding: 2px 8px; border-radius: 4px; background: var(--bg); color: var(--fg); border: 1px solid var(--accent); white-space: nowrap; }
 
-/* federation: sessions relayed from a paired machine, and the remotes menu */
-.rail-item .peer { flex: none; font-size: 10px; line-height: 14px; padding: 0 4px; border: 1px dotted; border-radius: 7px; opacity: .85; }
-.rail-item.off .peer { opacity: .5; }
+/* federation: the rail delimits each paired machine's sessions (Rail.tsx), and the remotes menu */
+.rail-machine-h { display: flex; gap: 8px; align-items: center; padding: 10px 8px 2px; color: var(--fg-dim); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
+.rail-group:first-child .rail-machine-h { padding-top: 6px; }
+.rail-machine-h::after { content: ""; flex: 1; border-top: 1px solid var(--border); }
+.rail-machine-h.remote::after { border-top-style: dotted; }
+.rail-machine-h .name { overflow: hidden; text-overflow: ellipsis; }
+.rail-machine-h .n { flex: none; color: var(--fg-faint); }
 .picker-machines { display: flex; gap: 6px; align-items: center; padding: 10px 12px 0; font-size: 12px; }
 .picker-machines .hint { color: var(--fg-dim); font-size: 11px; }
 .chip { background: none; border: 1px dotted var(--border); border-radius: 10px; padding: 1px 8px; font-size: 11px; color: var(--fg-dim); }
@@ -310,3 +316,16 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 .keys-or { color: var(--fg-dim); font-size: 11px; margin: 0 5px; }
 .keys-what { color: var(--fg); font-size: 12px; }
 kbd { display: inline-block; font: inherit; font-size: 11px; padding: 1px 6px; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; background: var(--bg-3); color: var(--fg); }
+
+/* Scrollbars off macOS: Chrome's stock ones there are wide, bright and buttoned. Slim thumb on a
+   bare track, close to the overlay ones macOS draws for itself (which stay native: this is
+   scoped by data-platform, set in main.tsx). scrollbar-color is left unset on purpose, since
+   Chrome ignores the ::-webkit-scrollbar rules on any element that sets it. */
+html:not([data-platform="mac"]) ::-webkit-scrollbar { width: 10px; height: 10px; background: transparent; }
+html:not([data-platform="mac"]) ::-webkit-scrollbar-thumb { background: var(--border); border: 2px solid transparent; border-radius: 6px; background-clip: padding-box; }
+html:not([data-platform="mac"]) ::-webkit-scrollbar-thumb:hover { background-color: var(--fg-faint); }
+html:not([data-platform="mac"]) ::-webkit-scrollbar-corner, html:not([data-platform="mac"]) ::-webkit-scrollbar-track { background: transparent; }
+html:not([data-platform="mac"]) ::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+html:not([data-platform="mac"]) .xterm .xterm-viewport { scrollbar-color: auto; }
+html:not([data-platform="mac"]) .xterm .xterm-viewport::-webkit-scrollbar { width: 10px; background: transparent; }
+html:not([data-platform="mac"]) .xterm .xterm-viewport::-webkit-scrollbar-thumb { background: var(--border); border: 2px solid transparent; border-radius: 6px; background-clip: padding-box; }

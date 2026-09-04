@@ -6,7 +6,15 @@ export type ClientMessage =
   | { type: "attach"; sessionId: string; reqId?: string }
   | { type: "detach"; sessionId: string }
   | { type: "pty:input"; sessionId: string; data: string }
-  | { type: "pty:resize"; sessionId: string; cols: number; rows: number }
+  | {
+      type: "pty:resize";
+      sessionId: string;
+      cols: number;
+      rows: number;
+      /** The terminal was just shown again: make the program repaint even if the size is
+       * unchanged. How is the daemon's call, since it depends on the PTY's platform. */
+      redraw?: boolean;
+    }
   | {
       type: "session:create";
       cwd: string;

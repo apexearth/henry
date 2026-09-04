@@ -169,7 +169,8 @@ function handle(conn: Conn, msg: ClientMessage): void {
       return;
     case "resize":
       if (!s) return send(conn, { op: "error", id: msg.id, message: "unknown session" });
-      if (s.term && msg.cols > 0 && msg.rows > 0) {
+      // A same-size resize is a no-op to a POSIX pty but a full repaint to ConPTY: skip it.
+      if (s.term && msg.cols > 0 && msg.rows > 0 && (msg.cols !== s.term.cols || msg.rows !== s.term.rows)) {
         s.term.resize(msg.cols, msg.rows);
         s.summary.cols = msg.cols;
         s.summary.rows = msg.rows;

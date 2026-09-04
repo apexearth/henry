@@ -7,9 +7,10 @@ import { isClaudeSession, type ClientMessage, type Flag, type HenryConfig, type 
 
 export type PtyMessage = Extract<ServerMessage, { type: "pty:data" | "pty:scrollback" | "pty:exit" }>;
 
-/** How the rail buckets sessions: not at all, by working directory, by every repo touched,
- * or by who owes whom a move (your move first, longest-unanswered at the top). */
-export type GroupBy = "none" | "cwd" | "repos" | "attention" | "host";
+/** How the rail buckets sessions within a machine: not at all, by working directory, by every
+ * repo touched, or by who owes whom a move (your move first, longest-unanswered at the top).
+ * Machines are always split: this one first, then each paired peer (buildGroups). */
+export type GroupBy = "none" | "cwd" | "repos" | "attention";
 
 export interface UiState {
   connected: boolean;
@@ -77,7 +78,7 @@ function readShowClosed(): boolean {
 function readGroupBy(): GroupBy {
   try {
     const v = localStorage.getItem("henry.groupBy");
-    return v === "cwd" || v === "repos" || v === "attention" || v === "host" ? v : "none";
+    return v === "cwd" || v === "repos" || v === "attention" ? v : "none";
   } catch {
     return "none";
   }
@@ -251,19 +252,34 @@ function baseOrder(s: UiState): Session[] {
 }
 
 export interface RailGroup {
+  /** Unique across the rail: the machine's name (empty for this one), a newline, the bucket. */
   key: string;
   /** Empty when the rail should list the rows with no header (groupBy "none"). */
   label: string;
   title: string;
   /** Set for identity groups (a folder, a repo) and left off semantic ones. */
   hue?: number;
+  /** The paired machine whose sessions these are; unset for this machine's. */
+  peer?: string;
   sessions: Session[];
 }
 
 const NO_REPO = "\u0000no-repo";
-const LOCAL_HOST = "\u0000local";
 
+/** Machine first, grouping second: this machine's sessions, then each peer's by name, with the
+ * chosen grouping applied inside each. The rail draws a delimiter where the machine changes,
+ * so a remote's rows never mix with local ones whatever the grouping. */
 function buildGroups(order: Session[], s: UiState): RailGroup[] {
+  const peers = [...new Set(order.map((x) => x.peer).filter((p): p is string => !!p))].sort();
+  const out: RailGroup[] = [];
+  for (const peer of [undefined, ...peers]) {
+    const mine = order.filter((x) => x.peer === peer);
+    for (const g of machineGroups(mine, s)) out.push({ ...g, key: `${peer ?? ""}\n${g.key}`, peer });
+  }
+  return out;
+}
+
+function machineGroups(order: Session[], s: UiState): RailGroup[] {
   if (s.groupBy === "none") return [{ key: "all", label: "", title: "", sessions: order }];
   const groups = new Map<string, RailGroup>();
   const add = (key: string, label: string, title: string, session: Session) => {
@@ -273,12 +289,6 @@ function buildGroups(order: Session[], s: UiState): RailGroup[] {
   };
   if (s.groupBy === "attention") return attentionGroups(order);
   for (const session of order) {
-    if (s.groupBy === "host") {
-      // One bucket per machine: this one first (it is listed first in `order`), then each peer.
-      const name = session.peer ?? s.host ?? "this machine";
-      add(session.peer ?? LOCAL_HOST, name, session.peer ? `sessions on ${name} (remote)` : `sessions on this machine`, session);
-      continue;
-    }
     if (s.groupBy === "cwd") {
       add(session.cwd, basename(session.cwd), session.cwd, session);
       continue;
@@ -325,7 +335,6 @@ function railCache(s: UiState): { groups: RailGroup[]; flat: Session[]; rows: Ra
     c.s.showClosed === s.showClosed &&
     c.s.activeSessionId === s.activeSessionId &&
     c.s.groupBy === s.groupBy &&
-    c.s.host === s.host &&
     c.s.repos === s.repos
   )
     return c;

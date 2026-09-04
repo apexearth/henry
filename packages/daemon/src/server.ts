@@ -147,7 +147,7 @@ async function handleMessage(client: Client, msg: ClientMessage): Promise<void> 
       engagement.input(msg.sessionId, msg.data);
       return;
     case "pty:resize":
-      sessions.resize(msg.sessionId, msg.cols, msg.rows);
+      sessions.resize(msg.sessionId, msg.cols, msg.rows, msg.redraw);
       return;
     case "session:create": {
       if (msg.peer) {

@@ -12,7 +12,7 @@ import type { Session, SessionKind } from "@henry/shared";
 import { config, henryDir } from "./config";
 import * as db from "./db";
 import { writeLaunchBin, writeLaunchSettings } from "./installer";
-import { defaultShell, expandTilde, prependPath, programName, resolveClaude, spawnSpec } from "./platform";
+import { defaultShell, expandTilde, prependPath, programName, redrawByShrink, resolveClaude, spawnSpec } from "./platform";
 import { SessiondClient, type SessionSummary } from "./sessiond-client";
 
 export interface CreateOptions {
@@ -262,8 +262,16 @@ class SessionManager extends EventEmitter<SessionEvents> {
     if (this.live.get(id)?.session.status === "running") this.client.send({ op: "write", id, data });
   }
 
-  resize(id: string, cols: number, rows: number): void {
-    if (this.live.get(id)?.session.status === "running") this.client.send({ op: "resize", id, cols, rows });
+  /** `redraw`: the window just showed this terminal again and wants the program to repaint
+   * even at an unchanged size (platform.ts redrawByShrink says how). */
+  resize(id: string, cols: number, rows: number, redraw = false): void {
+    if (this.live.get(id)?.session.status !== "running") return;
+    if (redraw && redrawByShrink && rows > 1) {
+      this.client.send({ op: "resize", id, cols, rows: rows - 1 });
+      setTimeout(() => this.resize(id, cols, rows), 40);
+      return;
+    }
+    this.client.send({ op: "resize", id, cols, rows });
   }
 
   /** Kill a running session; on an exited one, forget it (drops it from the rail and from sessiond). */
