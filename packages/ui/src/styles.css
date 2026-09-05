@@ -31,9 +31,15 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 .topbar .brand { font-weight: bold; margin-right: 2px; }
 .henry-mark { flex: none; }
 .henry-mark .shirt { fill: var(--claude); }
+/* Check and hat band are black at low alpha, so they darken whatever tone the theme picked
+   rather than pinning a second rust and a second brown. */
+.henry-mark .check { fill: #000; opacity: 0.15; }
+.henry-mark .band { fill: #000; opacity: 0.37; }
 .henry-mark .skin { fill: #e8b98f; }
+.henry-mark .nose { fill: #d79a6f; }
 .henry-mark .eye { fill: #2b2118; }
 .henry-mark .beard { fill: #d8dde5; }
+.henry-mark .mustache { fill: #f2f5f8; }
 .henry-mark .mouth { fill: #a2503c; }
 .henry-mark .hat, .henry-mark .brim { fill: #6b4a2f; }
 .topbar-btn { background: none; border: none; padding: 2px 6px; color: var(--fg-dim); border-radius: 3px; }
