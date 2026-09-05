@@ -77,6 +77,20 @@ export function TerminalView({ sessionId, visible, focused }: Props) {
       if (replaying.current && REPORT_RE.test(data)) return;
       send({ type: "pty:input", sessionId, data });
     });
+    // ⌘-click belongs to Henry (the link provider below). While an app has mouse tracking on,
+    // xterm also reports the press to the PTY, and Claude Code answers by opening the file
+    // itself — so one click peeked *and* jumped to Finder. Swallow the press on .xterm-screen:
+    // the linkifier listens there and has already seen it, while the PTY report and the
+    // selection start are bound on .xterm, one level up.
+    const screen = box.current!.querySelector(".xterm-screen");
+    const swallowModClick = (ev: Event) => {
+      const e = ev as MouseEvent;
+      if (e.button !== 0 || (!e.metaKey && !e.ctrlKey)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      t.focus(); // .xterm's handler would have done this
+    };
+    screen?.addEventListener("mousedown", swallowModClick);
     // ⌘-click a path in the output to peek at it. Relative paths resolve against the session's cwd.
     t.registerLinkProvider({
       provideLinks(y, cb) {
@@ -132,6 +146,7 @@ export function TerminalView({ sessionId, visible, focused }: Props) {
     return () => {
       ro.disconnect();
       offTheme();
+      screen?.removeEventListener("mousedown", swallowModClick);
       t.dispose();
       term.current = null;
     };
