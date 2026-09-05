@@ -5,7 +5,7 @@
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { config } from "./config";
+import { boundPort, config } from "./config";
 import { isWindows, slashes } from "./platform";
 
 export const HOOK_EVENTS = [
@@ -127,9 +127,15 @@ export function writeLaunchSettings(dir: string): string {
  * process, and the `:-` default keeps a `claude` started without the variable (the shim in a
  * plain shell) from failing to load the server at all. mcp.ts treats an unexpanded or unknown
  * value as "no session".
+ *
+ * The port is the one the daemon bound, and it is baked in: Claude Code reads this file once
+ * at session start and a running process cannot re-resolve the url the way a hook script
+ * re-reads `<henry home>/port` on every call. So the daemon comes to the session instead —
+ * it keeps a listener open on every port its live sessions still name (server.ts,
+ * syncAliasListeners), and db.setSessionPort records which port that was.
  */
 export function launchMcpConfig(): Dict {
-  return { mcpServers: { henry: { type: "http", url: `http://127.0.0.1:${config.port}/mcp?as=session&session=\${HENRY_SESSION:-}` } } };
+  return { mcpServers: { henry: { type: "http", url: `http://127.0.0.1:${boundPort()}/mcp?as=session&session=\${HENRY_SESSION:-}` } } };
 }
 
 /** Whether hosted sessions should carry Henry's tools at all (config switch). */

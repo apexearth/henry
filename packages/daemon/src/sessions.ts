@@ -10,7 +10,7 @@ import { homedir, hostname } from "node:os";
 import { basename } from "node:path";
 import type { Session, SessionKind } from "@henry/shared";
 import * as attention from "./attention";
-import { config, henryDir } from "./config";
+import { boundPort, config, henryDir } from "./config";
 import * as db from "./db";
 import { syncLaunchMcp, writeLaunchBin, writeLaunchSettings } from "./installer";
 import { defaultShell, expandTilde, prependPath, programName, redrawByShrink, resolveClaude, spawnSpec } from "./platform";
@@ -242,11 +242,14 @@ class SessionManager extends EventEmitter<SessionEvents> {
     };
     this.live.set(id, { session });
     db.insertSession(session);
+    // What this session will name for the rest of its life, hooks and MCP url alike. The
+    // daemon keeps answering here even after its port moves (server.ts, syncAliasListeners).
+    db.setSessionPort(id, boundPort());
 
     const env = cleanEnv();
     Object.assign(env, {
       HENRY_SESSION: id,
-      HENRY_PORT: String(config.port),
+      HENRY_PORT: String(boundPort()),
       TERM: "xterm-256color",
       COLORTERM: "truecolor",
     });

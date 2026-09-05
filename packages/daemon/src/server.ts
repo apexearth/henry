@@ -7,7 +7,7 @@ import type { ClientMessage, HenryConfig, PresenceBeat, PresenceSource, ServerMe
 import { SOURCES } from "@henry/shared";
 import * as activity from "./activity";
 import * as attention from "./attention";
-import { config, expandHome, isFirstRun, onConfigReload, setConfig, setReposRoot, writePortFile } from "./config";
+import { boundPort, config, expandHome, isFirstRun, onConfigReload, setConfig, setReposRoot, writePortFile } from "./config";
 import * as db from "./db";
 import * as engagement from "./engagement";
 import * as federation from "./federation";
@@ -31,7 +31,46 @@ interface WsData {
 
 type Ws = ServerWebSocket<WsData>;
 
-let server: ReturnType<typeof Bun.serve<WsData>> | undefined;
+type HenryServer = ReturnType<typeof Bun.serve<WsData>>;
+
+let server: HenryServer | undefined;
+
+/** Opens another listener with the running server's handlers; set once startServer has them. */
+let openAlias: ((port: number) => HenryServer) | undefined;
+const aliasServers = new Map<number, HenryServer>();
+
+/**
+ * Keep answering on the ports live sessions were launched against.
+ *
+ * A hook re-reads `<henry home>/port` on every call, so it follows the daemon wherever it
+ * moves. An MCP client cannot: installer.ts bakes the port into launch-mcp.json, Claude Code
+ * reads that once at session start, and a running process has no way to re-resolve the url.
+ * So the daemon goes to the session instead — one extra loopback listener per port its live
+ * sessions still name, closed as soon as the last of them exits.
+ *
+ * Best-effort on purpose. A port some other program has taken is logged and skipped, which
+ * leaves that one session as stranded as it would have been anyway; it must never take the
+ * daemon's boot down with it.
+ */
+function syncAliasListeners(): void {
+  if (!openAlias) return;
+  const wanted = new Set(db.livePorts().filter((p) => p !== boundPort()));
+  for (const [port, alias] of aliasServers) {
+    if (wanted.has(port)) continue;
+    alias.stop(true);
+    aliasServers.delete(port);
+    console.log(`[henry] closed :${port}; no live session names it now`);
+  }
+  for (const port of wanted) {
+    if (aliasServers.has(port)) continue;
+    try {
+      aliasServers.set(port, openAlias(port));
+      console.log(`[henry] also answering on :${port}, for sessions launched against it`);
+    } catch (e) {
+      console.error(`[henry] could not re-open :${port}: ${(e as Error).message}`);
+    }
+  }
+}
 
 /** Send to every connected window, and on to the peers dialed in to us (local state only). */
 export function broadcast(msg: ServerMessage): void {
@@ -142,7 +181,11 @@ function watchUiBuild(): void {
 }
 
 sessions.on("data", (id, data) => publishSession(id, { type: "pty:data", sessionId: id, data }));
-sessions.on("exit", (id, exitCode) => publishSession(id, { type: "pty:exit", sessionId: id, exitCode }));
+sessions.on("exit", (id, exitCode) => {
+  publishSession(id, { type: "pty:exit", sessionId: id, exitCode });
+  // The port that session named may have been the last reason to hold a listener open.
+  syncAliasListeners();
+});
 sessions.on("update", (session) => broadcast({ type: "session:update", session }));
 
 async function handleMessage(client: Client, msg: ClientMessage): Promise<void> {
@@ -291,10 +334,10 @@ export async function startServer(): Promise<void> {
   attention.setBroadcast(broadcast);
   attention.setWindowCount(windowCount);
   attention.start();
-  server = Bun.serve<WsData>({
+  // Held apart from the port so the alias listeners can reuse them verbatim.
+  const opts = {
     hostname: "127.0.0.1",
-    port: config.port,
-    async fetch(req, srv) {
+    async fetch(req: Request, srv: HenryServer) {
       const url = new URL(req.url);
       const { pathname } = url;
       if (pathname === "/ws") {
@@ -320,12 +363,12 @@ export async function startServer(): Promise<void> {
       return serveStatic(pathname);
     },
     websocket: {
-      open(ws) {
+      open(ws: Ws) {
         ws.data.client = windowClient(ws);
         ws.subscribe(ALL);
         ws.data.client.send({ type: "state", ...buildState() });
       },
-      async message(ws, raw) {
+      async message(ws: Ws, raw: string | Buffer) {
         let msg: ClientMessage;
         try {
           msg = JSON.parse(typeof raw === "string" ? raw : new TextDecoder().decode(raw));
@@ -338,18 +381,22 @@ export async function startServer(): Promise<void> {
           console.error(`[ws] ${msg.type} failed:`, e);
         }
       },
-      close(ws) {
+      close(ws: Ws) {
         for (const id of ws.data.client.attached) {
           ws.unsubscribe(topic(id));
           federation.linkOf(id)?.detach(id);
         }
       },
     },
-  });
+  };
+  server = Bun.serve<WsData>({ ...opts, port: config.port });
+  openAlias = (port: number) => Bun.serve<WsData>({ ...opts, port });
   // Tell the hook scripts where we actually are: server.port is the bound port, which is what
   // HENRY_PORT=0 and a since-changed config.port both hide. Sessions older than this daemon
   // carry a stale HENRY_PORT and would otherwise post into nothing.
   writePortFile(server.port ?? config.port);
+  // Sessions older than this daemon may name a port it no longer holds; go back and get them.
+  syncAliasListeners();
   git.setBroadcast(broadcast);
   git.start();
   federation.init({ handleMessage, localState: peerState, handleApi: (req, fromPeer) => handleApi(req, new URL(req.url), fromPeer), toWindows, publishSession, buildState });

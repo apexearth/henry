@@ -131,6 +131,10 @@ if (!(db.prepare("PRAGMA table_info(playbook)").all() as { name: string }[]).som
   if (!cols.has("claude_active")) db.exec("ALTER TABLE sessions ADD COLUMN claude_active INTEGER");
   // Set when the user closes an exited session: it stays for its events but never returns to the rail.
   if (!cols.has("dismissed_at")) db.exec("ALTER TABLE sessions ADD COLUMN dismissed_at INTEGER");
+  // The daemon port the session was launched against. Its MCP url bakes that port in at start
+  // and a running Claude process cannot re-resolve it, so the daemon keeps answering on the
+  // ports its live sessions still name (server.ts, syncAliasListeners).
+  if (!cols.has("port")) db.exec("ALTER TABLE sessions ADD COLUMN port INTEGER");
 }
 
 // ---- sessions ----
@@ -240,6 +244,20 @@ export function listSessions(opts: { status?: Session["status"]; limit?: number 
 
 export function dismissSession(id: string): void {
   db.prepare("UPDATE sessions SET dismissed_at = ? WHERE id = ?").run(Date.now(), id);
+}
+
+/** Record the daemon port a session was launched against, for livePorts(). */
+export function setSessionPort(id: string, port: number): void {
+  db.prepare("UPDATE sessions SET port = ? WHERE id = ?").run(port, id);
+}
+
+/**
+ * Distinct daemon ports still named by running sessions. Dismissed sessions count: the rail
+ * drops them but the PTY, and the Claude inside it, is still live and still calling.
+ */
+export function livePorts(): number[] {
+  const rows = db.prepare("SELECT DISTINCT port FROM sessions WHERE status = 'running' AND port IS NOT NULL").all() as { port: number }[];
+  return rows.map((r) => r.port).filter((p) => Number.isInteger(p) && p > 0 && p < 65536);
 }
 
 export function isDismissed(id: string): boolean {

@@ -52,6 +52,18 @@ the design changes; do not let it drift into a changelog.
   both). A missing, empty or non-numeric file is not an error, it just means the env
   fallback; a stale one means the same failure the hook had anyway, a refused connection
   that `--max-time 1` and `exit 0` swallow.
+- **What a session cannot re-resolve, the daemon comes back for.** The port file works
+  because a hook is a fresh process on every call. An MCP client is not: `installer.ts` bakes
+  the port into `launch-mcp.json`, Claude Code reads it once at session start, and a running
+  process has no way to be told the url changed — so a port move would strand
+  `henry_activity` and `henry_attention` for the life of every session that predates it. The
+  daemon therefore keeps a listener open on every port its live sessions still name, with the
+  same handlers as the main one: `sessions.port` records what a session was launched against,
+  and `server.ts:syncAliasListeners` opens and closes aliases as sessions come and go. It is
+  best-effort — a port another program now holds is logged and skipped, leaving that session
+  no worse off than before, and never failing the daemon's boot. Anything a session carries
+  away uses `config.boundPort()`, not `config.port`, which `HENRY_PORT=0` and a config edited
+  since startup both turn into a lie.
 - **Observe and flag, never block.** Henry's safeguard rules classify tool calls and
   git events as `info`, `notable`, or `alarm`. They never return a hook deny.
 - **3–4 top-level sessions** is the design point. Subagents show under their parent.

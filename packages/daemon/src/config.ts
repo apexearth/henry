@@ -46,12 +46,24 @@ function writeUser(next: Record<string, unknown>): void {
  * Best-effort: a home that cannot be written just leaves the hooks on their env fallback.
  */
 export function writePortFile(port: number): void {
+  bound = port;
   try {
     if (!existsSync(henryDir)) mkdirSync(henryDir, { recursive: true });
     writeFileSync(portPath, `${port}\n`);
   } catch (e) {
     console.error(`[henry] could not write ${portPath}: ${(e as Error).message}`);
   }
+}
+
+let bound: number | undefined;
+
+/**
+ * The port the daemon actually bound, once it has one. Anything a session carries away —
+ * its HENRY_PORT, the url in launch-mcp.json — must use this rather than `config.port`,
+ * which `HENRY_PORT=0` and a config edited since startup both turn into a lie.
+ */
+export function boundPort(): number {
+  return bound ?? config.port;
 }
 
 /** What the hook scripts would read from `<henry home>/port`; undefined if absent or junk. */
