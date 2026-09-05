@@ -39,6 +39,19 @@ the design changes; do not let it drift into a changelog.
   neighbours, off IANA-registered numbers, and below 32768 so no OS's ephemeral range can
   land an outbound connection on it. `HENRY_PORT` overrides the daemon port everywhere
   (daemon, hooks, Vite proxy, shell).
+- **The running daemon publishes its port; hooks read it, not their environment.** A PTY
+  outlives the daemon, so the `HENRY_PORT` in a session's environment is only true until the
+  daemon moves — when Henry left 4711 for 14711, every session started before the move went
+  on posting hooks into a dead port, silently, until it was restarted. So the daemon writes
+  its bound port to `<henry home>/port` (plain text, one integer) at startup, and all four
+  hook entry points resolve the daemon as: that file, else `$HENRY_PORT`, else 14711. They
+  find the Henry home the way the daemon does — `HENRY_HOME` if set, else `~/.henry` — so a
+  session with no Henry variables at all still finds the live daemon. The file is per-home,
+  which is the only sharding that matters: two daemons on one home already share one SQLite
+  and are a misconfiguration, so a private port needs a private `HENRY_HOME` (tests do
+  both). A missing, empty or non-numeric file is not an error, it just means the env
+  fallback; a stale one means the same failure the hook had anyway, a refused connection
+  that `--max-time 1` and `exit 0` swallow.
 - **Observe and flag, never block.** Henry's safeguard rules classify tool calls and
   git events as `info`, `notable`, or `alarm`. They never return a hook deny.
 - **3–4 top-level sessions** is the design point. Subagents show under their parent.

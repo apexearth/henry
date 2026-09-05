@@ -7,7 +7,7 @@ import type { ClientMessage, HenryConfig, PresenceBeat, PresenceSource, ServerMe
 import { SOURCES } from "@henry/shared";
 import * as activity from "./activity";
 import * as attention from "./attention";
-import { config, expandHome, isFirstRun, onConfigReload, setConfig, setReposRoot } from "./config";
+import { config, expandHome, isFirstRun, onConfigReload, setConfig, setReposRoot, writePortFile } from "./config";
 import * as db from "./db";
 import * as engagement from "./engagement";
 import * as federation from "./federation";
@@ -346,6 +346,10 @@ export async function startServer(): Promise<void> {
       },
     },
   });
+  // Tell the hook scripts where we actually are: server.port is the bound port, which is what
+  // HENRY_PORT=0 and a since-changed config.port both hide. Sessions older than this daemon
+  // carry a stale HENRY_PORT and would otherwise post into nothing.
+  writePortFile(server.port ?? config.port);
   git.setBroadcast(broadcast);
   git.start();
   federation.init({ handleMessage, localState: peerState, handleApi: (req, fromPeer) => handleApi(req, new URL(req.url), fromPeer), toWindows, publishSession, buildState });

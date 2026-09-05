@@ -74,7 +74,9 @@ way. `retentionDays` (30) is how much history is kept: events, flags, playbook e
 usage snapshots older than that are swept at startup and every 6h, `0` keeps everything.
 The playbook is off by default (`overseer.onStop`/`onFlag`); each entry is an LLM call.
 The database is `~/.henry/henry.db`; sessiond writes `~/.henry/sessiond.json` (port, token,
-pid) and `~/.henry/sessiond.log`. `HENRY_HOME` and `HENRY_PORT` override all of it for tests.
+pid) and `~/.henry/sessiond.log`; the daemon writes `~/.henry/port`, the port it actually
+bound, which is how a session that has outlived a port change still finds it (see the hook
+scripts below). `HENRY_HOME` and `HENRY_PORT` override all of it for tests.
 `config.host` (default: short `os.hostname()`) is stamped on every session the daemon
 creates, groundwork for running daemons on several machines.
 
@@ -152,8 +154,12 @@ Everything else in the file is preserved; the first run copies the original to
 what Henry added, and `henry status` shows which events are installed, whose status line is
 active, and whether the daemon answers.
 
-The hook script POSTs each hook payload to `http://127.0.0.1:$HENRY_PORT/hook` with
-`--max-time 1` and always exits 0, so a stopped daemon costs a session nothing. The status
+The hook script POSTs each hook payload to `http://127.0.0.1:<port>/hook` with
+`--max-time 1` and always exits 0, so a stopped daemon costs a session nothing. `<port>` is
+read from `~/.henry/port` (`$HENRY_HOME/port` when that is set), which the running daemon
+writes, falling back to `$HENRY_PORT` and then 14711: a session started before the daemon
+changed ports carries a stale `HENRY_PORT` for as long as it lives, and the file is what
+keeps it reporting. The status
 line script POSTs Claude Code's statusline JSON (which carries `rate_limits.five_hour` /
 `seven_day`) to `/statusline` and prints the daemon's reply, e.g. `henry · 5h 42% ↻2h10m ·
 7d 17% ↻3d · $1.23`; when the daemon is down it prints nothing. Sessions started outside

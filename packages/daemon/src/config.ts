@@ -7,6 +7,8 @@ import { expandTilde } from "./platform";
 /** ~/.henry (override with HENRY_HOME, used by tests to stay out of the real one). */
 export const henryDir = process.env.HENRY_HOME ? resolve(process.env.HENRY_HOME) : join(homedir(), ".henry");
 export const configPath = join(henryDir, "config.json");
+/** The port the running daemon actually bound, for hook scripts (see writePortFile). */
+export const portPath = join(henryDir, "port");
 
 export function expandHome(p: string): string {
   return expandTilde(p, homedir());
@@ -33,6 +35,33 @@ export function isFirstRun(): boolean {
 function writeUser(next: Record<string, unknown>): void {
   if (!existsSync(henryDir)) mkdirSync(henryDir, { recursive: true });
   writeFileSync(configPath, JSON.stringify(next, null, 2) + "\n");
+}
+
+/**
+ * Publish the port the daemon just bound to `<henry home>/port`, in plain text.
+ * A PTY outlives the daemon by design, so the `HENRY_PORT` baked into a session's
+ * environment goes stale the moment the daemon moves (4711 -> 14711 did exactly that, and
+ * those sessions posted hooks into a dead port until they were restarted). The hook scripts
+ * read this file first and fall back to their env, so a live session finds the live daemon.
+ * Best-effort: a home that cannot be written just leaves the hooks on their env fallback.
+ */
+export function writePortFile(port: number): void {
+  try {
+    if (!existsSync(henryDir)) mkdirSync(henryDir, { recursive: true });
+    writeFileSync(portPath, `${port}\n`);
+  } catch (e) {
+    console.error(`[henry] could not write ${portPath}: ${(e as Error).message}`);
+  }
+}
+
+/** What the hook scripts would read from `<henry home>/port`; undefined if absent or junk. */
+export function readPortFile(): number | undefined {
+  try {
+    const n = Number(readFileSync(portPath, "utf8").trim());
+    return Number.isInteger(n) && n > 0 && n < 65536 ? n : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Record the chosen repos folder (as typed, "~" allowed) and reload. defaultRepo follows it
