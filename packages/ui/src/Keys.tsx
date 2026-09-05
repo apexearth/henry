@@ -17,6 +17,8 @@ const SECTIONS: [string, Key[]][] = [
     [[isMac ? (inShell ? "⌘N" : "⌃N") : inShell ? "Ctrl+N" : "Alt+N"], "new session (the + new session picker)"],
     [[isMac ? "⌘D" : "Ctrl+Shift+D"], "duplicate the session in view: same kind, same folder"],
     [["⇧↩"], "newline in Claude Code's prompt instead of sending"],
+    [isMac ? ["⌘C"] : ["Ctrl+C", "Ctrl+Shift+C"], isMac ? "copy the terminal selection" : "copy the terminal selection (with nothing selected, Ctrl+C still interrupts)"],
+    [isMac ? ["⌘V"] : ["Ctrl+V", "Ctrl+Shift+V"], "paste into the terminal"],
   ]],
   ["files", [
     [isMac ? ["⌘K", "⌃K"] : ["Ctrl+K"], isMac ? "find a file to peek at (⌃K stays kill-line in the terminal)" : "find a file to peek at (outside the terminal, where it is kill-line)"],

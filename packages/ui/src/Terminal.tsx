@@ -61,6 +61,21 @@ export function TerminalView({ sessionId, visible, focused, fontSize }: Props) {
       console.warn("[henry] WebGL renderer unavailable, using DOM renderer", e);
     }
     t.attachCustomKeyEventHandler((ev) => {
+      // Copy and paste. On macOS ⌘C/⌘V pass straight through to the browser and already work;
+      // off macOS xterm turns Ctrl+C/Ctrl+V into ^C and ^V, so the terminal had no clipboard keys
+      // at all. Give them back the way Windows Terminal does: Ctrl+C copies only when something is
+      // selected and drops the selection, so a second press still interrupts. Paste is left to the
+      // browser — its paste event lands on xterm's textarea, which brackets the text itself.
+      if (!isMac && ev.ctrlKey && !ev.altKey && !ev.metaKey && /^[cv]$/i.test(ev.key)) {
+        if (/v/i.test(ev.key)) return false;
+        if (!ev.shiftKey && !t.hasSelection()) return true; // nothing selected: Ctrl+C is still SIGINT
+        ev.preventDefault(); // xterm's own copy handler would race our write with an empty selection
+        if (ev.type === "keydown" && t.hasSelection()) {
+          void navigator.clipboard?.writeText(t.getSelection());
+          t.clearSelection();
+        }
+        return false;
+      }
       // The window-level handlers own Cmd/Ctrl+1..9, Cmd+arrows, Cmd+K, Cmd+F and Cmd+/ (App.tsx)
       // and Cmd/Ctrl+N (Rail.tsx); off macOS the arrows and N sit on Alt and / on Ctrl instead.
       const n = ev.key === "n" || ev.key === "N";
