@@ -1133,13 +1133,18 @@ export function start(): void {
   prs.setOnChange((repoPath) => {
     for (const sid of repoSessions.get(repoPath) ?? []) broadcastSession(sid);
   });
-  const rows = db.db.prepare("SELECT session_id, repo_path FROM repo_baselines").all() as { session_id: string; repo_path: string }[];
-  for (const r of rows) {
-    const s = db.getSession(r.session_id);
-    // Exited sessions still in the rail keep their repo cards; older ones are dropped.
-    if (!s || (s.status === "exited" && s.createdAt < Date.now() - db.SESSION_RESTORE_WINDOW_MS)) continue;
-    const info = resolveRepo(r.repo_path);
-    if (info) associate(r.session_id, info);
+  // The maps live in memory only, so a restart would show a running session "0 repos touched"
+  // until its next hook. db.listLiveBaselines() is the rail's restore set: exited sessions still
+  // in the rail keep their repo cards, older ones are dropped.
+  for (const b of db.listLiveBaselines()) {
+    try {
+      const info = resolveRepo(b.repoPath);
+      // A checkout that is gone resolves to an ancestor repo (or to nothing): only its own
+      // path counts, and one unreadable path must not stop the rest of the rehydrate.
+      if (info && info.path === safeReal(b.repoPath)) associate(b.sessionId, info);
+    } catch (e) {
+      console.error(`[git] rehydrate ${b.repoPath}:`, e);
+    }
   }
   poll = setInterval(() => {
     const now = Date.now();

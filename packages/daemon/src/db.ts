@@ -420,6 +420,21 @@ export function listBaselines(sessionId: string): RepoBaseline[] {
   return rows.map((r) => ({ sessionId: r.session_id, repoPath: r.repo_path, baselineSha: r.baseline_sha, firstSeen: r.first_seen }));
 }
 
+/**
+ * Baselines of the sessions still worth watching: the rail's restore set (not dismissed, and
+ * either alive or young enough to come back exited). git.start() rebuilds its in-memory
+ * session→repo map from these, so a daemon restart does not zero "repos touched"; every
+ * older session is left out rather than attaching watchers to repos nobody is in.
+ */
+export function listLiveBaselines(): RepoBaseline[] {
+  const rows = db
+    .prepare(`SELECT b.* FROM repo_baselines b JOIN sessions s ON s.id = b.session_id
+              WHERE s.dismissed_at IS NULL AND (s.status != 'exited' OR s.created_at >= ?)
+              ORDER BY b.first_seen`)
+    .all(Date.now() - SESSION_RESTORE_WINDOW_MS) as { session_id: string; repo_path: string; baseline_sha: string; first_seen: number }[];
+  return rows.map((r) => ({ sessionId: r.session_id, repoPath: r.repo_path, baselineSha: r.baseline_sha, firstSeen: r.first_seen }));
+}
+
 // ---- usage ----
 
 export function insertUsageSnapshot(json: unknown, ts = Date.now()): void {

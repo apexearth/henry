@@ -331,4 +331,32 @@ describe("git", () => {
     expect(git.pollIntervalFor(1_000)).toBe(60_000);
     expect(git.pollIntervalFor(30_000)).toBe(60_000);
   });
+
+  // The live session→repo map is memory only; only repo_baselines survives a daemon restart.
+  test("a restart rebuilds session→repo associations from repo_baselines, with no hook", async () => {
+    const sha = g(repo, "rev-parse", "HEAD");
+    const session = (id: string, createdAt: number, status: "running" | "exited") =>
+      db.insertSession({ id, cwd: repo, title: "app", createdAt, status, command: "claude", host: "test" });
+    // Live: rehydrated. Long gone: dropped. Live but its checkout was deleted: dropped.
+    session("s3", Date.now(), "running");
+    session("s4", Date.now() - 3 * 24 * 60 * 60_000, "exited");
+    session("s5", Date.now(), "running");
+    db.upsertBaseline({ sessionId: "s3", repoPath: repo, baselineSha: sha, firstSeen: Date.now() });
+    db.upsertBaseline({ sessionId: "s4", repoPath: repo, baselineSha: sha, firstSeen: Date.now() });
+    db.upsertBaseline({ sessionId: "s5", repoPath: join(repo, "gone-worktree"), baselineSha: sha, firstSeen: Date.now() });
+    expect(git.getSessionRepos("s3")).toEqual([]);
+
+    git.stop();
+    inbox.length = 0;
+    git.start();
+
+    expect(git.getSessionRepos("s3").map((r) => r.path)).toEqual([repo]);
+    expect(git.getSessionRepos("s3")[0].branch).toBe("main");
+    expect(Object.keys(git.getAllSessionRepos())).toContain("s3");
+    expect(git.getSessionRepos("s4")).toEqual([]);
+    expect(git.getSessionRepos("s5")).toEqual([]); // not the parent repo either
+    // The rehydrated cards reach the windows without waiting for a hook.
+    const upd = await nextMsg("repos:update", (m) => m.sessionId === "s3");
+    expect(upd.repos[0].path).toBe(repo);
+  }, 20_000);
 });
