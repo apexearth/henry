@@ -20,6 +20,10 @@ interface Row {
 
 const base = baseName;
 
+/** A finger, not a mouse. Not the phone layout (`?mobile=1` fakes that on a desktop): this is
+ * about how the picker is actually driven, so it also covers a tablet on the wide layout. */
+const coarse = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+
 function labelOf(r: RepoPickerEntry) {
   return r.name + (r.isWorktree ? " (worktree)" : r.folder ? " (folder)" : "");
 }
@@ -111,8 +115,10 @@ export function RepoPicker({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="modal-bg" onMouseDown={onClose}>
-      <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
+    // Close on a press that starts on the backdrop itself. Pointer events rather than mouse ones
+    // so a tap is a first-class press, not a synthesised echo of one.
+    <div className="modal-bg" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal">
         {machines.length > 0 && (
           <div className="picker-machines" role="radiogroup" aria-label="machine">
             <span className="hint">on</span>
@@ -124,12 +130,23 @@ export function RepoPicker({ onClose }: { onClose: () => void }) {
             ))}
           </div>
         )}
-        <input className="picker-input" autoFocus value={query} spellCheck={false}
-          placeholder="repo name, “terminal”, or a path — ↑↓ then Enter"
-          onChange={(e) => { setQuery(e.target.value); setIndex(0); }} onKeyDown={onKey} />
+        {/* A form, so the phone keyboard's "go" opens the row: Android reports Enter as a
+            composition key (keyCode 229) in a text field and no keydown handler ever sees it. */}
+        <form className="picker-form" onSubmit={(e) => { e.preventDefault(); open(rows[sel]); }}>
+          {/* Not focused under a finger: iOS zooms the page into a focused field and every tap
+              after that lands somewhere else. On a phone the list is what you came for; the box
+              is one tap away. */}
+          <input className="picker-input" autoFocus={!coarse} value={query} spellCheck={false}
+            autoCapitalize="off" autoCorrect="off" autoComplete="off" enterKeyHint="go"
+            placeholder={coarse ? "repo name, “terminal”, or a path" : "repo name, “terminal”, or a path — ↑↓ then Enter"}
+            onChange={(e) => { setQuery(e.target.value); setIndex(0); }} onKeyDown={onKey} />
+        </form>
         <div className="list" ref={listRef}>
           {rows.map((r, i) => (
-            <div key={r.key} className={"row" + (i === sel ? " sel" : "")} onMouseEnter={() => setIndex(i)} onClick={() => open(r)}>
+            // Hover is a mouse's way of aiming; a touch "hover" fires in the same tick as the tap
+            // and would scroll the list out from under the finger.
+            <div key={r.key} className={"row" + (i === sel ? " sel" : "")}
+              onPointerEnter={(e) => e.pointerType === "mouse" && setIndex(i)} onClick={() => open(r)}>
               <span>
                 <span className={"kind " + r.kind}>{r.kind === "claude" ? "✦" : "$"}</span>
                 {r.name ? <><span style={{ color: hueText(nameHue(r.name)) }}>{r.name}</span>{r.label.slice(r.name.length)}</> : r.label}
@@ -142,7 +159,7 @@ export function RepoPicker({ onClose }: { onClose: () => void }) {
         </div>
         <div className="foot hint">
           <span>✦ Claude Code · $ terminal ({"$SHELL -l"})</span>
-          <span>Esc to close</span>
+          {coarse ? <button className="chip" onClick={onClose}>close</button> : <span>Esc to close</span>}
         </div>
       </div>
     </div>

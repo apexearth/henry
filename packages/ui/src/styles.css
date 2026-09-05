@@ -177,6 +177,9 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 .modal { background: var(--bg-2); border: 1px solid var(--border); border-radius: 6px; width: 520px; max-height: 80vh; display: flex; flex-direction: column; }
 .modal h3 { margin: 0; padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 13px; }
 .modal .picker-input { margin: 10px 12px; padding: 6px 8px; }
+/* The box is a form so the phone keyboard's "go" submits it; the form still has to stretch. */
+.modal .picker-form { display: flex; }
+.modal .picker-form .picker-input { flex: 1; min-width: 0; }
 .modal .list { flex: 1; overflow-y: auto; min-height: 120px; }
 .modal .kind-word { color: var(--fg-dim); font-size: 11px; margin-left: 8px; }
 .modal .foot.hint { color: var(--fg-dim); font-size: 11px; justify-content: space-between; }
@@ -545,4 +548,13 @@ html:not([data-platform="mac"]) .xterm .xterm-viewport::-webkit-scrollbar-thumb 
 @media (max-width: 700px), (pointer: coarse) and (max-width: 1024px) {
   .modal { max-width: 94vw; }
   .modal.settings { width: 94vw; }
+}
+
+/* Under a finger. 16px is the size below which iOS zooms the page into a focused field, and a
+   zoomed page puts every later tap somewhere other than where it looks. Rows get a fingertip's
+   worth of height, and manipulation drops the double-tap-to-zoom wait before a tap counts. */
+@media (pointer: coarse) {
+  .modal input, .modal textarea, .modal select { font-size: 16px; }
+  .modal .row { padding: 11px 12px; touch-action: manipulation; }
+  .modal .list { -webkit-overflow-scrolling: touch; }
 }

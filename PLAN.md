@@ -311,6 +311,12 @@ through that machine's peers, so one phone reaches every Henry the desk reaches.
   a screen you read: xterm never takes focus there. Under it sits a row of the keys Claude Code
   actually wants (esc, tab, 1/2/3 for a permission prompt, ↑↓, ⏎, ⌃C, ⇧⏎) and a text box that
   sends a whole line at a time.
+- **A fingertip is not a small mouse, and the picker is where that bites.** No field under 16px is
+  focused on a coarse pointer: iOS zooms the page into one, and every tap after that lands where it
+  looks like it should not. So "+ new session" opens the picker with the list showing and nothing
+  focused — the box is a tap away when you want to filter — and the box is a `<form>`, because
+  Android reports Enter in a text field as a composition key that no `keydown` handler sees. Rows
+  select on the tap that opens them, never on the hover a touch synthesises a moment earlier.
 - **Dictation is the point of the box, and it arrives twice.** The composer is an ordinary
   textarea, so the phone keyboard's own microphone works in it with no code at all — that is the
   one that works everywhere. The mic button beside it is the Web Speech API: continuous,
