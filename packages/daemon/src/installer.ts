@@ -118,12 +118,18 @@ export function writeLaunchSettings(dir: string): string {
  * Henry's MCP server, for `--mcp-config`. It is a separate file and a separate flag because
  * Claude Code does not read `mcpServers` out of a `--settings` file: verified 2026-09-04 by
  * pointing each flag at its own port, where the settings one drew no connection at all and
- * `--mcp-config` drew the full handshake. `?as=session` picks the one-tool list (mcp.ts).
+ * `--mcp-config` drew the full handshake. `?as=session` picks the narrow tool list (mcp.ts).
  * Never paired with `--strict-mcp-config`: this adds Henry's server to the user's own, and
  * must not replace them.
+ *
+ * `session=${HENRY_SESSION}` is how a call names its own session, which `henry_attention`
+ * needs to point the user at the right tab: Claude Code expands `${VAR}` in an mcp config per
+ * process, and the `:-` default keeps a `claude` started without the variable (the shim in a
+ * plain shell) from failing to load the server at all. mcp.ts treats an unexpanded or unknown
+ * value as "no session".
  */
 export function launchMcpConfig(): Dict {
-  return { mcpServers: { henry: { type: "http", url: `http://127.0.0.1:${config.port}/mcp?as=session` } } };
+  return { mcpServers: { henry: { type: "http", url: `http://127.0.0.1:${config.port}/mcp?as=session&session=\${HENRY_SESSION:-}` } } };
 }
 
 /** Whether hosted sessions should carry Henry's tools at all (config switch). */

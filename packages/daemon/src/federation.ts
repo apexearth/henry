@@ -478,6 +478,16 @@ export function markFlagsRead(ids: string[]): string[] {
   return rest;
 }
 
+/** An ask raised on a paired machine: answer it there. True when a peer owned it. */
+export function answerAttention(id: string): boolean {
+  for (const l of links.values()) {
+    if (!l.attention.some((a) => a.id === id)) continue;
+    l.answerAttention(id);
+    return true;
+  }
+  return false;
+}
+
 /** Local state plus every connected peer's, sessions tagged with `peer`. */
 export function merge(local: StateSnapshot): StateSnapshot {
   const out: StateSnapshot = { ...local, host: localName(), peers: statuses() };
@@ -486,6 +496,8 @@ export function merge(local: StateSnapshot): StateSnapshot {
   out.sessions = [...local.sessions, ...all.flatMap((l) => [...l.sessions.values()])].sort((a, b) => a.createdAt - b.createdAt);
   out.repos = Object.assign({}, local.repos, ...all.map((l) => l.repos));
   out.flags = [...local.flags, ...all.flatMap((l) => l.flags)].sort((a, b) => b.ts - a.ts);
+  // Asks go oldest first: the one that has waited longest is the one keeping someone waiting.
+  out.attention = [...local.attention, ...all.flatMap((l) => l.attention)].sort((a, b) => a.ts - b.ts);
   out.playbook = [...local.playbook, ...all.flatMap((l) => l.playbook)].sort((a, b) => b.ts - a.ts);
   out.usage = { ...local.usage, perSession: Object.assign({}, local.usage.perSession, ...all.map((l) => l.usage)) };
   return out;

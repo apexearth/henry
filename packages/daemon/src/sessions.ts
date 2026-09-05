@@ -9,6 +9,7 @@ import { EventEmitter } from "node:events";
 import { homedir, hostname } from "node:os";
 import { basename } from "node:path";
 import type { Session, SessionKind } from "@henry/shared";
+import * as attention from "./attention";
 import { config, henryDir } from "./config";
 import * as db from "./db";
 import { syncLaunchMcp, writeLaunchBin, writeLaunchSettings } from "./installer";
@@ -401,6 +402,8 @@ class SessionManager extends EventEmitter<SessionEvents> {
     l.session.activitySince = undefined;
     l.session.lastInputAt = undefined;
     l.session.prompts = undefined;
+    // An ask outlives its turn, not its session: there is nobody left to come to.
+    attention.clearSession(l.session.id, l.session.endedAt);
     this.titleTail.delete(l.session.id);
     db.updateSession(l.session.id, { status: "exited", exitCode, endedAt: l.session.endedAt });
     this.emit("exit", l.session.id, exitCode);

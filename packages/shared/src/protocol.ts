@@ -1,5 +1,5 @@
 // WebSocket protocol (/ws) and REST shapes. Every frame is one JSON object with a `type`.
-import type { Flag, HenryConfig, HenryEvent, PeerStatus, PlaybookEntry, RepoState, Session, SessionKind, Usage } from "./types";
+import type { Attention, Flag, HenryConfig, HenryEvent, PeerStatus, PlaybookEntry, RepoState, Session, SessionKind, Usage } from "./types";
 
 export type ClientMessage =
   /** `reqId` is echoed on the pty:scrollback reply; a daemon relaying for several windows needs it, the UI does not. */
@@ -33,6 +33,9 @@ export type ClientMessage =
     }
   | { type: "session:kill"; sessionId: string }
   | { type: "flags:markRead"; ids: string[] }
+  /** You saw a session's ask for you (clicked it, or typed into the session). It stops showing
+   * and, if the session is holding a `henry_attention` call open, that call returns. */
+  | { type: "attention:answered"; id: string }
   | { type: "playbook:request"; sessionId: string | null }
   | { type: "repo:diff"; sessionId: string; repoPath: string }
   | { type: "state:request" };
@@ -43,6 +46,8 @@ export interface StateMessage {
   sessions: Session[];
   repos: Record<string, RepoState[]>;
   flags: Flag[];
+  /** Live asks only (daemon/attention.ts); a finished one is history and leaves the snapshot. */
+  attention: Attention[];
   usage: Usage;
   playbook: PlaybookEntry[];
   config: HenryConfig;
@@ -67,6 +72,8 @@ export type ServerMessage =
   | { type: "session:update"; session: Session; requestId?: string }
   | { type: "event"; event: HenryEvent }
   | { type: "flag"; flag: Flag }
+  /** A session raised an ask, or one ended (`done` set): windows add or drop the row. */
+  | { type: "attention:update"; attention: Attention }
   | { type: "repos:update"; sessionId: string; repos: RepoState[] }
   | { type: "usage:update"; usage: Usage }
   | { type: "playbook:update"; entry: PlaybookEntry }

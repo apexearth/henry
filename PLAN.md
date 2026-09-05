@@ -141,8 +141,9 @@ the design changes; do not let it drift into a changelog.
   current bar in the accent; flags there are a bare icon + count so they do not cover it)
   so a busy morning with a flat tail reads as "dropped", fades a row that is waiting on me the longer I leave it (5 min /
   15 min / 1 h steps; a working session never fades, it does not need me), and offers
-  "by attention" grouping: my move first, longest since I typed at the top, then working,
-  then terminals and closed rows. Looking at a session without typing is not engagement.
+  "by attention" grouping: sessions that asked for me by name first, then my move, longest
+  since I typed at the top, then working, then terminals and closed rows. Looking at a session
+  without typing is not engagement — answering an ask is the single exception.
 - **Shift+Enter is a newline in Claude Code.** The terminal sends ESC CR (what
   `/terminal-setup` binds) when the session is running Claude; a plain shell gets Enter.
 - **Sessions outlive the daemon, terminal included.** After a daemon restart the
@@ -235,9 +236,9 @@ until it is back. Two machines that both listen dial each other, so each window 
 
 Henry hosts 3–4 sessions that share repos, which makes it a multi-agent system whether or not
 it is described as one. The question is the shape. Henry stays a **star with the user at the
-centre**: sessions may *read* what their neighbours are doing, and nothing more. A session
-cannot type into another session, message it, or change Henry's config. The user is the only
-router, and the rail stays a truthful record of who did what.
+centre**: sessions may *read* what their neighbours are doing, and they may *call the user*,
+and nothing more. A session cannot type into another session, message it, or change Henry's
+config. The user is the only router, and the rail stays a truthful record of who did what.
 
 - **The tools are an MCP server on the daemon** (`daemon/src/mcp.ts`), `POST /mcp`, JSON-RPC
   2.0, no SDK: one endpoint answering initialize / ping / tools/list / tools/call is not worth
@@ -251,9 +252,14 @@ router, and the rail stays a truthful record of who did what.
 - **A tool definition is a tax on every request of every session**, since it rides in the
   system prompt all day (measured: 127 tokens for `henry_activity`). So the server serves
   **two tool lists**. `?as=session` (what `launch-mcp.json` points at) is the narrow one:
-  today exactly `henry_activity`, under 900 bytes of schema, and adding to it has to be worth
-  the same cost in all four sessions. A client that connects without it gets the wide list,
-  where one process pays once; that is where the overseer's own tools go.
+  today `henry_activity` and `henry_attention`, under 2.2 KB of schema together, and adding a
+  third has to be worth the same cost in all four sessions. A client that connects without it
+  gets the wide list, where one process pays once; that is where the overseer's own tools go.
+- **A call names its own session** through `session=${HENRY_SESSION:-}` in the `launch-mcp.json`
+  url: Claude Code expands `${VAR}` in an mcp config (verified 2026-09-04 against the CLI, both
+  set and unset), so one shared file still tells the daemon which tab is calling. An unexpanded
+  or unknown value means "no session" — except where exactly one Claude session is live, which
+  is then the only session it can be.
 - **`henry_activity(repo?)`** answers "who else is in this repo and what are they holding".
   Per checkout: branch, ahead/behind, uncommitted count; each live session with its `activity`
   (a session `waiting on the human 45m` is parked, so its dirty files are not in flight) and
@@ -261,6 +267,35 @@ router, and the rail stays a truthful record of who did what.
   one landed under it; and the rest of the dirty tree as *not traced to a live session*.
   `repo` takes a name or a path and is optional. A bare name matches every checkout with it,
   worktrees included: that is exactly when two sessions think they are alone.
+- **`henry_attention(message, minutes?, wait?, done?)`** is the one tool that writes, and what it
+  writes is a message addressed to the user: *come to this session*. It exists for the thing that
+  goes stale — an expiring code, a deploy window, a destructive step worth confirming first —
+  which is why an ask carries a **deadline** (default 30 min) and Henry drops it when the deadline
+  passes. A session that merely wants the user *eventually* already has the rail, where a finished
+  turn reads as "your move"; the tool's description says so, because the failure mode is a session
+  that asks for every question.
+  It never blocks the session: `wait` (seconds) is the caller's own choice to hold the call open
+  until the user arrives, and it comes back either way, saying which happened. It is capped at 55
+  seconds because Claude Code gives up on an MCP tool call at 60 (verified 2026-09-04: a tool that
+  sleeps 70s reaches the model as "The operation timed out"), so the answer is always Henry's
+  rather than a timeout's; the same call again waits on the same ask instead of raising a second. The
+  answer also says how many windows are open, since an ask nobody can see is worth knowing about.
+  Three open asks per session is the cap, the same words twice is one ask, and `done` withdraws
+  one — a session that stops needing the user says so rather than leaving noise in the topbar.
+- **An ask is answered by showing up, and only the user can answer it.** Typing into the session
+  (`engagement.ts`, prompt or keystroke) clears it, and so does clicking it in the rail or the
+  topbar — the message is right there in what you clicked, so reading it *is* the answer. That is
+  the one place looking counts as engagement. A session that exits takes its asks with it, and
+  `attention:answered` over the WS is what releases a `wait`. Asks live in memory, mirrored to
+  SQLite, so a daemon restart brings back the ones whose deadlines have not passed; a finished ask
+  stays as history until the retention sweep. Asks from a paired machine relay like flags do, and
+  answering one from here answers it there.
+- **In the UI an ask is the loudest thing Henry says**: an alarm-coloured chip in the topbar
+  carrying the sentence itself (the only chip that carries one), a lit edge and a ❗ on the rail
+  row, its own "asking for you" group at the top of "by attention", and the window title, which is
+  the one thing readable from another app. Henry does not raise an OS notification: that is a
+  permission prompt and a new failure mode, and it can come later if the title turns out not to be
+  enough.
 - **Attribution comes from the hook stream, not from git.** `git.changedFiles` diffs the repo,
   so in a shared checkout it hands every dirty path to every session there. `mcp.ts` reads the
   `file_path` of each `Write`/`Edit`/`NotebookEdit` event instead. A Bash `sed -i` or `>` names
@@ -364,9 +399,10 @@ under the peek header, smart case, ↩/⇧↩ walk the matches, matched lines sh
 carries the term into the explorer's text mode, so "this word, but everywhere" is one key.
 
 **The topbar carries the roll-up, and it is half about you.** Left of the buttons, one line
-of chips answers "what is happening" without the rail: sessions working / needing an answer /
-waiting on you, and uncommitted paths (plus unpushed commits) across every repo Henry has
-seen. Then a divider, and the same line answers "what have *I* been doing": time here today
+of chips answers "what is happening" without the rail: any session that asked for you by name
+(first, and carrying its own sentence — see Henry's tools), sessions working / needing an
+answer / waiting on you, and uncommitted paths (plus unpushed commits) across every repo Henry
+has seen. Then a divider, and the same line answers "what have *I* been doing": time here today
 (typing or reading), prompts sent, and a four-hour cadence sparkline with your current pace.
 Flags and usage are deliberately not up here — they are panels, and the bar is for the two
 things you cannot get by looking at a panel: who wants you, and how your day is going. A chip
@@ -452,7 +488,8 @@ henry/
       src/git.ts               # repo discovery, worktrees, status, ahead/behind, diff
       src/prs.ts               # open PRs per checkout via `gh pr list`, cached and best-effort
       src/rules.ts             # ~/.henry/config.json rules → classify events
-      src/mcp.ts               # POST /mcp: Henry's tools; henry_activity for hosted sessions
+      src/mcp.ts               # POST /mcp: Henry's tools; henry_activity + henry_attention for hosted sessions
+      src/attention.ts         # asks: a session calling for the user, with a deadline and a way to answer
       src/activity.ts          # working | needsInput | waiting | idle, derived from hooks
       src/engagement.ts        # my prompts + keystrokes per session: lastInputAt, prompt sparkline
       src/human.ts             # my minutes recorded + rolled up by local day (GET /api/human, POST /api/presence)
@@ -492,7 +529,8 @@ claude (in PTY) ──hooks──▶ henry-hook.sh ──POST /hook──▶ dae
 ~/code/*/.git ──watch+poll──▶ daemon (repo state, baseline diffs)
 sessiond (owns PTYs) ◀──TCP 127.0.0.1, token──▶ daemon (spawn, write, attach, scrollback)
 daemon ──WS──▶ every attached window (pty data, state deltas)
-claude (in PTY) ──MCP /mcp?as=session──▶ daemon (henry_activity: what the other sessions hold)
+claude (in PTY) ──MCP /mcp?as=session──▶ daemon (henry_activity: what the other sessions hold;
+                                                 henry_attention: come here, this one is timed)
 daemon ──on Stop / on flag──▶ overseer ──▶ playbook rows ──WS──▶ windows
 daemon ◀──ws://<tailscale ip>:14712/fed, mutually authenticated──▶ peer daemon (its sessions, relayed)
 ```

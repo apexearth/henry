@@ -6,6 +6,7 @@ import type { ServerWebSocket } from "bun";
 import type { ClientMessage, HenryConfig, PresenceBeat, PresenceSource, ServerMessage, StateSnapshot, Usage } from "@henry/shared";
 import { SOURCES } from "@henry/shared";
 import * as activity from "./activity";
+import * as attention from "./attention";
 import { config, expandHome, isFirstRun, onConfigReload, setConfig, setReposRoot } from "./config";
 import * as db from "./db";
 import * as engagement from "./engagement";
@@ -41,6 +42,11 @@ export function broadcast(msg: ServerMessage): void {
 /** Windows only: what a peer relayed to us must not fan back out. */
 export function toWindows(msg: ServerMessage): void {
   server?.publish(ALL, JSON.stringify(msg));
+}
+
+/** Windows attached right now. A session asking for the user is told when there are none. */
+export function windowCount(): number {
+  return server?.subscriberCount(ALL) ?? 0;
 }
 
 /** Send to windows (and peers) attached to one session (PTY traffic only). */
@@ -82,6 +88,7 @@ function localState(): StateSnapshot {
     sessions: sessions.list(),
     repos: git.getAllSessionRepos(),
     flags: db.listFlags({ limit: 500 }),
+    attention: attention.open(),
     usage,
     playbook: db.listPlaybook(undefined, 200),
     config,
@@ -201,6 +208,11 @@ async function handleMessage(client: Client, msg: ClientMessage): Promise<void> 
     case "flags:markRead":
       db.markFlagsRead(client.fromPeer ? msg.ids : federation.markFlagsRead(msg.ids));
       return;
+    case "attention:answered":
+      // A window may be answering an ask raised on a paired machine; the ask lives there.
+      if (!client.fromPeer && federation.answerAttention(msg.id)) return;
+      attention.finish(msg.id, "answered");
+      return;
     case "playbook:request":
       for (const entry of db.listPlaybook(msg.sessionId).reverse()) client.send({ type: "playbook:update", entry });
       return;
@@ -276,6 +288,9 @@ export async function startServer(): Promise<void> {
   // Re-derives each running session's activity from its last hook, then ages it on a tick.
   activity.start();
   engagement.start();
+  attention.setBroadcast(broadcast);
+  attention.setWindowCount(windowCount);
+  attention.start();
   server = Bun.serve<WsData>({
     hostname: "127.0.0.1",
     port: config.port,
@@ -496,6 +511,7 @@ export function stopServer(): void {
   federation.stop();
   activity.stop();
   engagement.stop();
+  attention.stop();
   git.stop();
   sessions.shutdown();
   server?.stop(true);

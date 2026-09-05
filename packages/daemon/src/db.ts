@@ -2,7 +2,7 @@
 // later milestones only add queries here.
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
-import type { Flag, HenryEvent, PlaybookEntry, Session, SessionUsage } from "@henry/shared";
+import type { Attention, Flag, HenryEvent, PlaybookEntry, Session, SessionUsage } from "@henry/shared";
 import { henryDir } from "./config";
 
 export const dbPath = join(henryDir, "henry.db");
@@ -56,6 +56,19 @@ CREATE TABLE IF NOT EXISTS flags (
   read INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS flags_session_ts ON flags(session_id, ts);
+
+-- A session asking for the human (mcp.ts henry_attention). Live rows have done IS NULL; the
+-- rest stay as history until the retention sweep, which is why this is a table and not a Map.
+CREATE TABLE IF NOT EXISTS attention (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  ts INTEGER NOT NULL,
+  message TEXT NOT NULL,
+  deadline INTEGER NOT NULL,
+  done TEXT,
+  done_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS attention_session_ts ON attention(session_id, ts);
 
 CREATE TABLE IF NOT EXISTS playbook (
   id TEXT PRIMARY KEY,
@@ -344,6 +357,25 @@ export function markFlagsRead(ids: string[]): void {
   db.transaction(() => { for (const id of ids) q.run(id); })();
 }
 
+// ---- attention ----
+
+interface AttentionRow { id: string; session_id: string; ts: number; message: string; deadline: number; done: Attention["done"] | null; done_at: number | null }
+
+function rowToAttention(r: AttentionRow): Attention {
+  return { id: r.id, sessionId: r.session_id, ts: r.ts, message: r.message, deadline: r.deadline, done: r.done ?? undefined, doneAt: r.done_at ?? undefined };
+}
+
+export function upsertAttention(a: Attention): void {
+  db.prepare(`INSERT INTO attention (id, session_id, ts, message, deadline, done, done_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET done = excluded.done, done_at = excluded.done_at, deadline = excluded.deadline`)
+    .run(a.id, a.sessionId, a.ts, a.message, a.deadline, a.done ?? null, a.doneAt ?? null);
+}
+
+/** Live asks, oldest first: a daemon restart picks up where it left off. */
+export function listOpenAttention(): Attention[] {
+  return (db.prepare("SELECT * FROM attention WHERE done IS NULL ORDER BY ts ASC").all() as AttentionRow[]).map(rowToAttention);
+}
+
 // ---- playbook ----
 
 interface PlaybookRow { id: string; session_id: string | null; ts: number; text: string; trigger: PlaybookEntry["trigger"]; model: string | null; kind: PlaybookEntry["kind"] | null }
@@ -416,6 +448,7 @@ export interface PruneCounts {
   playbook: number;
   snapshots: number;
   presence: number;
+  attention: number;
 }
 
 /**
@@ -432,11 +465,13 @@ export function pruneHistory(days: number): PruneCounts | undefined {
     events: del("events"),
     flags: del("flags"),
     playbook: del("playbook"),
+    // A live ask outlives the window by its deadline, never by its age.
+    attention: db.prepare("DELETE FROM attention WHERE ts < ? AND done IS NOT NULL").run(cutoff).changes,
     // The newest snapshot is the live 5h/7d usage; keep it however old it is.
     snapshots: db.prepare("DELETE FROM usage_snapshots WHERE ts < ? AND ts <> (SELECT MAX(ts) FROM usage_snapshots)").run(cutoff).changes,
     presence: db.prepare("DELETE FROM presence WHERE minute < ?").run(cutoff).changes,
   }))();
-  const total = counts.events + counts.flags + counts.playbook + counts.snapshots + counts.presence;
+  const total = counts.events + counts.flags + counts.playbook + counts.snapshots + counts.presence + counts.attention;
   if (total) {
     try {
       const free = (db.prepare("PRAGMA freelist_count").get() as { freelist_count: number }).freelist_count;

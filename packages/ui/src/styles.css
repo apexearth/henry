@@ -49,6 +49,11 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 .act-chip.needs { color: var(--warn); }
 .act-chip.waiting { color: var(--ok); }
 .act-chip .ahead { opacity: 0.75; }
+/* A session asking for you by name (henry_attention): the loudest thing in the bar, and the
+   only chip that carries a sentence, so the sentence is what gets cut when the bar is tight. */
+.act-chip.asking { color: var(--alarm); }
+.act-chip.asking .dot { animation: mark-pulse 1.2s ease-in-out infinite; }
+.act-chip.asking .msg { max-width: 46ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* The human half: your hours, your prompts, your cadence. Quieter than the session chips. */
 .act-sep { width: 1px; height: 12px; background: var(--border); margin: 0 3px; flex: none; }
 .act-chip.you, .act-chip.cadence { color: var(--fg-dim); }
@@ -134,6 +139,11 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 .rail-item .badge.flag { padding: 0; background: none; border: none; font-size: 11px; }
 .badge.flag { color: var(--warn); }
 .badge.alarm { color: var(--alarm); }
+/* A session asking for you: the row keeps a lit edge until you answer, and the badge is the
+   answer — clicking it opens the session and tells it you came. */
+.rail-item.asking { box-shadow: inset 2px 0 0 var(--alarm); }
+.rail-item .badge.ask { padding: 0; background: none; border: none; font-size: 11px; color: var(--alarm); animation: mark-pulse 1.6s ease-in-out infinite; }
+.rail-item .badge.ask:hover { animation: none; }
 .rail-group-h { position: sticky; top: 0; z-index: 1; display: flex; gap: 6px; align-items: center; padding: 6px 8px 2px; background: var(--bg-2); color: var(--fg-dim); font-size: 10px; letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; }
 .rail-group-h .name { overflow: hidden; text-overflow: ellipsis; }
 .rail-group-h .n { flex: none; margin-left: auto; color: var(--fg-faint); }

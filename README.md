@@ -87,6 +87,26 @@ CLI (`packages/daemon/src/index.ts`): `henry start | install | uninstall | statu
   session and exits immediately. This is how a new sessiond version gets picked up; the
   daemon warns at startup when the two protocol versions differ.
 
+## What the sessions can ask Henry
+
+Every session Henry starts carries two tools from Henry's own MCP server (loopback only;
+`mcp.enabled` / `mcp.sessions` in the config turn them off):
+
+- **`henry_activity(repo?)`** — who else is in this repo, what they are holding uncommitted,
+  what landed recently. Read-only.
+- **`henry_attention(message, minutes?, wait?, done?)`** — *come here, this is timed.* The
+  message shows as a chip in the top bar, on the session's rail row and in the window title
+  until you answer it or its deadline passes (30 minutes by default). It is for work that goes
+  stale — an expiring code, a deploy window, a destructive step worth confirming — not for
+  ordinary questions, which the rail already shows as "your move". Clicking the chip takes you
+  to the session and tells it you came; so does typing into the session. A session can hold its
+  call open for up to 55 seconds (`wait`) to find out whether you arrived — Claude Code abandons
+  an MCP tool call at 60 — and withdraw an ask it no longer needs (`done`). Three open asks per
+  session is the limit.
+
+Sessions cannot type into each other, message each other, or change Henry's config. Asking for
+you is the only thing a session can push.
+
 ## Sessions on other machines
 
 Run Henry on each machine (they share nothing; every daemon has its own DB and sessiond),

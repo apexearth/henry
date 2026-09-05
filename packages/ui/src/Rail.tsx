@@ -6,7 +6,7 @@ import { MOD, baseName, isMac } from "./platform";
 import { inShell, onMenu } from "./shell";
 import { hueText, nameHue } from "./theme";
 import { showSession } from "./dock";
-import { activeRowIndex, duplicateSession, killSession, railGroups, railRows, resumeSession, setActive, setGroupBy, toggleMachine, toggleShowClosed, useStore, type GroupBy } from "./ws";
+import { activeRowIndex, answerAttention, duplicateSession, killSession, railGroups, railRows, resumeSession, setActive, setGroupBy, toggleMachine, toggleShowClosed, useStore, type GroupBy } from "./ws";
 
 const base = baseName;
 
@@ -77,6 +77,12 @@ function neglect(s: Session, now: number): 0 | 1 | 2 | 3 {
   return since >= 60 * 60_000 ? 3 : since >= 15 * 60_000 ? 2 : since >= 5 * 60_000 ? 1 : 0;
 }
 
+/** How long an ask has left before Henry drops it. */
+function until(deadline: number, now: number): string {
+  const m = Math.round((deadline - now) / 60000);
+  return m < 1 ? "going now" : m < 60 ? `${m}m left` : `${Math.floor(m / 60)}h left`;
+}
+
 /** Compact time in state. Blank under a minute: a row that changes every second is noise. */
 function since(ts: number | undefined, now: number): string {
   if (!ts) return "";
@@ -112,6 +118,7 @@ export function Rail() {
   const showClosed = useStore((s) => s.showClosed);
   const active = useStore((s) => s.activeSessionId);
   const flags = useStore((s) => s.flags);
+  const attention = useStore((s) => s.attention);
   const [picker, setPicker] = useState(false);
   const now = useNow(15000);
 
@@ -146,6 +153,7 @@ export function Rail() {
   const relayed = groups.some((g) => g.peer);
   const machineCount = (peer: string | undefined) => new Set(groups.filter((g) => g.peer === peer).flatMap((g) => g.sessions.map((x) => x.id))).size;
   const unread = (id: string) => flags.filter((f) => f.sessionId === id && !f.read);
+  const asks = (id: string) => attention.filter((a) => a.sessionId === id);
   // Counted off the sessions themselves: under "by repo" a session can appear in several groups.
   const running = sessions.filter((s) => s.status === "running").length;
   const closed = sessions.length - running;
@@ -174,6 +182,7 @@ export function Rail() {
             )}
             {!g.hidden && g.sessions.map((s: Session) => {
               const u = unread(s.id);
+              const ask = asks(s.id);
               const hasAlarm = u.some((f) => f.severity === "alarm");
               const claude = isClaudeSession(s);
               const external = s.command === "external";
@@ -192,13 +201,19 @@ export function Rail() {
               const yours = on && claude ? `\nyou: ${nPrompts} prompt${nPrompts === 1 ? "" : "s"} in the last 4 h${typed ? `, last typed ${typed} ago` : s.lastInputAt ? ", typing now" : ""}` : "";
               const fade = neglect(s, now);
               return (
-                <div key={g.key + "\n" + s.id} className={"rail-item" + mark + (on ? "" : " off") + (fade ? " neglect-" + fade : "")} onClick={() => { setActive(s.id, g.key); showSession(s.id); }}
-                  title={`${what}, ${state}${on && s.activity ? ` — ${ACTIVITY_TEXT[s.activity]}${ago && s.activity === "working" ? ` for ${ago}` : ""}` : ""}${yours}\n${s.cwd}${s.peer ? `\non ${s.peer} (remote, via its own Henry daemon)` : s.host ? `\non ${s.host}` : ""}${i >= 0 && i < 9 ? `\n${MOD}${i + 1}` : ""}`}>
+                <div key={g.key + "\n" + s.id} className={"rail-item" + mark + (on ? "" : " off") + (fade ? " neglect-" + fade : "") + (ask.length ? " asking" : "")} onClick={() => { setActive(s.id, g.key); showSession(s.id); }}
+                  title={`${ask.map((a) => `asking you: ${a.message} (${until(a.deadline, now)})\n`).join("")}${what}, ${state}${on && s.activity ? ` — ${ACTIVITY_TEXT[s.activity]}${ago && s.activity === "working" ? ` for ${ago}` : ""}` : ""}${yours}\n${s.cwd}${s.peer ? `\non ${s.peer} (remote, via its own Henry daemon)` : s.host ? `\non ${s.host}` : ""}${i >= 0 && i < 9 ? `\n${MOD}${i + 1}` : ""}`}>
                   {on && claude && <Spark prompts={s.prompts} now={now} />}
                   {claude ? <ClaudeMark on={on} activity={on ? s.activity : undefined} /> : <ShellMark on={on} />}
                   <span className="title">{s.title}</span>
                   {s.title !== repo && showSub && <span className="sub" style={{ color: hueText(nameHue(repo)) }}>{repo}</span>}
                   {ago && <span className={"act act-" + s.activity}>{ago}</span>}
+                  {ask.length > 0 && (
+                    <button className="badge ask" title={`${ask.map((a) => `“${a.message}” — ${until(a.deadline, now)}`).join("\n")}\nclick: open it and tell the session you have seen it`}
+                      onClick={(e) => { e.stopPropagation(); setActive(s.id, g.key); showSession(s.id); answerAttention(ask.map((a) => a.id)); }}>
+                      ❗{ask.length > 1 ? ` ${ask.length}` : ""}
+                    </button>
+                  )}
                   {u.length > 0 && <span className={"badge flag" + (hasAlarm ? " alarm" : "")}>⚑ {u.length}</span>}
                   {!on && s.claudeSessionId && !external && (
                     <button className="close" title="resume this Claude session in a new tab"

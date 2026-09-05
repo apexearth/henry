@@ -3,17 +3,19 @@
  * initialize / ping / tools/list / tools/call is not worth a dependency.
  *
  * Two audiences, two tool lists. A tool definition sits in the system prompt of every request
- * of every session that has it, all day, so `?as=session` (what `launch-settings.json` points
- * at) gets exactly one tool and nothing else. The overseer's own client connects without it
- * and may have the wide set, where one process pays the cost once.
+ * of every session that has it, all day, so `?as=session` (what `launch-mcp.json` points at)
+ * gets the narrow set and nothing else. The overseer's own client connects without it and may
+ * have the wide set, where one process pays the cost once.
  *
- * Read-only on purpose. A session can see what its neighbours are doing; it cannot type into
- * them, and it cannot change Henry's config. The user stays the only one routing between
- * sessions.
+ * Read-only over Henry's state, with one exception that writes nothing but a message addressed
+ * to the user: `henry_attention`. A session can see what its neighbours are doing and it can
+ * ask the human to come; it cannot type into another session, and it cannot change Henry's
+ * config. The user stays the only one routing between sessions.
  */
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
-import type { ChangedFile, Session } from "@henry/shared";
+import { isClaudeSession, type ChangedFile, type Session } from "@henry/shared";
+import * as attention from "./attention";
 import { config, expandHome } from "./config";
 import * as db from "./db";
 import * as git from "./git";
@@ -35,11 +37,16 @@ const CACHE_MS = 5_000;
 
 // ---- tools ----
 
+/** What the daemon knows about the caller. `sessionId` is "" when it could not tell. */
+interface CallContext {
+  sessionId: string;
+}
+
 interface ToolDef {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
-  run: (args: Record<string, unknown>) => Promise<string>;
+  run: (args: Record<string, unknown>, ctx: CallContext) => Promise<string>;
 }
 
 const activityTool: ToolDef = {
@@ -55,10 +62,26 @@ const activityTool: ToolDef = {
   run: (args) => repoActivity(typeof args.repo === "string" ? args.repo : undefined),
 };
 
+const attentionTool: ToolDef = {
+  name: "henry_attention",
+  description:
+    "Ask the user to come to this session now, for something that goes stale without them: a code about to expire, a deploy or release window, a destructive step you want confirmed before you take it. Henry shows the message in the rail and topbar of every window it has open. Do not use it for ordinary questions — ending your turn already tells Henry the session is waiting for them.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      message: { type: "string", description: "One line: what you need from them, and by when." },
+      minutes: { type: "number", description: "How long it stays worth interrupting for; Henry drops it after (default 30)." },
+      wait: { type: "number", description: "Seconds to hold this call open until they show up, up to 55. Default 0: the ask stands and you carry on." },
+      done: { type: "string", description: "Id from an earlier call: withdraw that ask, you no longer need them." },
+    },
+  },
+  run: (args, ctx) => askForUser(args, ctx),
+};
+
 /** Everything Henry exposes. The chat client gets this list; today it is the session list. */
-const ALL_TOOLS: ToolDef[] = [activityTool];
+const ALL_TOOLS: ToolDef[] = [activityTool, attentionTool];
 /** What a hosted session gets. Adding to this taxes every request of every session. */
-const SESSION_TOOLS: ToolDef[] = [activityTool];
+const SESSION_TOOLS: ToolDef[] = [activityTool, attentionTool];
 
 export type Audience = "session" | "full";
 
@@ -253,6 +276,52 @@ export function resetCacheForTests(): void {
   cache.clear();
 }
 
+// ---- henry_attention ----
+
+/**
+ * The one tool that writes. It writes a message addressed to the user and nothing else: no
+ * config, no other session, and the session that raised it is never blocked by it (`wait` is
+ * the caller's own choice, and it comes back either way).
+ */
+async function askForUser(args: Record<string, unknown>, ctx: CallContext): Promise<string> {
+  const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : typeof v === "string" && v.trim() && Number.isFinite(Number(v)) ? Number(v) : undefined);
+
+  if (typeof args.done === "string" && args.done.trim()) {
+    const id = args.done.trim();
+    const ask = attention.get(id);
+    if (!ask) return `no ask "${id}" is showing — it was answered, withdrawn or timed out already.`;
+    if (ctx.sessionId && ask.sessionId && ask.sessionId !== ctx.sessionId) return `"${id}" is another session's ask; leave it alone.`;
+    attention.finish(id, "withdrawn");
+    return `withdrawn: "${ask.message}". The user is no longer being asked for.`;
+  }
+
+  const message = typeof args.message === "string" ? args.message : "";
+  const raised = attention.raise({ sessionId: ctx.sessionId, message, minutes: num(args.minutes) });
+  if (!raised.ok) return `henry: ${raised.reason}`;
+  const ask = raised.ask;
+
+  const now = Date.now();
+  const left = Math.max(1, Math.round((ask.deadline - now) / 60_000));
+  const where = ctx.sessionId
+    ? ""
+    : "\nHenry could not tell which session this came from, so the ask shows on its own: clicking it will not bring the user here.";
+  const windows = attention.windowCount();
+  const seen = windows > 0 ? `Showing in ${windows === 1 ? "the open Henry window" : `all ${windows} open Henry windows`}` : "No Henry window is open right now, so nobody sees it until one is";
+  const standing = `"${ask.message}" (id ${ask.id}). ${seen}; it drops itself in ${left}m.${where}`;
+
+  const wait = Math.min(attention.MAX_WAIT_MS, Math.max(0, (num(args.wait) ?? 0) * 1000));
+  if (!wait) {
+    return `${raised.already ? "already asking" : "asking the user"}: ${standing}\nCarry on; call again with done:"${ask.id}" if you stop needing them.`;
+  }
+
+  const ended = await attention.waitFor(ask.id, wait);
+  const waited = Math.round((Date.now() - now) / 1000);
+  if (ended?.done === "answered") return `the user came to this session after ${waited}s. The ask is cleared — say what you need.`;
+  if (ended?.done === "withdrawn") return `the ask was withdrawn after ${waited}s.`;
+  if (ended) return `the ask ran out its ${left}m after ${waited}s without the user showing up.`;
+  return `no sign of the user after ${waited}s. The ask is still up: ${standing}\nDo not sit on this — carry on with what you can, or end your turn and leave the session waiting for them. The same call again waits on this same ask rather than raising a second one, but it does not make them come any sooner.`;
+}
+
 // ---- JSON-RPC ----
 
 interface RpcRequest {
@@ -265,7 +334,22 @@ interface RpcRequest {
 const result = (id: RpcRequest["id"], value: unknown) => ({ jsonrpc: "2.0", id, result: value });
 const failure = (id: RpcRequest["id"], code: number, message: string) => ({ jsonrpc: "2.0", id, error: { code, message } });
 
-async function dispatch(msg: RpcRequest, audience: Audience): Promise<object | undefined> {
+/**
+ * Which session is calling. `launch-mcp.json` puts `${HENRY_SESSION}` in the URL, which Claude
+ * Code expands per process, so a hosted session names itself. A client that does not expand it
+ * (the literal `${...}` arrives), one started outside Henry, or a stale id leaves it unknown —
+ * except where exactly one Claude session is live, which is then the only session it can be.
+ */
+function callerSession(url: URL): string {
+  const raw = (url.searchParams.get("session") ?? "").trim();
+  const id = raw.startsWith("${") ? "" : raw;
+  const live = liveSessions();
+  if (id && live.some((s) => s.id === id)) return id;
+  const claude = live.filter((s) => isClaudeSession(s));
+  return claude.length === 1 ? claude[0]!.id : "";
+}
+
+async function dispatch(msg: RpcRequest, audience: Audience, ctx: CallContext): Promise<object | undefined> {
   // A notification (no id) is answered with nothing, per JSON-RPC.
   if (msg.id === undefined || msg.id === null) return undefined;
   switch (msg.method) {
@@ -286,7 +370,7 @@ async function dispatch(msg: RpcRequest, audience: Audience): Promise<object | u
       if (!tool) return failure(msg.id, -32602, `unknown tool: ${name}`);
       const args = (msg.params?.arguments ?? {}) as Record<string, unknown>;
       try {
-        return result(msg.id, { content: [{ type: "text", text: await tool.run(args) }] });
+        return result(msg.id, { content: [{ type: "text", text: await tool.run(args, ctx) }] });
       } catch (e) {
         // A tool error is reported in-band so the model can react rather than the turn failing.
         const text = e instanceof Error ? e.message : String(e);
@@ -310,11 +394,12 @@ export async function handleMcp(req: Request, url: URL): Promise<Response> {
     return Response.json(failure(null, -32700, "parse error"), { status: 400 });
   }
   const audience: Audience = url.searchParams.get("as") === "session" ? "session" : "full";
+  const ctx: CallContext = { sessionId: callerSession(url) };
   const batch = Array.isArray(body);
   const msgs = (batch ? body : [body]) as RpcRequest[];
   const out: object[] = [];
   for (const m of msgs) {
-    const r = await dispatch(m ?? {}, audience);
+    const r = await dispatch(m ?? {}, audience, ctx);
     if (r) out.push(r);
   }
   if (!out.length) return new Response(null, { status: 202 });

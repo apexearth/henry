@@ -3,7 +3,7 @@
 import { useSyncExternalStore } from "react";
 import { baseName } from "./platform";
 import { nameHue } from "./theme";
-import { isClaudeSession, type ClientMessage, type Flag, type HenryConfig, type HenryEvent, type PeerStatus, type PlaybookEntry, type RepoState, type ServerMessage, type Session, type SessionKind, type Usage } from "@henry/shared";
+import { isClaudeSession, type Attention, type ClientMessage, type Flag, type HenryConfig, type HenryEvent, type PeerStatus, type PlaybookEntry, type RepoState, type ServerMessage, type Session, type SessionKind, type Usage } from "@henry/shared";
 
 export type PtyMessage = Extract<ServerMessage, { type: "pty:data" | "pty:scrollback" | "pty:exit" }>;
 
@@ -21,6 +21,8 @@ export interface UiState {
   sessions: Session[];
   repos: Record<string, RepoState[]>;
   flags: Flag[];
+  /** Sessions asking for you (henry_attention), oldest first. Live ones only. */
+  attention: Attention[];
   usage: Usage;
   playbook: PlaybookEntry[];
   config: HenryConfig | null;
@@ -56,6 +58,7 @@ let state: UiState = {
   sessions: [],
   repos: {},
   flags: [],
+  attention: [],
   usage: { perSession: {}, updatedAt: 0 },
   playbook: [],
   config: null,
@@ -204,6 +207,7 @@ function handle(m: ServerMessage): void {
         sessions: m.sessions,
         repos: m.repos,
         flags: m.flags,
+        attention: m.attention ?? [],
         usage: m.usage,
         playbook: m.playbook,
         config: m.config,
@@ -233,6 +237,12 @@ function handle(m: ServerMessage): void {
     case "flag":
       setState({ flags: [m.flag, ...state.flags.filter((f) => f.id !== m.flag.id)] });
       return;
+    case "attention:update": {
+      const rest = state.attention.filter((a) => a.id !== m.attention.id);
+      // A finished ask leaves the list: what is here is what is still waiting on you.
+      setState({ attention: m.attention.done ? rest : [...rest, m.attention].sort((a, b) => a.ts - b.ts) });
+      return;
+    }
     case "repos:update":
       setState({ repos: { ...state.repos, [m.sessionId]: m.repos } });
       return;
@@ -312,7 +322,7 @@ function machineGroups(order: Session[], s: UiState): RailGroup[] {
     if (!g) groups.set(key, (g = { key, label, title, hue: key === NO_REPO ? undefined : nameHue(label), sessions: [] }));
     g.sessions.push(session);
   };
-  if (s.groupBy === "attention") return attentionGroups(order);
+  if (s.groupBy === "attention") return attentionGroups(order, s);
   for (const session of order) {
     if (s.groupBy === "cwd") {
       add(session.cwd, basename(session.cwd), session.cwd, session);
@@ -328,19 +338,23 @@ function machineGroups(order: Session[], s: UiState): RailGroup[] {
   return [...groups.values()].sort((a, b) => Number(a.key === NO_REPO) - Number(b.key === NO_REPO));
 }
 
-/** Running Claude sessions split into "your move" (sorted by how long you have left them:
- * oldest input first) and "working", then terminals, then whatever closed rows are shown. */
-function attentionGroups(order: Session[]): RailGroup[] {
+/** Running Claude sessions split into "asking for you" (a session that raised an ask, which
+ * beats everything), "your move" (sorted by how long you have left them: oldest input first)
+ * and "working", then terminals, then whatever closed rows are shown. */
+function attentionGroups(order: Session[], s: UiState): RailGroup[] {
+  const asking: Session[] = [];
   const yours: Session[] = [];
   const working: Session[] = [];
   const rest: Session[] = [];
   for (const x of order) {
     if (x.status !== "running" || !isClaudeSession(x)) rest.push(x);
+    else if (s.attention.some((a) => a.sessionId === x.id)) asking.push(x);
     else if (x.activity === "working") working.push(x);
     else yours.push(x);
   }
   yours.sort((a, b) => (a.lastInputAt ?? a.activitySince ?? a.createdAt) - (b.lastInputAt ?? b.activitySince ?? b.createdAt));
   const groups: RailGroup[] = [];
+  if (asking.length) groups.push({ key: "asking", label: "asking for you", title: "these sessions asked you to come, and said why", sessions: asking });
   if (yours.length) groups.push({ key: "yours", label: "your move", title: "the turn ended or Claude is asking; longest since you typed first", sessions: yours });
   if (working.length) groups.push({ key: "working", label: "working", title: "a turn is running", sessions: working });
   if (rest.length) groups.push({ key: "rest", label: "other", title: "terminals and closed sessions", sessions: rest });
@@ -361,7 +375,8 @@ function railCache(s: UiState): { groups: RailGroup[]; flat: Session[]; rows: Ra
     c.s.activeSessionId === s.activeSessionId &&
     c.s.groupBy === s.groupBy &&
     c.s.hiddenMachines === s.hiddenMachines &&
-    c.s.repos === s.repos
+    c.s.repos === s.repos &&
+    c.s.attention === s.attention
   )
     return c;
   const groups = buildGroups(baseOrder(s), s);
@@ -466,6 +481,22 @@ export function markFlagsRead(ids: string[]): void {
   if (!ids.length) return;
   send({ type: "flags:markRead", ids });
   setState({ flags: state.flags.map((f) => (ids.includes(f.id) ? { ...f, read: true } : f)) });
+}
+
+/**
+ * You have seen a session's ask. It stops showing everywhere, and the session hears it — a
+ * `henry_attention` call holding for you returns. Answering is the one thing looking does
+ * count for: the message is right there in the chip you clicked.
+ */
+export function answerAttention(ids: string[]): void {
+  if (!ids.length) return;
+  for (const id of ids) send({ type: "attention:answered", id });
+  setState({ attention: state.attention.filter((a) => !ids.includes(a.id)) });
+}
+
+/** The asks a session has open, oldest first. */
+export function asksFor(sessionId: string, s: UiState = state): Attention[] {
+  return s.attention.filter((a) => a.sessionId === sessionId);
 }
 
 export function requestPlaybook(sessionId: string | null): void {

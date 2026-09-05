@@ -37,8 +37,13 @@ describe("pruneHistory", () => {
       db.insertPlaybook(entry(id, now - age * DAY));
     }
     db.markPresence([now - 40 * DAY, now - 2 * DAY], 1);
+    // An ask is swept on its age like everything else, but only once it is over: a live one
+    // is held by its deadline, not by the window.
+    db.upsertAttention({ id: "asked", sessionId: "s1", ts: now - 40 * DAY, message: "come here", deadline: now - 39 * DAY, done: "expired", doneAt: now - 39 * DAY });
+    db.upsertAttention({ id: "asking", sessionId: "s1", ts: now - 40 * DAY, message: "still here", deadline: now + DAY });
     const counts = db.pruneHistory(30);
-    expect(counts).toEqual({ events: 2, flags: 2, playbook: 2, snapshots: 0, presence: 1 });
+    expect(counts).toEqual({ events: 2, flags: 2, playbook: 2, snapshots: 0, presence: 1, attention: 1 });
+    expect(db.listOpenAttention().map((a) => a.id)).toEqual(["asking"]);
     expect(db.listEvents({ sessionId: "s1" }).map((e) => e.id)).toEqual(["fresh"]);
     expect(db.listFlags({ sessionId: "s1" }).map((f) => f.id)).toEqual(["fresh"]);
     expect(db.listPlaybook("s1").map((p) => p.id)).toEqual(["fresh"]);

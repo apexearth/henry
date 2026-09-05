@@ -1,10 +1,10 @@
 // Henry's MCP server: the JSON-RPC envelope, the two tool lists, and henry_activity over
 // real git repos. Run: cd packages/daemon && bun test test/mcp.test.ts
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Session } from "@henry/shared";
+import type { ServerMessage, Session } from "@henry/shared";
 import { rmScratch, stopSessiond } from "./sessiond-helper";
 
 const tmp = realpathSync(mkdtempSync(join(tmpdir(), "henry-mcp-test-")));
@@ -36,9 +36,11 @@ function g(cwd: string, ...args: string[]): string {
 type Mcp = typeof import("../src/mcp");
 type Git = typeof import("../src/git");
 type Db = typeof import("../src/db");
+type Attention = typeof import("../src/attention");
 let mcp: Mcp;
 let git: Git;
 let db: Db;
+let attention: Attention;
 
 /** A PreToolUse write, the record Henry uses to say which session is editing which file. */
 function wrote(sessionId: string, cwd: string, filePath: string): void {
@@ -65,9 +67,10 @@ const session = (over: Partial<Session> & { id: string; cwd: string }): Session 
   ...over,
 });
 
-/** One JSON-RPC request against the handler, as a hosted session or as the wide client. */
-async function rpc(method: string, params?: Record<string, unknown>, as: "session" | "full" = "session"): Promise<any> {
-  const url = new URL(`http://127.0.0.1/mcp${as === "session" ? "?as=session" : ""}`);
+/** One JSON-RPC request against the handler, as a hosted session or as the wide client.
+ * `session` is what launch-mcp.json puts in the URL: the caller naming itself. */
+async function rpc(method: string, params?: Record<string, unknown>, as: "session" | "full" = "session", session?: string): Promise<any> {
+  const url = new URL(`http://127.0.0.1/mcp${as === "session" ? "?as=session" : "?as=full"}${session === undefined ? "" : `&session=${encodeURIComponent(session)}`}`);
   const res = await mcp.handleMcp(new Request(url.href, { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) }), url);
   return res.status === 202 ? undefined : await res.json();
 }
@@ -94,6 +97,7 @@ beforeAll(async () => {
   git = await import("../src/git");
   db = await import("../src/db");
   mcp = await import("../src/mcp");
+  attention = await import("../src/attention");
   mcp.setSessionsForTests(() => fakeSessions);
 });
 
@@ -123,11 +127,12 @@ describe("mcp envelope", () => {
     expect(res.status).toBe(202);
   });
 
-  test("a hosted session sees exactly one tool", async () => {
+  test("a hosted session sees the narrow list and nothing else", async () => {
     const r = await rpc("tools/list");
-    expect(r.result.tools.map((t: { name: string }) => t.name)).toEqual(["henry_activity"]);
-    // The definition rides in every request's system prompt, so its size is part of the contract.
-    expect(JSON.stringify(r.result.tools).length).toBeLessThan(900);
+    expect(r.result.tools.map((t: { name: string }) => t.name)).toEqual(["henry_activity", "henry_attention"]);
+    // The definitions ride in every request's system prompt, so their size is part of the
+    // contract: two tools, and adding a third has to be worth the same cost in every session.
+    expect(JSON.stringify(r.result.tools).length).toBeLessThan(2200);
   });
 
   test("unknown methods and tools fail without throwing", async () => {
@@ -155,7 +160,12 @@ describe("how a session is given the server", () => {
     const installer = await import("../src/installer");
     expect(installer.launchSettings().mcpServers).toBeUndefined();
     expect(installer.launchMcpConfig()).toHaveProperty("mcpServers.henry.type", "http");
-    expect((installer.launchMcpConfig() as any).mcpServers.henry.url).toContain("/mcp?as=session");
+    const url = (installer.launchMcpConfig() as any).mcpServers.henry.url as string;
+    expect(url).toContain("/mcp?as=session");
+    // How a call names its own session: Claude Code expands ${VAR} in an mcp config url
+    // (verified 2026-09-04 against the CLI), and the `:-` default keeps a `claude` started
+    // without HENRY_SESSION from failing to load the server at all.
+    expect(url).toContain("session=${HENRY_SESSION:-}");
   });
 
   test("syncLaunchMcp writes the file when on and removes it when off", async () => {
@@ -244,5 +254,121 @@ describe("henry_activity", () => {
   test("the answer stays small enough to read mid-task", async () => {
     const text = await callActivity("app");
     expect(text.split("\n").length).toBeLessThan(16);
+  });
+});
+
+describe("henry_attention", () => {
+  const sent: ServerMessage[] = [];
+
+  /** The tool as a session calls it. `session` is what launch-mcp.json puts in the URL. */
+  const ask = async (args: Record<string, unknown>, session?: string): Promise<string> => {
+    const r = await rpc("tools/call", { name: "henry_attention", arguments: args }, "session", session);
+    return r.result.content[0].text as string;
+  };
+
+  beforeAll(() => {
+    attention.setBroadcast((m) => sent.push(m));
+    attention.setWindowCount(() => 2);
+  });
+
+  beforeEach(() => {
+    for (const a of attention.open()) attention.finish(a.id, "withdrawn");
+    sent.length = 0;
+  });
+
+  afterAll(() => {
+    attention.stop();
+    attention.setBroadcast(() => {});
+  });
+
+  test("an ask names the session that raised it and reaches the windows", async () => {
+    const text = await ask({ message: "staging deploy window closes at 14:40 — confirm or I skip it", minutes: 10 }, "s1");
+    const open = attention.open();
+    expect(open).toHaveLength(1);
+    expect(open[0]!.sessionId).toBe("s1");
+    expect(open[0]!.message).toContain("staging deploy window");
+    expect(text).toContain("asking the user");
+    expect(text).toContain(open[0]!.id);
+    // It says where it went: an ask nobody can see is worth knowing about.
+    expect(text).toContain("all 2 open Henry windows");
+    expect(sent).toEqual([{ type: "attention:update", attention: open[0]! }]);
+  });
+
+  test("the same words twice is a retry, not a second ask", async () => {
+    await ask({ message: "same thing" }, "s1");
+    const again = await ask({ message: "same thing" }, "s1");
+    expect(attention.open()).toHaveLength(1);
+    expect(again).toContain("already asking");
+  });
+
+  test("a session cannot pile up asks", async () => {
+    for (const m of ["one", "two", "three"]) await ask({ message: m }, "s1");
+    const fourth = await ask({ message: "four" }, "s1");
+    expect(attention.open()).toHaveLength(3);
+    expect(fourth).toContain("already 3 asks open");
+  });
+
+  test("a session withdraws its own ask and nobody else's", async () => {
+    await ask({ message: "hold on" }, "s1");
+    const id = attention.open()[0]!.id;
+
+    fakeSessions.push(session({ id: "s2", cwd: other, title: "other" }));
+    try {
+      expect(await ask({ done: id }, "s2")).toContain("another session's ask");
+      expect(attention.open()).toHaveLength(1);
+    } finally {
+      fakeSessions.pop();
+    }
+
+    expect(await ask({ done: id }, "s1")).toContain("withdrawn");
+    expect(attention.open()).toHaveLength(0);
+    expect(await ask({ done: id }, "s1")).toContain("was answered, withdrawn or timed out");
+  });
+
+  test("waiting returns the moment you show up, and says so", async () => {
+    const pending = ask({ message: "approve the release?", wait: 30 }, "s1");
+    await Bun.sleep(20);
+    // What typing into the session (engagement.ts) or clicking the chip does.
+    attention.answered("s1");
+    expect(await pending).toContain("the user came to this session");
+    expect(attention.open()).toHaveLength(0);
+  });
+
+  test("waiting gives up without dropping the ask", async () => {
+    const text = await ask({ message: "still need you", wait: 0.05 }, "s1");
+    expect(text).toContain("no sign of the user");
+    expect(text).toContain("still up");
+    expect(attention.open()).toHaveLength(1);
+  });
+
+  test("an unnamed caller is the only live Claude session, or nothing at all", async () => {
+    // The URL carries `${HENRY_SESSION}` unexpanded, or a session Henry does not know.
+    expect(await ask({ message: "who is this" }, "${HENRY_SESSION:-}")).not.toContain("could not tell");
+    expect(attention.open()[0]!.sessionId).toBe("s1");
+
+    fakeSessions.push(session({ id: "s2", cwd: other, title: "other" }));
+    try {
+      const text = await ask({ message: "two of us now" }, "nosuchsession");
+      expect(text).toContain("could not tell which session");
+      expect(attention.open().find((a) => a.message === "two of us now")!.sessionId).toBe("");
+    } finally {
+      fakeSessions.pop();
+    }
+  });
+
+  test("an ask drops itself at its deadline", async () => {
+    await ask({ message: "expiring", minutes: 1 }, "s1");
+    const id = attention.open()[0]!.id;
+    attention.sweep(Date.now() + 61_000);
+    expect(attention.open()).toHaveLength(0);
+    expect(sent.at(-1)).toMatchObject({ type: "attention:update", attention: { id, done: "expired" } });
+  });
+
+  test("a message is one line, and a blank one is refused", async () => {
+    expect(await ask({ message: "   " }, "s1")).toContain("an ask needs a message");
+    await ask({ message: "wrapped\nover\nlines " + "x".repeat(400) }, "s1");
+    const a = attention.open()[0]!;
+    expect(a.message).not.toContain("\n");
+    expect(a.message.length).toBeLessThanOrEqual(200);
   });
 });

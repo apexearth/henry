@@ -2,7 +2,7 @@
 // mirrors that daemon's sessions (tagged `peer`) and relays PTY traffic and requests for
 // the windows attached here. When the link drops, its sessions leave the rail until it is
 // back; nothing about them is persisted here, the peer's own DB has all of it.
-import type { Flag, PlaybookEntry, RepoState, ServerMessage, Session, SessionUsage, StateSnapshot } from "@henry/shared";
+import type { Attention, Flag, PlaybookEntry, RepoState, ServerMessage, Session, SessionUsage, StateSnapshot } from "@henry/shared";
 import { FED_VERSION, Handshake, fingerprint, isHello, proofsEqual, signTranscript, verifyTranscript, type Channel, type Derived, type IdentityKeys } from "./fed-crypto";
 import type { FedRequest, FedResponse, PeerRecord } from "./federation";
 
@@ -105,6 +105,8 @@ export class PeerLink {
   sessions = new Map<string, Session>();
   repos: Record<string, RepoState[]> = {};
   flags: Flag[] = [];
+  /** Live asks from the peer's sessions, tagged with `peer` like the sessions they name. */
+  attention: Attention[] = [];
   usage: Record<string, SessionUsage> = {};
   playbook: PlaybookEntry[] = [];
 
@@ -178,6 +180,7 @@ export class PeerLink {
     this.sessions.clear();
     this.repos = {};
     this.flags = [];
+    this.attention = [];
     this.usage = {};
     this.playbook = [];
     for (const w of this.httpWaiters.values()) w({ type: "http:res", id: "", status: 502, contentType: "application/json", body: JSON.stringify({ error: `${this.rec.name}: ${why}` }) });
@@ -220,12 +223,18 @@ export class PeerLink {
     return { ...s, peer: this.rec.name };
   }
 
+  private tagAsk(a: Attention): Attention {
+    return { ...a, peer: this.rec.name };
+  }
+
   private handle(m: FedResponse): void {
     switch (m.type) {
       case "state": {
         this.sessions = new Map(m.sessions.map((s) => [s.id, this.tag(s)]));
         this.repos = m.repos;
         this.flags = m.flags;
+        // A peer from before asks existed sends none; treat that as "nothing to show".
+        this.attention = (m.attention ?? []).map((a) => this.tagAsk(a));
         this.usage = m.usage.perSession;
         this.playbook = m.playbook.filter((p) => p.sessionId !== null);
         this.deps.toWindows({ type: "state", ...this.deps.buildState() });
@@ -264,6 +273,12 @@ export class PeerLink {
         this.flags = [m.flag, ...this.flags.filter((f) => f.id !== m.flag.id)].slice(0, KEEP_FLAGS);
         this.deps.toWindows(m);
         return;
+      case "attention:update": {
+        const ask = this.tagAsk(m.attention);
+        this.attention = ask.done ? this.attention.filter((a) => a.id !== ask.id) : [...this.attention.filter((a) => a.id !== ask.id), ask];
+        this.deps.toWindows({ type: "attention:update", attention: ask });
+        return;
+      }
       case "playbook:update":
         if (m.entry.sessionId === null) return;
         this.playbook = [m.entry, ...this.playbook.filter((p) => p.id !== m.entry.id)].slice(0, KEEP_PLAYBOOK);
@@ -314,6 +329,12 @@ export class PeerLink {
   markRead(ids: string[]): void {
     this.flags = this.flags.map((f) => (ids.includes(f.id) ? { ...f, read: true } : f));
     this.send({ type: "flags:markRead", ids });
+  }
+
+  /** You answered an ask raised over there; the peer clears it and its session is told. */
+  answerAttention(id: string): void {
+    this.attention = this.attention.filter((a) => a.id !== id);
+    this.send({ type: "attention:answered", id });
   }
 
   /** Run an /api/* request on the peer. `path` includes the query string. */

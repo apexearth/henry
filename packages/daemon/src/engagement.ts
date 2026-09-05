@@ -4,6 +4,7 @@
 // the UserPromptSubmit hook (already in the event log, so a restart recovers it) and raw
 // keystrokes relayed to the PTY (throttled, never persisted). Nothing is polled.
 import { isClaudeSession } from "@henry/shared";
+import * as attention from "./attention";
 import * as db from "./db";
 import { notePresence } from "./human";
 import { sessions } from "./sessions";
@@ -39,8 +40,13 @@ function prune(list: number[], now: number): number[] {
 
 /** A hook arrived (hooks.ts). Only prompts and the session's end matter here. */
 export function note(sessionId: string, hookEvent: string, ts = Date.now()): void {
-  if (hookEvent === "SessionEnd") return clear(sessionId);
+  if (hookEvent === "SessionEnd") {
+    // Whatever it was asking you for, there is no longer anyone here to ask.
+    attention.clearSession(sessionId, ts);
+    return clear(sessionId);
+  }
   if (hookEvent !== "UserPromptSubmit") return;
+  attention.answered(sessionId, ts);
   const list = prune(prompts.get(sessionId) ?? [], ts);
   list.push(ts);
   prompts.set(sessionId, list);
@@ -56,6 +62,8 @@ export function input(sessionId: string, data: string, now = Date.now()): void {
   if (!s || s.status !== "running") return;
   if (!isHumanInput(data)) return;
   notePresence("terminal", now);
+  // You are in the session, typing: whatever it asked you for, you have arrived.
+  attention.answered(sessionId, now);
   if (!isClaudeSession(s)) return;
   const prev = lastInput.get(sessionId);
   if (prev !== undefined && now - prev < INPUT_THROTTLE_MS) return;

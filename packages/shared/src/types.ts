@@ -136,6 +136,27 @@ export interface Flag {
   read: boolean;
 }
 
+/**
+ * A session asking for the human, raised through `henry_attention` (daemon/mcp.ts). It is the
+ * one thing a session may push at the user instead of leaving it in a panel, so it is bounded:
+ * an ask with no deadline is a flag, and Henry already has flags.
+ */
+export interface Attention {
+  id: string;
+  /** The session that asked. Empty when Henry could not tell which one called (see mcp.ts). */
+  sessionId: string;
+  ts: number;
+  /** One line, in the session's own words: what the user has to do. */
+  message: string;
+  /** When it stops being worth interrupting for; Henry drops it then. */
+  deadline: number;
+  /** Set once it is over. An ask with no `done` is a live one. */
+  done?: "answered" | "withdrawn" | "expired";
+  doneAt?: number;
+  /** Set by the daemon on asks relayed from a paired machine, like Session.peer. */
+  peer?: string;
+}
+
 export type PlaybookTrigger = "stop" | "flag" | "manual";
 
 export interface PlaybookEntry {

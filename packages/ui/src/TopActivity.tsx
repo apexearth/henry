@@ -14,6 +14,7 @@ import {
   SRC,
   startOfDay,
   unpackDay,
+  type Attention,
   type HumanStats,
   type Minutes,
   type RepoState,
@@ -21,7 +22,7 @@ import {
 } from "@henry/shared";
 import { showSession, showTool } from "./dock";
 import { isHere } from "./presence";
-import { setActive, useStore } from "./ws";
+import { answerAttention, setActive, useStore } from "./ws";
 
 /** The cadence sparkline: 10-minute buckets over the last four hours. */
 const BUCKET_MS = 10 * 60_000;
@@ -71,6 +72,23 @@ function jump(list: Session[]) {
   showSession(s.id);
 }
 
+/** Go to the session that asked (asks are oldest first) and tell every session you have seen
+ * theirs: the messages are in the tooltip you just read, so one click answers the lot. */
+function answer(asks: Attention[]) {
+  const to = asks.find((a) => a.sessionId);
+  if (to) {
+    setActive(to.sessionId);
+    showSession(to.sessionId);
+  }
+  answerAttention(asks.map((a) => a.id));
+}
+
+/** "in 3m" / "now": how long the user has before Henry drops the ask. */
+function inTime(deadline: number, now: number): string {
+  const m = Math.round((deadline - now) / 60000);
+  return m < 1 ? "going now" : m < 60 ? `${m}m left` : `${Math.floor(m / 60)}h left`;
+}
+
 function names(list: { title: string }[]): string {
   return list.slice(0, 6).map((s) => s.title).join(", ") + (list.length > 6 ? ", …" : "");
 }
@@ -87,6 +105,7 @@ function todayMinutes(human: HumanStats | null, now: number): Minutes {
 export function TopActivity() {
   const sessions = useStore((s) => s.sessions);
   const repos = useStore((s) => s.repos);
+  const asks = useStore((s) => s.attention);
   // Your own prompt lands as an event first; refetching on it makes the strip answer instantly.
   const lastPrompt = useStore((s) => s.events.find((e) => e.hookEvent === "UserPromptSubmit")?.id ?? "");
   const [human, setHuman] = useState<HumanStats | null>(null);
@@ -126,8 +145,23 @@ export function TopActivity() {
   const counts = bucket(today, now);
   const busy = minutes.size > 0;
 
+  // The one thing worth saying from outside the window: a session asked for you by name.
+  useEffect(() => {
+    document.title = asks.length ? `❗ Henry — ${asks[0]!.message.slice(0, 60)}` : "Henry";
+  }, [asks]);
+
+  const title = (s: Session | undefined) => s?.title ?? "a session";
+
   return (
     <div className="topbar-act">
+      {asks.length > 0 && (
+        <button className="act-chip asking" onClick={() => answer(asks)}
+          title={`${asks.map((a) => `${title(sessions.find((s) => s.id === a.sessionId))}: ${a.message} (${inTime(a.deadline, now)})`).join("\n")}\nclick: go there, and tell the session${asks.length > 1 ? "s" : ""} you have seen it`}>
+          <span className="dot" />
+          {/* One ask says its piece; several are a count, since the bar has room for one sentence. */}
+          <span className="msg">{asks.length === 1 ? asks[0]!.message : `${asks.length} asks for you`}</span>
+        </button>
+      )}
       {working.length > 0 && (
         <button className="act-chip working" onClick={() => jump(working)} title={`working now: ${names(working)}`}>
           <span className="dot" />
