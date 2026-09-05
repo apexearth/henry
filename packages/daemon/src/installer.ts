@@ -2,7 +2,7 @@
 // settings.json (respecting $CLAUDE_CONFIG_DIR), remove only what Henry added, report.
 // Everything else in the file is preserved (parse, modify, write with 2-space JSON); the
 // original is copied to settings.json.henry-backup once.
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { config } from "./config";
@@ -105,18 +105,44 @@ function eventInstalled(settings: Dict, event: string): boolean {
 export function launchSettings(): Dict {
   const hooks: Dict = {};
   for (const event of HOOK_EVENTS) hooks[event] = [{ matcher: "", hooks: [{ type: "command", command: hookCommand(event) }] }];
-  const settings: Dict = { hooks, statusLine: { type: "command", command: statusCommand() } };
-  // `?as=session` picks the one-tool list: a tool definition rides in the system prompt of
-  // every request this session makes, so hosted sessions get the narrow surface (mcp.ts).
-  if (config.mcp.enabled && config.mcp.sessions) {
-    settings.mcpServers = { henry: { type: "http", url: `http://127.0.0.1:${config.port}/mcp?as=session` } };
-  }
-  return settings;
+  return { hooks, statusLine: { type: "command", command: statusCommand() } };
 }
 
 export function writeLaunchSettings(dir: string): string {
   const path = join(dir, "launch-settings.json");
   writeFileSync(path, JSON.stringify(launchSettings(), null, 2) + "\n");
+  return path;
+}
+
+/**
+ * Henry's MCP server, for `--mcp-config`. It is a separate file and a separate flag because
+ * Claude Code does not read `mcpServers` out of a `--settings` file: verified 2026-09-04 by
+ * pointing each flag at its own port, where the settings one drew no connection at all and
+ * `--mcp-config` drew the full handshake. `?as=session` picks the one-tool list (mcp.ts).
+ * Never paired with `--strict-mcp-config`: this adds Henry's server to the user's own, and
+ * must not replace them.
+ */
+export function launchMcpConfig(): Dict {
+  return { mcpServers: { henry: { type: "http", url: `http://127.0.0.1:${config.port}/mcp?as=session` } } };
+}
+
+/** Whether hosted sessions should carry Henry's tools at all (config switch). */
+export function mcpEnabledForSessions(): boolean {
+  return config.mcp.enabled && config.mcp.sessions;
+}
+
+/**
+ * Write the file when sessions should carry Henry's tools, remove it when they should not, so
+ * turning `mcp.sessions` off takes the server out of the next session rather than leaving a
+ * stale file the PATH shim would still find. Returns the path, or undefined when off.
+ */
+export function syncLaunchMcp(dir: string): string | undefined {
+  const path = join(dir, "launch-mcp.json");
+  if (!mcpEnabledForSessions()) {
+    rmSync(path, { force: true });
+    return undefined;
+  }
+  writeFileSync(path, JSON.stringify(launchMcpConfig(), null, 2) + "\n");
   return path;
 }
 
@@ -160,6 +186,10 @@ for %%s in (${PASSTHROUGH.join(" ")}) do if /i "%~1"=="%%s" (\r
   "%real%" %*\r
   exit /b %errorlevel%\r
 )\r
+if exist "%self%..\\launch-mcp.json" (\r
+  "%real%" --settings "%self%..\\launch-settings.json" --mcp-config "%self%..\\launch-mcp.json" %*\r
+  exit /b %errorlevel%\r
+)\r
 "%real%" --settings "%self%..\\launch-settings.json" %*\r
 exit /b %errorlevel%\r
 `,
@@ -179,7 +209,12 @@ fi
 case "\${1:-}" in
   ${PASSTHROUGH.join("|")})
     exec "$real" "$@" ;;
-  *) exec "$real" --settings "$self/../launch-settings.json" "$@" ;;
+  *)
+    # launch-mcp.json is absent when Henry's tools are switched off, so the flag goes with it.
+    if [ -f "$self/../launch-mcp.json" ]; then
+      exec "$real" --settings "$self/../launch-settings.json" --mcp-config "$self/../launch-mcp.json" "$@"
+    fi
+    exec "$real" --settings "$self/../launch-settings.json" "$@" ;;
 esac
 `,
   );

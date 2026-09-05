@@ -40,6 +40,9 @@ export interface UiState {
   showClosed: boolean;
   /** Rail: grouping of the session list. Persisted. */
   groupBy: GroupBy;
+  /** Rail: machines folded away, by name ("" for this one). Their header stays so they can be
+   * unfolded; their rows leave the list and the ⌘1..9 order. Persisted. */
+  hiddenMachines: string[];
   /** Raw event feed (capped), for the Flags/raw-events views. */
   events: HenryEvent[];
   /** Diffs by `${sessionId}\n${repoPath}`. */
@@ -63,6 +66,7 @@ let state: UiState = {
   activeGroup: null,
   showClosed: readShowClosed(),
   groupBy: readGroupBy(),
+  hiddenMachines: readHiddenMachines(),
   events: [],
   diffs: {},
 };
@@ -81,6 +85,15 @@ function readGroupBy(): GroupBy {
     return v === "cwd" || v === "repos" || v === "attention" ? v : "none";
   } catch {
     return "none";
+  }
+}
+
+function readHiddenMachines(): string[] {
+  try {
+    const v = JSON.parse(localStorage.getItem("henry.hiddenMachines") ?? "[]") as unknown;
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+  } catch {
+    return [];
   }
 }
 
@@ -261,6 +274,9 @@ export interface RailGroup {
   hue?: number;
   /** The paired machine whose sessions these are; unset for this machine's. */
   peer?: string;
+  /** The machine is folded: one group carrying all its sessions so the header still counts
+   * them, but the rail draws no rows and they are out of the ⌘1..9 order. */
+  hidden?: boolean;
   sessions: Session[];
 }
 
@@ -274,9 +290,18 @@ function buildGroups(order: Session[], s: UiState): RailGroup[] {
   const out: RailGroup[] = [];
   for (const peer of [undefined, ...peers]) {
     const mine = order.filter((x) => x.peer === peer);
+    if (s.hiddenMachines.includes(machineKey(peer))) {
+      out.push({ key: `${peer ?? ""}\n hidden`, label: "", title: "", peer, hidden: true, sessions: mine });
+      continue;
+    }
     for (const g of machineGroups(mine, s)) out.push({ ...g, key: `${peer ?? ""}\n${g.key}`, peer });
   }
   return out;
+}
+
+/** How a machine is keyed in `hiddenMachines`: its peer name, or "" for this one. */
+export function machineKey(peer: string | undefined): string {
+  return peer ?? "";
 }
 
 function machineGroups(order: Session[], s: UiState): RailGroup[] {
@@ -335,12 +360,14 @@ function railCache(s: UiState): { groups: RailGroup[]; flat: Session[]; rows: Ra
     c.s.showClosed === s.showClosed &&
     c.s.activeSessionId === s.activeSessionId &&
     c.s.groupBy === s.groupBy &&
+    c.s.hiddenMachines === s.hiddenMachines &&
     c.s.repos === s.repos
   )
     return c;
   const groups = buildGroups(baseOrder(s), s);
-  const flat = groups.length === 1 ? groups[0]!.sessions : groups.flatMap((g) => g.sessions);
-  const rows = groups.flatMap((g) => g.sessions.map((session) => ({ group: g.key, session })));
+  const shown = groups.filter((g) => !g.hidden);
+  const flat = shown.length === 1 ? shown[0]!.sessions : shown.flatMap((g) => g.sessions);
+  const rows = shown.flatMap((g) => g.sessions.map((session) => ({ group: g.key, session })));
   groupCache = { s, groups, flat, rows };
   return groupCache;
 }
@@ -382,6 +409,17 @@ export function toggleShowClosed(): void {
     localStorage.setItem("henry.showClosed", showClosed ? "1" : "0");
   } catch {}
   setState({ showClosed });
+}
+
+/** Fold a machine's sessions away (or bring them back). Nothing is disconnected: the rows just
+ * leave the rail, so a remote you are not working on stops taking up the list. */
+export function toggleMachine(peer: string | undefined): void {
+  const key = machineKey(peer);
+  const hiddenMachines = state.hiddenMachines.includes(key) ? state.hiddenMachines.filter((k) => k !== key) : [...state.hiddenMachines, key];
+  try {
+    localStorage.setItem("henry.hiddenMachines", JSON.stringify(hiddenMachines));
+  } catch {}
+  setState({ hiddenMachines });
 }
 
 export function setGroupBy(groupBy: GroupBy): void {

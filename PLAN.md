@@ -224,7 +224,10 @@ until it is back. Two machines that both listen dial each other, so each window 
   there, are dropped: reaching that machine takes its own pairing.
 - **In the rail** a peer's sessions sit under their own delimiter (its name, coloured like a
   repo name, on a dotted rule) below this machine's, whatever the grouping; "+ new" offers
-  the connected machines as a place to start the session. File peeks and ⌘K read from the machine of the
+  the connected machines as a place to start the session. **The delimiter folds**: clicking it
+  hides that machine's rows (the header keeps its count, so it can be unfolded) and takes them
+  out of ⌘1..9 / ⌘↑↓. Folding is a view choice, persisted per browser; the link stays up and
+  the sessions keep running. File peeks and ⌘K read from the machine of the
   session you are looking at. Global playbook and 5h/7d usage stay per machine (same
   account, same limits).
 
@@ -239,12 +242,18 @@ router, and the rail stays a truthful record of who did what.
 - **The tools are an MCP server on the daemon** (`daemon/src/mcp.ts`), `POST /mcp`, JSON-RPC
   2.0, no SDK: one endpoint answering initialize / ping / tools/list / tools/call is not worth
   a dependency. Loopback only, like `/hook`.
+- **MCP reaches a session through `--mcp-config`, never `--settings`.** Claude Code does not
+  read `mcpServers` out of a settings file: verified 2026-09-04 by pointing each flag at its
+  own port, where the settings one drew no connection at all and `--mcp-config` drew the full
+  handshake. So `~/.henry/launch-mcp.json` is its own file beside `launch-settings.json`, and
+  every hosted session gets both flags (the PATH shim too, guarded on the file existing).
+  Never `--strict-mcp-config`: Henry's server is added to the user's own, not put in their place.
 - **A tool definition is a tax on every request of every session**, since it rides in the
-  system prompt all day. So the server serves **two tool lists**. `?as=session` (what
-  `launch-settings.json` points at) is the narrow one: today exactly `henry_activity`, under
-  900 bytes of schema, and adding to it has to be worth the same cost in all four sessions.
-  A client that connects without it gets the wide list, where one process pays once; that is
-  where the overseer's own tools go.
+  system prompt all day (measured: 127 tokens for `henry_activity`). So the server serves
+  **two tool lists**. `?as=session` (what `launch-mcp.json` points at) is the narrow one:
+  today exactly `henry_activity`, under 900 bytes of schema, and adding to it has to be worth
+  the same cost in all four sessions. A client that connects without it gets the wide list,
+  where one process pays once; that is where the overseer's own tools go.
 - **`henry_activity(repo?)`** answers "who else is in this repo and what are they holding".
   Per checkout: branch, ahead/behind, uncommitted count; each live session with its `activity`
   (a session `waiting on the human 45m` is parked, so its dirty files are not in flight) and
@@ -261,8 +270,10 @@ router, and the rail stays a truthful record of who did what.
   repos, files and commits, `~` for the home prefix, and one 5s cache so an agent checking
   several files in a row costs one set of git spawns.
 - **`mcp.sessions: false` takes it out of the sessions** and leaves the endpoint up; `mcp.enabled:
-  false` turns the whole thing off. `henry install` does not add the server to the user's own
-  settings.json: that would put Henry's tools in every Claude on the machine, Henry's or not.
+  false` turns the whole thing off. Off *deletes* `launch-mcp.json` rather than just skipping the
+  write, since the PATH shim decides by whether the file is there. `henry install` does not add
+  the server to the user's own config: that would put Henry's tools in every Claude on the
+  machine, Henry's or not.
 
 ## Layout
 

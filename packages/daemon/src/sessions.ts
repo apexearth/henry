@@ -11,7 +11,7 @@ import { basename } from "node:path";
 import type { Session, SessionKind } from "@henry/shared";
 import { config, henryDir } from "./config";
 import * as db from "./db";
-import { writeLaunchBin, writeLaunchSettings } from "./installer";
+import { syncLaunchMcp, writeLaunchBin, writeLaunchSettings } from "./installer";
 import { defaultShell, expandTilde, prependPath, programName, redrawByShrink, resolveClaude, spawnSpec } from "./platform";
 import { SessiondClient, type SessionSummary } from "./sessiond-client";
 
@@ -221,7 +221,12 @@ class SessionManager extends EventEmitter<SessionEvents> {
     // Henry-launched claude: pin its session id to ours (no hook round-trip needed to
     // bind) and layer Henry's hooks + statusline on top of the user's settings.
     const claudeId = opts.resume ?? id;
-    const args = opts.args ?? (isClaude ? [opts.resume ? "--resume" : "--session-id", claudeId, "--settings", writeLaunchSettings(henryDir)] : shell?.args ?? []);
+    // MCP is its own flag: Claude Code ignores `mcpServers` inside a --settings file.
+    const mcpPath = isClaude ? syncLaunchMcp(henryDir) : undefined;
+    const henryArgs = isClaude
+      ? [opts.resume ? "--resume" : "--session-id", claudeId, "--settings", writeLaunchSettings(henryDir), ...(mcpPath ? ["--mcp-config", mcpPath] : [])]
+      : shell?.args ?? [];
+    const args = opts.args ?? henryArgs;
     const session: Session = {
       id,
       claudeSessionId: isClaude && !opts.args ? claudeId : undefined,
@@ -248,6 +253,7 @@ class SessionManager extends EventEmitter<SessionEvents> {
       // A `claude` typed into this shell goes through Henry's shim, which adds the launch
       // settings; its first hook (HENRY_SESSION) then marks the terminal as running Claude.
       writeLaunchSettings(henryDir);
+      syncLaunchMcp(henryDir);
       prependPath(env, writeLaunchBin(henryDir));
       env.HENRY_CLAUDE = resolveClaude();
     }

@@ -19,7 +19,10 @@ import * as db from "./db";
 import * as git from "./git";
 import { sessions } from "./sessions";
 
-const PROTOCOL_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
+// Newest first. Claude Code asks for 2025-11-25; answering with an older one works, since the
+// four methods here have not changed across any of these, but echoing the client's version
+// keeps the handshake off the fallback path.
+const PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 const SERVER_INFO = { name: "henry", version: "0.1.0" };
 
 // Output caps. An answer is read by a model mid-task, so it is a dozen lines, not a report.

@@ -347,12 +347,16 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 .size-badge { position: fixed; transform: translate(-50%, -50%); pointer-events: none; z-index: 50; font-size: 12px; padding: 2px 8px; border-radius: 4px; background: var(--bg); color: var(--fg); border: 1px solid var(--accent); white-space: nowrap; }
 
 /* federation: the rail delimits each paired machine's sessions (Rail.tsx), and the remotes menu */
-.rail-machine-h { display: flex; gap: 8px; align-items: center; padding: 10px 8px 2px; color: var(--fg-dim); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
+.rail-machine-h { display: flex; gap: 8px; align-items: center; width: 100%; padding: 10px 8px 2px; background: none; border: none; border-radius: 0; text-align: left; color: var(--fg-dim); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
+.rail-machine-h:hover { border-color: transparent; color: var(--fg); }
 .rail-group:first-child .rail-machine-h { padding-top: 6px; }
 .rail-machine-h::after { content: ""; flex: 1; border-top: 1px solid var(--border); }
 .rail-machine-h.remote::after { border-top-style: dotted; }
 .rail-machine-h .name { overflow: hidden; text-overflow: ellipsis; }
 .rail-machine-h .n { flex: none; color: var(--fg-faint); }
+/* After the rule that draws it (::after is order 0 like the rest), so the caret sits at the far right. */
+.rail-machine-h .fold { order: 1; flex: none; color: var(--fg-faint); }
+.rail-machine-h:hover .fold { color: var(--fg); }
 .picker-machines { display: flex; gap: 6px; align-items: center; padding: 10px 12px 0; font-size: 12px; }
 .picker-machines .hint { color: var(--fg-dim); font-size: 11px; }
 .chip { background: none; border: 1px dotted var(--border); border-radius: 10px; padding: 1px 8px; font-size: 11px; color: var(--fg-dim); }

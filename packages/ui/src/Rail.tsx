@@ -6,7 +6,7 @@ import { MOD, baseName, isMac } from "./platform";
 import { inShell, onMenu } from "./shell";
 import { hueText, nameHue } from "./theme";
 import { showSession } from "./dock";
-import { activeRowIndex, duplicateSession, killSession, railGroups, railRows, resumeSession, setActive, setGroupBy, toggleShowClosed, useStore, type GroupBy } from "./ws";
+import { activeRowIndex, duplicateSession, killSession, railGroups, railRows, resumeSession, setActive, setGroupBy, toggleMachine, toggleShowClosed, useStore, type GroupBy } from "./ws";
 
 const base = baseName;
 
@@ -158,11 +158,13 @@ export function Rail() {
         {groups.map((g, gi) => (
           <div key={g.key} className="rail-group">
             {relayed && (gi === 0 || groups[gi - 1]!.peer !== g.peer) && (
-              <div className={"rail-machine-h" + (g.peer ? " remote" : "")}
-                title={g.peer ? `sessions on ${g.peer} (remote, via its own Henry daemon)` : "sessions on this machine"}>
+              <button className={"rail-machine-h" + (g.peer ? " remote" : "")}
+                onClick={() => toggleMachine(g.peer)}
+                title={`${g.peer ? `sessions on ${g.peer} (remote, via its own Henry daemon)` : "sessions on this machine"} — click to ${g.hidden ? "show" : "hide"} them`}>
                 <span className="name" style={g.peer ? { color: hueText(nameHue(g.peer)) } : undefined}>{g.peer ?? host ?? "this machine"}</span>
                 <span className="n">{machineCount(g.peer)}</span>
-              </div>
+                <span className="fold" aria-hidden>{g.hidden ? "▸" : "▾"}</span>
+              </button>
             )}
             {g.label && (
               <div className="rail-group-h" title={g.title}>
@@ -170,7 +172,7 @@ export function Rail() {
                 <span className="n">{g.sessions.length}</span>
               </div>
             )}
-            {g.sessions.map((s: Session) => {
+            {!g.hidden && g.sessions.map((s: Session) => {
               const u = unread(s.id);
               const hasAlarm = u.some((f) => f.severity === "alarm");
               const claude = isClaudeSession(s);

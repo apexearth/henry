@@ -1,7 +1,7 @@
 // Henry's MCP server: the JSON-RPC envelope, the two tool lists, and henry_activity over
 // real git repos. Run: cd packages/daemon && bun test test/mcp.test.ts
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Session } from "@henry/shared";
@@ -111,7 +111,7 @@ describe("mcp envelope", () => {
     expect(r.result.capabilities.tools).toBeDefined();
     expect(r.result.serverInfo.name).toBe("henry");
     // An unknown version falls back to ours rather than failing the handshake.
-    expect((await rpc("initialize", { protocolVersion: "1999-01-01" })).result.protocolVersion).toBe("2025-06-18");
+    expect((await rpc("initialize", { protocolVersion: "1999-01-01" })).result.protocolVersion).toBe("2025-11-25");
   });
 
   test("a notification gets 202 and no body", async () => {
@@ -144,6 +144,45 @@ describe("mcp envelope", () => {
     ]);
     const out = (await (await mcp.handleMcp(new Request(url.href, { method: "POST", body }), url)).json()) as unknown[];
     expect(out).toHaveLength(2);
+  });
+});
+
+describe("how a session is given the server", () => {
+  test("mcpServers stays out of launch-settings.json", async () => {
+    // Claude Code ignores `mcpServers` in a --settings file (verified 2026-09-04 against the
+    // CLI: the settings flag drew no connection, --mcp-config drew the full handshake). Putting
+    // it there again would look right in the file and silently reach no session.
+    const installer = await import("../src/installer");
+    expect(installer.launchSettings().mcpServers).toBeUndefined();
+    expect(installer.launchMcpConfig()).toHaveProperty("mcpServers.henry.type", "http");
+    expect((installer.launchMcpConfig() as any).mcpServers.henry.url).toContain("/mcp?as=session");
+  });
+
+  test("syncLaunchMcp writes the file when on and removes it when off", async () => {
+    const installer = await import("../src/installer");
+    const { config } = await import("../src/config");
+    const path = join(home, "launch-mcp.json");
+
+    config.mcp = { enabled: true, sessions: true };
+    expect(installer.syncLaunchMcp(home)).toBe(path);
+    expect(existsSync(path)).toBe(true);
+
+    // Off has to remove it: the PATH shim decides by whether the file is there.
+    config.mcp = { enabled: true, sessions: false };
+    expect(installer.syncLaunchMcp(home)).toBeUndefined();
+    expect(existsSync(path)).toBe(false);
+    config.mcp = { enabled: true, sessions: true };
+  });
+
+  test("the PATH shim passes --mcp-config only when the file exists", async () => {
+    const installer = await import("../src/installer");
+    const bin = installer.writeLaunchBin(home);
+    const shim = readFileSync(join(bin, "claude"), "utf8");
+    expect(shim).toContain("--settings");
+    expect(shim).toContain("--mcp-config");
+    expect(shim).toContain('if [ -f "$self/../launch-mcp.json" ]');
+    // --strict-mcp-config would drop the user's own servers; Henry adds to them.
+    expect(shim).not.toContain("--strict-mcp-config");
   });
 });
 
