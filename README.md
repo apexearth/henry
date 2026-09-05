@@ -2,227 +2,142 @@
 
 <img src="packages/ui/public/henry.svg" alt="" width="72" align="right">
 
-Hosts Claude Code sessions in PTYs and shows what they do: sessions as tabs, terminal
-in the middle, repos / flags / playbook / usage on the right. `PLAN.md` is the contract.
+Henry is a local dashboard for running several Claude Code sessions at once. It hosts the
+sessions, reads the hooks Claude Code already fires, watches your repos, and puts the lot
+on one screen.
 
-Three processes: **henry-sessiond** (`packages/sessiond`, Node) owns the PTYs and their
-scrollback and is meant to run for weeks; the **daemon** (`packages/daemon`, Bun) owns
-the DB, HTTP/WS, hooks, git and the overseer, and talks to sessiond over loopback TCP;
-the **UI** (`packages/ui`) is a browser window attached to the daemon. The daemon can
-restart as often as it likes (it does, under `bun --watch`, on every source edit) and
-reconnects to the same live sessions with their scrollback intact.
+Three or four agents in parallel is where you lose track of which one is stuck, which one
+is waiting on you, and what the others changed. That is the whole problem it solves.
 
-## Run
+- Every agent's status in one view: working, blocked on a permission prompt, waiting on
+  you, idle.
+- Which repos each session touched and what it changed there, attributed per session, not
+  per repo.
+- Flags on force pushes, `rm -rf`, commits on a protected branch, writes into the wrong
+  repo. Henry never blocks, it only flags.
+- Sessions aware of each other: one can ask who else is in this repo and what they are
+  holding uncommitted.
+- A session can call for you by name when something is timed, and it lands in the window
+  title.
+- Machines paired over Tailscale, so one window drives both.
+- ⌘K by filename, ⌘F to browse or `git grep` every repo, files open read-only over the
+  terminal.
+- 5h and 7d subscription usage, plus tokens, cost and context per session.
+- Sessions survive daemon restarts, closed windows and crashed browsers.
+
+Skip it if you run one session at a time in one repo, or if tmux already does the job.
+
+Everything is local. The exceptions are `gh pr list` for PR counts, the overseer's LLM
+calls if you turn it on (off by default), and machines you paired on your own tailnet.
+
+## What it looks like
+
+```
+┌──────────┬──────────────────────────────────────┬──────────────────────┐
+│ sessions │                                      │ Repos│Flags│Playbook │
+│ ▣ Rail fi│                                      │                      │
+│ ▣ Stealth│         xterm.js (WebGL)             │  per-repo cards:     │
+│ >_ henry │         one per session              │  branch, ↑↓ upstream │
+│ ▢ arm ⚑2 │                                      │  commits since base  │
+│ + new    │                                      ├──────────────────────┤
+│ 3 running│                                      │ Usage  5h ▇▇▁ 7d ▇▁▁ │
+└──────────┴──────────────────────────────────────┴──────────────────────┘
+```
+
+The rail is one row per session, titled by the terminal and coloured by what that session
+is doing. It is the only session selector: one terminal shows at a time. Every panel is a
+dockable tab, so drag to split, stack or float, and "reset layout" puts back the picture
+above.
+
+⌘1..9 and ⌘↑/↓ walk the rail, ⌘D duplicates a session, ⌃N opens the new-session picker,
+⌘K finds a file and ⌘F browses or greps. `keys` in the top bar lists the rest. In a browser
+tab Chrome keeps ⌘N and ⌘digit, so those are Ctrl there.
+
+## Install
+
+There is no installer and no published package. Clone it and run from source.
 
 ```sh
 bun install
-bun run dev        # daemon (bun --watch) on :14711 + Vite on :14713 + the native window
+bun run build
+bun run start        # http://127.0.0.1:14711
 ```
 
-`bun run dev` also builds the shell (debug `cargo build`, skipped without a Rust
-toolchain or with `--no-shell`) and opens it on the Vite page once Vite answers, so the
-window hot-reloads too; an edit under `src-tauri` rebuilds and reopens it. Each of the
-three is restarted if it dies, after a delay that doubles while it keeps dying; closing
-the window is a clean exit and leaves it closed. Or open http://127.0.0.1:14713 in a browser. The window is a dockable workspace: drag a tool tab
-(Sessions, Repos, Flags, ...) to split, stack, edge-dock or float it; the arrangement is
-saved per browser and "reset layout" in the top bar restores rail | terminal | tools. The
-terminal in the centre has no tabs: the rail picks which session is shown. To point
-the dev page at a private daemon, run Vite with `HENRY_PORT=<port>`. For a
-production-style run:
+First run asks for a repos root, one folder with your repos as subfolders. Sessions you
+start from Henry are instrumented automatically, with no changes to your machine.
 
-```sh
-bun run build      # typechecks every package, builds packages/ui/dist
-bun run start      # daemon serves ui/dist at http://127.0.0.1:14711
-```
-
-Several browser windows can open the same URL; they all attach to the one daemon and
-see the same sessions with live output. Only the Vite page hot-reloads on source edits;
-windows on :14711 show `ui/dist` and reload themselves as soon as `bun run build` writes a
-new one (the daemon polls `dist/index.html` and tells every window). Editing daemon source under `bun run dev` restarts
-only the daemon: sessions keep running in sessiond and the windows reconnect. `bun run
-sessiond` runs sessiond in the foreground for debugging (the daemon then attaches to it
-instead of starting its own). `Cmd+1..9` (or `Ctrl+1..9`, since Chrome on macOS reserves Cmd+digit) switches tabs in
-rail order; `Cmd+↑/↓` steps through them; `Ctrl+N` (Cmd+N is Chrome's new window) opens "+ new";
-`Cmd+D` duplicates the current tab: a new session of the same kind in the same folder.
-The `keys` button in the top bar (or `Cmd+/`) lists every shortcut.
-`bun run app` opens the same UI in a native window instead, where the Cmd keys are yours:
-`Cmd+N` is File > New Session, `Cmd+D` File > Duplicate Session, and `Cmd+1..9` reach the page. It needs a Rust toolchain and
-attaches to whatever daemon is already running (`HENRY_URL` or `HENRY_PORT` to point it
-elsewhere); `bun run app:bundle` writes Henry.app. `Shift+Enter` inserts a newline in Claude Code's
-prompt. The rail shows the terminal title (what `/rename` sets); exited sessions are hidden
-behind the footer's "N closed" toggle, and × on one drops it for good.
-
-`+ new` opens a picker: type to filter, `↑↓` to choose, Enter to open. Every repo under
-`reposRoot` is listed as a Claude session (Clawd) and again as a plain terminal (`>_`, your
-`$SHELL -l`); typing `terminal` or `$` narrows to the latter, and an absolute or `~` path
-offers both for that directory. The rail marks each session by what is actually running:
-a terminal in which you type `claude` shows Clawd while that Claude runs, because the shells
-Henry hosts get `~/.henry/bin/claude` first on PATH, a shim that adds Henry's launch
-settings (hooks + statusline) so no `henry install` is needed for it. Subcommands such as
-`claude mcp ...` pass through the shim untouched.
-
-Smoke test (boots a throwaway daemon, drives it over WebSocket with `/bin/sh`, or PowerShell
-on Windows, in place of `claude`):
-
-```sh
-bun run smoke
-```
-
-Config lives in `~/.henry/config.json` (defaults in `packages/shared/src/types.ts`), edited
-from Settings (⌘, / Ctrl+,) or by hand — the daemon watches the file and hot-reloads either
-way. `retentionDays` (30) is how much history is kept: events, flags, playbook entries and
-usage snapshots older than that are swept at startup and every 6h, `0` keeps everything.
-The playbook is off by default (`overseer.onStop`/`onFlag`); each entry is an LLM call.
-The database is `~/.henry/henry.db`; sessiond writes `~/.henry/sessiond.json` (port, token,
-pid) and `~/.henry/sessiond.log`; the daemon writes `~/.henry/port`, the port it actually
-bound, which is how a session that has outlived a port change still finds it (see the hook
-scripts below). `HENRY_HOME` and `HENRY_PORT` override all of it for tests.
-`config.host` (default: short `os.hostname()`) is stamped on every session the daemon
-creates, groundwork for running daemons on several machines.
-
-CLI (`packages/daemon/src/index.ts`): `henry start | install | uninstall | status | pair | peers`, plus
-
-- `henry sessiond status` — prints `sessiond.json`, whether that process answers a ping,
-  its protocol version against the daemon's, and how many sessions it holds.
-- `henry sessiond restart [--now]` — asks sessiond to exit once every session has ended
-  (the daemon starts a fresh one on its next connect), or with `--now` hangs up every
-  session and exits immediately. This is how a new sessiond version gets picked up; the
-  daemon warns at startup when the two protocol versions differ.
-
-## What the sessions can ask Henry
-
-Every session Henry starts carries two tools from Henry's own MCP server (loopback only;
-`mcp.enabled` / `mcp.sessions` in the config turn them off):
-
-- **`henry_activity(repo?)`** — who else is in this repo, what they are holding uncommitted,
-  what landed recently. Read-only.
-- **`henry_attention(message, minutes?, wait?, done?)`** — *come here, this is timed.* The
-  message shows as a chip in the top bar, on the session's rail row and in the window title
-  until you answer it or its deadline passes (30 minutes by default). It is for work that goes
-  stale — an expiring code, a deploy window, a destructive step worth confirming — not for
-  ordinary questions, which the rail already shows as "your move". Clicking the chip takes you
-  to the session and tells it you came; so does typing into the session. A session can hold its
-  call open for up to 55 seconds (`wait`) to find out whether you arrived — Claude Code abandons
-  an MCP tool call at 60 — and withdraw an ask it no longer needs (`done`). Three open asks per
-  session is the limit.
-
-Sessions cannot type into each other, message each other, or change Henry's config. Asking for
-you is the only thing a session can push.
-
-## Sessions on other machines
-
-Run Henry on each machine (they share nothing; every daemon has its own DB and sessiond),
-then pair them once and each window shows both. The daemon listens for peers on the
-machine's Tailscale address, port 14712, and nowhere else (`federation.listen` in
-`~/.henry/config.json`: `"tailscale"`, `"off"`, or an address). To pair: on machine A open
-**remotes** in the top bar and click "show a pairing code" (or run `henry pair`); on machine
-B open remotes → join, enter A's address and the code. That is all: A stores B's key and
-dials B back, B stores A's key and dials A, and sessions from the other machine appear in
-the rail with a dotted chip naming it. Compare the fingerprints the menu shows on both
-sides. Pairing codes live ten minutes and work once; every connection after that is
-mutually authenticated by the stored keys and encrypted end to end (details in
-`PLAN.md`, "Federation"). `henry peers` lists what is paired; `henry peers forget <name>` or
-the menu's × drops a machine. If a paired machine's address or port changes, the menu's
-"address" button (or `henry peers url <name> <host[:port]>`) re-points it without pairing
-again: the stored key still has to match.
-
-A paired machine can do to your sessions what a window can, typing included. Pair only over
-your own tailnet, with machines you own.
-
-## Install hooks
-
-Henry learns what a session does from Claude Code's own hooks and status line. Nothing is
-wired up until you run:
+Claude Code sessions started elsewhere (Zed, a plain terminal) need the hooks installed
+globally:
 
 ```sh
 bun packages/daemon/src/index.ts install
 ```
 
-That merges into `~/.claude/settings.json` (or `$CLAUDE_CONFIG_DIR/settings.json`):
+That merges hook entries and a status line into `~/.claude/settings.json`, backing the file
+up first and leaving a `statusLine` you already have alone. It is idempotent, `uninstall`
+removes only what it added, and `status` says what is wired up.
 
-- one `{ matcher: "", hooks: [{ type: "command", command: "<repo>/packages/daemon/hooks/henry-hook.sh <Event>" }] }`
-  entry for each of PreToolUse, PostToolUse, Stop, SubagentStop, UserPromptSubmit,
-  SessionStart, SessionEnd, PreCompact, Notification, PermissionRequest, unless an entry for that event
-  already runs `henry-hook.sh`;
-- `statusLine: { type: "command", command: "<repo>/packages/daemon/hooks/henry-statusline.sh" }`,
-  but only if you have no `statusLine` yet. If you do, install prints a warning and leaves
-  it; `HENRY_FORCE_STATUSLINE=1 henry install` replaces it and keeps the old value under
-  `_henryPreviousStatusLine` so `henry uninstall` can put it back.
+The bad parts, since you will hit them: the installed hook paths point into the checkout,
+so moving it breaks them until you re-run install. Nothing keeps the daemon running, no
+service and no launchd job. `uninstall` cleans settings.json but leaves `~/.henry` for you
+to delete.
 
-Everything else in the file is preserved; the first run copies the original to
-`settings.json.henry-backup`. `henry install` is idempotent, `henry uninstall` removes only
-what Henry added, and `henry status` shows which events are installed, whose status line is
-active, and whether the daemon answers.
+## Run
 
-The hook script POSTs each hook payload to `http://127.0.0.1:<port>/hook` with
-`--max-time 1` and always exits 0, so a stopped daemon costs a session nothing. `<port>` is
-read from `~/.henry/port` (`$HENRY_HOME/port` when that is set), which the running daemon
-writes, falling back to `$HENRY_PORT` and then 14711: a session started before the daemon
-changed ports carries a stale `HENRY_PORT` for as long as it lives, and the file is what
-keeps it reporting. The status
-line script POSTs Claude Code's statusline JSON (which carries `rate_limits.five_hour` /
-`seven_day`) to `/statusline` and prints the daemon's reply, e.g. `henry · 5h 42% ↻2h10m ·
-7d 17% ↻3d · $1.23`; when the daemon is down it prints nothing. Sessions started outside
-Henry (Zed, a plain terminal) still post hooks and show up in the rail as "external"
-sessions with events and usage but no terminal output. Per-session tokens and cost come from
-tailing `~/.claude/projects/<slug>/<session_id>.jsonl`; the cost shown prefers Claude Code's
-own `total_cost_usd` from the status line and falls back to a list-price estimate.
+```sh
+bun run dev          # daemon :14711 + Vite :14713 + native window, all reloading
+bun run app          # native window against a running daemon (needs Rust)
+bun run test
+bun run smoke        # throwaway daemon driven over WS, /bin/sh in place of claude
+```
 
-Tests (`bun run test`, which runs each file in `packages/daemon/test` in its own process)
-exercise all of this against throwaway daemons and a scratch `CLAUDE_CONFIG_DIR`; they never
-touch `~/.claude` or `~/.henry`, and every test stops the sessiond it started (by pid, via
-`test/sessiond-helper.ts`). `test/survival.test.ts` is the daemon-restart proof: create a
-shell, SIGTERM the daemon, start another one, find the same shell running with its scrollback.
+Editing daemon source restarts only the daemon. Sessions keep running in sessiond and the
+windows reconnect. Several windows can attach to one daemon at once.
+
+## Machines
+
+Run Henry on each machine, then pair once: `henry pair` (or remotes → "show a pairing
+code") on one, remotes → join on the other. Keys are pinned at pairing, every connection
+after that is mutually authenticated and encrypted, and the daemon listens on the Tailscale
+address only. `henry peers` lists them, `henry peers forget <name>` drops one.
+
+A paired machine can do to your sessions what a window can, typing included. Pair only with
+machines you own.
+
+## What a session can ask Henry
+
+Two MCP tools, loopback only, on sessions Henry starts:
+
+- `henry_activity(repo?)`: who else is in this repo, what they are holding uncommitted,
+  what landed recently. Read-only.
+- `henry_attention(message, minutes?)`: come here, this one is timed. Shows in the top bar,
+  the rail and the window title until you answer it or its deadline passes.
+
+That is all of it. Sessions cannot type into each other, message each other, or change
+Henry's config.
+
+## Config
+
+`~/.henry/config.json`, edited in Settings (⌘,) or by hand, hot-reloaded either way. The
+keys worth knowing: `reposRoot`, `retentionDays` (30), `overseer` (the playbook, off by
+default since every entry is an LLM call), `mcp`, `federation`, `rules`. `~/.henry` also
+holds the SQLite database, the sessiond details and the federation key. `HENRY_HOME` and
+`HENRY_PORT` override both, which is how the tests stay off yours.
 
 ## Requirements
 
-- bun ≥ 1.2 (daemon runtime, `bun:sqlite`, `Bun.serve` WebSockets)
-- node ≥ 22.6 on `PATH` (runs sessiond, see below; also the hook scripts on Windows)
-- `claude` on `PATH`
-- git on `PATH`
+bun ≥ 1.2, node ≥ 22.6 on PATH, `claude`, git. Optional: `gh` for PR counts, a Rust
+toolchain for the native window, Tailscale for pairing.
 
-## Windows
+macOS and Windows, no WSL. On Windows a plain terminal is PowerShell, hooks run under node
+instead of curl, and the shortcuts shift to Ctrl and Alt.
 
-Henry runs natively on Windows (no WSL): the same daemon, sessiond on ConPTY, the same UI.
-`bun run dev`, `bun run build`, `bun run test` and `bun run smoke` work from PowerShell or
-Git Bash. What is different:
+## Shape
 
-- A plain terminal is PowerShell (`pwsh` if installed, else Windows PowerShell; cmd.exe only
-  when neither exists), not `$SHELL -l`. Typing `claude` in it still goes through Henry's shim
-  (`~/.henry/bin/claude.cmd`; a Git Bash terminal uses the sh shim next to it).
-- `henry install` writes `node <repo>/packages/daemon/hooks/henry-hook.mjs <Event>` (and the
-  statusline twin) into settings.json, since Claude Code on Windows runs hooks under Git Bash
-  or PowerShell and neither is guaranteed curl. Paths are written with forward slashes on
-  purpose: Git Bash strips unquoted backslashes.
-- Shortcuts in a browser tab: `Ctrl+1..9` pick a tab, `Alt+↑/↓` step through the rail, `Alt+←/→`
-  walk the stage, `Alt+N` opens "+ new" (Chrome reserves `Ctrl+N`), `Ctrl+Shift+D` duplicates,
-  `Ctrl+K` finds a file (outside the terminal), `Ctrl+/` lists every shortcut. In the native window `Ctrl+N` is File > New Session.
-- Closing a session terminates it (ConPTY has no SIGHUP to send); `henry sessiond restart
-  --now` does the same to every session.
-- `bun run app` needs a Rust toolchain and WebView2 (preinstalled on Windows 10/11);
-  `bun run app:bundle` writes an NSIS installer and an MSI.
-- `federation.listen: "tailscale"` finds the Tailscale adapter the same way; Windows Firewall
-  may ask once about port 14712.
+- `packages/sessiond` (Node, node-pty only) owns the PTYs and outlives the daemon.
+- `packages/daemon` (Bun) is HTTP/WS on 127.0.0.1:14711, SQLite, hooks, transcripts, git,
+  rules, overseer, MCP and federation.
+- `packages/ui` (Vite + React + xterm.js) is the page, `packages/shell` is a Tauri window
+  on it for the macOS menu, `packages/shared` holds the types and WS protocol.
 
-## sessiond, node-pty and Bun
-
-The daemon runs on Bun, but node-pty does not work under Bun 1.3.3: the PTY spawns, but
-Bun cannot read the pty master through `net.Socket`, so no data or exit ever arrives
-(verified with a direct probe). Bun's own `Bun.Terminal` / `Bun.spawn({ terminal })`
-exists in newer bun-types but is not in 1.3.3.
-
-So the PTYs live in `henry-sessiond` (`packages/sessiond`, Node, node-pty is its only
-dependency), which doubles as the thing that keeps sessions alive across daemon restarts.
-The daemon (`packages/daemon/src/sessiond-client.ts`, driven by `sessions.ts`) reads
-`sessiond.json`, connects with the token, and on a missing, stale or unresponsive file
-starts `node --experimental-strip-types packages/sessiond/src/main.ts --daemon` (the flag is
-a no-op on Node ≥ 22.18, where types are stripped by default) and waits for a fresh file. On start
-the daemon reconciles: sessions sessiond still holds are running in the rail (attached, with
-scrollback fetched from sessiond on every window attach); sessions from the last 24h that
-sessiond does not have come back as exited with a note. Stopping the daemon never stops
-sessiond; `henry sessiond restart` does. sessiond ignores SIGHUP and refuses SIGTERM while
-a session runs. Protocol and lifecycle: `packages/sessiond/README.md`.
-
-Install detail: node-pty's `postinstall` is what marks its `spawn-helper` binary
-executable, and bun only runs it for `trustedDependencies` (set in the root
-`package.json`). sessiond also fixes the bit at startup in case it was skipped.
+`PLAN.md` is the design contract and explains everything this file leaves out.
