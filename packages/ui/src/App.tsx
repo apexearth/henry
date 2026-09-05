@@ -2,7 +2,12 @@ import { useEffect, useState } from "react";
 import { HenryMark } from "./HenryMark";
 import { ThemeMenu } from "./ThemeMenu";
 import { RemotesMenu } from "./RemotesMenu";
+import { PhoneMenu } from "./PhoneMenu";
 import { PrsMenu } from "./PrsMenu";
+import { Mobile } from "./mobile/Mobile";
+import { Gate } from "./mobile/Gate";
+import { useMobile } from "./mobile/useMobile";
+import type { Access } from "./access";
 import { Explorer, type ExplorerProps } from "./Explorer";
 import { FilePicker } from "./FilePicker";
 import { sendFind } from "./FileView";
@@ -16,7 +21,23 @@ import { MOD, arrowMod, isMac, mod } from "./platform";
 import { inShell, onMenu } from "./shell";
 import { activeRowIndex, railRows, setActive, useStore, type RailRow } from "./ws";
 
-export function App() {
+/**
+ * One bundle, two shapes. A narrow touch screen gets the phone layout (mobile/Mobile.tsx);
+ * everything else gets the dock. A phone that has not been granted access gets neither: the
+ * daemon refuses its requests, and the gate says how to fix that.
+ */
+export function App({ access, onRetry }: { access: Access; onRetry: () => void }) {
+  const mobile = useMobile();
+  if (!access.ok) return <Gate error={access.error} onRetry={onRetry} />;
+  return mobile ? <MobileApp /> : <DesktopApp />;
+}
+
+function MobileApp() {
+  const firstRun = useStore((s) => s.hydrated && s.firstRun);
+  return firstRun ? <Setup /> : <Mobile />;
+}
+
+function DesktopApp() {
   const connected = useStore((s) => s.connected);
   const firstRun = useStore((s) => s.hydrated && s.firstRun);
   const [finder, setFinder] = useState(false);
@@ -123,6 +144,7 @@ export function App() {
         <PrsMenu />
         <button className="topbar-btn" onClick={() => setExplorer({})} title={`browse repos and files, or search their text (${MOD}F)`}>explore</button>
         <RemotesMenu />
+        <PhoneMenu />
         <ThemeMenu />
         <button className="topbar-btn" onClick={() => setSettings(true)} title={`settings (${MOD},)`}>settings</button>
         <button className="topbar-btn" onClick={() => setKeys(true)} title={`keyboard shortcuts (${MOD}/)`}>keys</button>

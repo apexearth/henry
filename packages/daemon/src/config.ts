@@ -93,6 +93,7 @@ const SETTABLE = {
   overseer: ["backend", "model", "onStop", "onFlag", "apiKey", "stopMinIntervalSec"],
   mcp: ["enabled", "sessions"],
   federation: ["listen", "port"],
+  phone: ["listen", "port"],
   rules: ["protectedBranches", "alarm", "notable", "crossRepoWrite", "commitOnProtected", "pushToProtected", "maxSubagentsPer10m"],
 } as const;
 
@@ -104,7 +105,7 @@ export function setConfig(patch: Partial<HenryConfig>): HenryConfig {
   const incoming = patch as Record<string, unknown>;
   const next: Record<string, unknown> = { ...user };
   for (const k of SETTABLE.root) if (k in incoming) next[k] = incoming[k];
-  for (const group of ["overseer", "mcp", "federation", "rules"] as const) {
+  for (const group of ["overseer", "mcp", "federation", "phone", "rules"] as const) {
     const sub = incoming[group];
     if (!sub || typeof sub !== "object") continue;
     const merged = { ...((user[group] as Record<string, unknown>) ?? {}) };
@@ -125,6 +126,7 @@ function load(): HenryConfig {
     overseer: { ...DEFAULT_CONFIG.overseer, ...(user.overseer ?? {}) },
     mcp: { ...DEFAULT_CONFIG.mcp, ...(user.mcp ?? {}) },
     federation: { ...DEFAULT_CONFIG.federation, ...(user.federation ?? {}) },
+    phone: { ...DEFAULT_CONFIG.phone, ...(user.phone ?? {}) },
     rules: { ...DEFAULT_CONFIG.rules, ...(user.rules ?? {}) },
   };
   if (process.env.HENRY_PORT) merged.port = Number(process.env.HENRY_PORT);

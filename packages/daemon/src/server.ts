@@ -19,11 +19,16 @@ import { backfillPresence, humanStats, notePresence } from "./human";
 import * as hooks from "./hooks";
 import * as mcp from "./mcp";
 import * as overseer from "./overseer";
+import * as phone from "./phone";
 import { sessions } from "./sessions";
 
 const uiDist = join(import.meta.dir, "../../ui/dist");
 const ALL = "all";
 const topic = (sessionId: string) => `session:${sessionId}`;
+
+/** Who is asking for /api/*: this machine (a window, or a local process), a paired daemon
+ * relaying for one of its windows, or a phone on the phone listener. */
+export type ApiOrigin = "local" | "peer" | "phone";
 
 interface WsData {
   client: Client;
@@ -34,6 +39,9 @@ type Ws = ServerWebSocket<WsData>;
 type HenryServer = ReturnType<typeof Bun.serve<WsData>>;
 
 let server: HenryServer | undefined;
+/** The phone listener, when phone.ts has one up. Windows attach here too, so it takes the
+ * same broadcasts as the loopback server (see toWindows). */
+let phoneServer: HenryServer | undefined;
 
 /** Opens another listener with the running server's handlers; set once startServer has them. */
 let openAlias: ((port: number) => HenryServer) | undefined;
@@ -80,17 +88,25 @@ export function broadcast(msg: ServerMessage): void {
 
 /** Windows only: what a peer relayed to us must not fan back out. */
 export function toWindows(msg: ServerMessage): void {
-  server?.publish(ALL, JSON.stringify(msg));
+  publish(ALL, msg);
 }
 
-/** Windows attached right now. A session asking for the user is told when there are none. */
+/** Both listeners a window can be attached to: loopback, and the phone one when it is up. */
+function publish(to: string, msg: ServerMessage): void {
+  const frame = JSON.stringify(msg);
+  server?.publish(to, frame);
+  phoneServer?.publish(to, frame);
+}
+
+/** Windows attached right now, phones included. A session asking for the user is told when
+ * there are none. */
 export function windowCount(): number {
-  return server?.subscriberCount(ALL) ?? 0;
+  return (server?.subscriberCount(ALL) ?? 0) + (phoneServer?.subscriberCount(ALL) ?? 0);
 }
 
 /** Send to windows (and peers) attached to one session (PTY traffic only). */
 function publishSession(sessionId: string, msg: ServerMessage): void {
-  server?.publish(topic(sessionId), JSON.stringify(msg));
+  publish(topic(sessionId), msg);
   federation.publishInbound(sessionId, msg);
 }
 
@@ -358,7 +374,7 @@ export async function startServer(): Promise<void> {
       }
       // Henry's own tools, for the sessions it hosts and for the overseer (mcp.ts).
       if (pathname === "/mcp") return mcp.handleMcp(req, url);
-      if (pathname.startsWith("/api/")) return handleApi(req, url, false);
+      if (pathname.startsWith("/api/")) return handleApi(req, url, "local");
       if (req.method !== "GET") return new Response("method not allowed", { status: 405 });
       return serveStatic(pathname);
     },
@@ -389,6 +405,18 @@ export async function startServer(): Promise<void> {
       },
     },
   };
+  // The phone listener: the same UI, /api and /ws, off loopback and behind a granted token.
+  // Its own fetch decides what a phone may ask for before any of the routing above runs.
+  const phoneFetch = async (req: Request, srv: HenryServer): Promise<Response | undefined> => {
+    const url = new URL(req.url);
+    const verdict = phone.verdict(req, url);
+    if (!verdict.allow) return json({ error: verdict.error }, verdict.status);
+    if (url.pathname === "/ws") {
+      return srv.upgrade(req, { data: { client: undefined as unknown as Client } }) ? undefined : new Response("upgrade failed", { status: 400 });
+    }
+    if (url.pathname.startsWith("/api/")) return handleApi(req, url, "phone");
+    return serveStatic(url.pathname);
+  };
   server = Bun.serve<WsData>({ ...opts, port: config.port });
   openAlias = (port: number) => Bun.serve<WsData>({ ...opts, port });
   // Tell the hook scripts where we actually are: server.port is the bound port, which is what
@@ -399,8 +427,20 @@ export async function startServer(): Promise<void> {
   syncAliasListeners();
   git.setBroadcast(broadcast);
   git.start();
-  federation.init({ handleMessage, localState: peerState, handleApi: (req, fromPeer) => handleApi(req, new URL(req.url), fromPeer), toWindows, publishSession, buildState });
+  federation.init({ handleMessage, localState: peerState, handleApi: (req, fromPeer) => handleApi(req, new URL(req.url), fromPeer ? "peer" : "local"), toWindows, publishSession, buildState });
   federation.start();
+  // After federation: the phone listener resolves the tailnet address the same way it does.
+  phone.start((hostname, port) => {
+    const s = Bun.serve<WsData>({ ...opts, hostname, port, fetch: phoneFetch });
+    phoneServer = s;
+    return {
+      port: s.port,
+      stop: (closeActive?: boolean) => {
+        if (phoneServer === s) phoneServer = undefined;
+        s.stop(closeActive);
+      },
+    };
+  });
   watchUiBuild();
   startRetention();
   // Settings reach windows however they were changed: the settings modal, `henry` CLI, or an
@@ -414,9 +454,13 @@ export async function startServer(): Promise<void> {
  * `peer=` query) is forwarded over the link and answered by that daemon's copy of this
  * function. Peers may never reach /api/federation/*, so `fromPeer` requests are refused there.
  */
-export async function handleApi(req: Request, url: URL, fromPeer: boolean): Promise<Response> {
+export async function handleApi(req: Request, url: URL, origin: ApiOrigin): Promise<Response> {
   const { pathname } = url;
+  const fromPeer = origin === "peer";
   if (pathname.startsWith("/api/federation/")) return fromPeer ? json({ error: "forbidden" }, 403) : federationApi(req, url);
+  // Phone access is machine business like pairing: never proxied, never served to a peer.
+  // phone.verdict has already refused everything but claim and me on the phone listener.
+  if (pathname.startsWith("/api/phone/")) return fromPeer ? json({ error: "forbidden" }, 403) : phoneApi(req, url, origin);
   // Peers read, and may ask the overseer; they never change this daemon's setup.
   if (fromPeer && req.method !== "GET" && pathname !== "/api/playbook/manual") return json({ error: "forbidden" }, 403);
   if (!fromPeer) {
@@ -522,6 +566,44 @@ export async function handleApi(req: Request, url: URL, fromPeer: boolean): Prom
   return json({ error: "not found" }, 404);
 }
 
+/**
+ * Phone access: the QR the desktop shows, the claim the phone makes with it, and the list of
+ * devices that hold a token. Everything but `claim` and `me` is loopback business — a phone
+ * drives sessions, it does not grant access to more phones.
+ */
+async function phoneApi(req: Request, url: URL, origin: ApiOrigin): Promise<Response> {
+  const { pathname } = url;
+  // A window asking "do I need to have been let in?". Only the phone listener says yes.
+  if (pathname === "/api/phone/me") {
+    if (origin !== "phone") return json({ required: false });
+    const device = phone.authorize(req);
+    return device ? json({ required: true, device }) : json({ error: "this device has not been granted access" }, 401);
+  }
+  if (pathname === "/api/phone/status") return json(phone.status());
+  if (req.method !== "POST") return json({ error: "not found" }, 404);
+  if (pathname === "/api/phone/claim") {
+    const body = (await readJson(req)) as { code?: unknown; name?: unknown };
+    const result = phone.claim(body?.code, body?.name);
+    if ("error" in result) return json({ error: result.error }, 403);
+    return new Response(JSON.stringify({ device: result.device }), {
+      headers: { "content-type": "application/json", "set-cookie": phone.cookieHeader(result.token) },
+    });
+  }
+  if (pathname === "/api/phone/invite") {
+    if (!phone.phoneUrl()) return json({ error: phone.status().listenError ?? "the phone listener is not up" }, 409);
+    return json(phone.startInvite());
+  }
+  if (pathname === "/api/phone/invite/stop") {
+    phone.stopInvite();
+    return json({ ok: true });
+  }
+  if (pathname === "/api/phone/forget") {
+    const body = (await readJson(req)) as { id?: string };
+    return phone.forget(body?.id) ? json({ ok: true }) : json({ error: "no such device" }, 404);
+  }
+  return json({ error: "not found" }, 404);
+}
+
 /** Pairing and peer management. Loopback only: never proxied, never served to a peer. */
 async function federationApi(req: Request, url: URL): Promise<Response> {
   const { pathname } = url;
@@ -559,6 +641,7 @@ async function federationApi(req: Request, url: URL): Promise<Response> {
 export function stopServer(): void {
   clearInterval(uiBuildTimer);
   clearInterval(sweepTimer);
+  phone.stop();
   federation.stop();
   activity.stop();
   engagement.stop();

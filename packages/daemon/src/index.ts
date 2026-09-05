@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 // henry CLI: start (default) | install | uninstall | status | sessiond status|restart [--now]
 //            | pair | peers [forget <name> | url <name> <host[:port]|->]
+//            | phone [invite | forget <name>]
 const cmd = process.argv[2] ?? "start";
 
 async function main(): Promise<void> {
@@ -46,10 +47,22 @@ async function main(): Promise<void> {
       } else await fed.peers();
       return;
     }
+    case "phone": {
+      const p = await import("./phone-cli");
+      const sub = process.argv[3];
+      if (!sub) await p.status();
+      else if (sub === "invite") await p.invite();
+      else if (sub === "forget" && process.argv[4]) await p.forget(process.argv[4]);
+      else {
+        console.error("usage: henry phone [invite | forget <name>]");
+        process.exit(2);
+      }
+      return;
+    }
     case "-h":
     case "--help":
     case "help":
-      console.log("usage: henry [start|install|uninstall|status|sessiond status|sessiond restart [--now]|pair|peers [forget <name> | url <name> <host[:port]|->]]");
+      console.log("usage: henry [start|install|uninstall|status|sessiond status|sessiond restart [--now]|pair|peers [forget <name> | url <name> <host[:port]|->]|phone [invite|forget <name>]]");
       return;
     default:
       console.error(`unknown command: ${cmd}`);

@@ -13,7 +13,7 @@ const daemonDir = join(import.meta.dir, "..");
 
 const daemon = Bun.spawn(["bun", "src/index.ts", "start"], {
   cwd: daemonDir,
-  env: { ...process.env, HENRY_HOME: home, HENRY_PORT: String(PORT) },
+  env: { ...process.env, HENRY_NO_PUBLIC_LISTENERS: "1", HENRY_HOME: home, HENRY_PORT: String(PORT) },
   stdout: "inherit",
   stderr: "inherit",
 });

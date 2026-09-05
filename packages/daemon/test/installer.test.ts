@@ -28,7 +28,7 @@ const fixture = {
 async function henry(cmd: string, env: Record<string, string> = {}) {
   const p = Bun.spawn(["bun", "src/index.ts", cmd], {
     cwd: daemonDir,
-    env: { ...process.env, CLAUDE_CONFIG_DIR: claudeDir, HENRY_HOME: home, HENRY_PORT: String(PORT), HENRY_FORCE_STATUSLINE: "", ...env },
+    env: { ...process.env, HENRY_NO_PUBLIC_LISTENERS: "1", CLAUDE_CONFIG_DIR: claudeDir, HENRY_HOME: home, HENRY_PORT: String(PORT), HENRY_FORCE_STATUSLINE: "", ...env },
     stdout: "pipe",
     stderr: "pipe",
   });

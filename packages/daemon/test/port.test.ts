@@ -77,7 +77,7 @@ async function runHook(kind: "hook" | "statusline", env: Record<string, string |
 beforeAll(async () => {
   daemon = Bun.spawn(["bun", "src/index.ts", "start"], {
     cwd: daemonDir,
-    env: { ...process.env, HENRY_HOME: home, HENRY_PORT: String(PORT), CLAUDE_CONFIG_DIR: join(home, "claude-config") },
+    env: { ...process.env, HENRY_NO_PUBLIC_LISTENERS: "1", HENRY_HOME: home, HENRY_PORT: String(PORT), CLAUDE_CONFIG_DIR: join(home, "claude-config") },
     stdout: "pipe",
     stderr: "inherit",
   });

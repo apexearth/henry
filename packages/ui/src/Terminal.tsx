@@ -13,9 +13,14 @@ interface Props {
   sessionId: string;
   /** On screen (the active tab of a visible group). Only visible terminals report their size. */
   visible: boolean;
-  /** Visible and in the active group: takes keyboard focus. */
+  /** Visible and in the active group: takes keyboard focus. On a phone this stays false: the
+   * on-screen keyboard belongs to the input bar, not to xterm's hidden textarea. */
   focused: boolean;
+  /** Points, default 13. The phone zooms out to fit 80 columns on a 390px screen. */
+  fontSize?: number;
 }
+
+const DEFAULT_FONT_SIZE = 13;
 
 // Something with a slash (or, for Windows, a backslash or drive letter) in it, or a bare
 // `name.ext`, optionally followed by `:line[:col]`. Loose on purpose: a ⌘-click on a non-file
@@ -24,12 +29,15 @@ const PATH_RE = /(?<![\w@:/.\\-])(?:[A-Za-z]:)?(?:~[\\/]|\.{1,2}[\\/]|[\\/])?[\w
 // Terminal-to-host reports: DA1/DA2/DSR/CPR, DECRQM, OSC and DCS replies, focus events.
 const REPORT_RE = /^\x1b(\[[?>]?[\d;]*[cRn]|\[\?[\d;]*\$y|\][^\x07\x1b]*(\x07|\x1b\\)|P[^\x1b]*\x1b\\|\[[IO])/;
 
-export function TerminalView({ sessionId, visible, focused }: Props) {
+export function TerminalView({ sessionId, visible, focused, fontSize }: Props) {
   const box = useRef<HTMLDivElement>(null);
   const term = useRef<Terminal | null>(null);
   const fit = useRef<FitAddon | null>(null);
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
+  // Read at creation only; changes go through the effect below so the terminal is not rebuilt.
+  const sizeRef = useRef(fontSize);
+  sizeRef.current = fontSize;
   const connectionId = useStore((s) => s.connectionId);
   const replaying = useRef(false);
 
@@ -37,7 +45,7 @@ export function TerminalView({ sessionId, visible, focused }: Props) {
     const t = new Terminal({
       cursorBlink: true,
       fontFamily: cssVar("--mono"),
-      fontSize: 13,
+      fontSize: sizeRef.current ?? DEFAULT_FONT_SIZE,
       scrollback: 10000,
       allowProposedApi: true,
       theme: xtermTheme(),
@@ -193,6 +201,16 @@ export function TerminalView({ sessionId, visible, focused }: Props) {
     const id = requestAnimationFrame(() => term.current?.focus());
     return () => cancelAnimationFrame(id);
   }, [visible, focused]);
+
+  // Zooming: same terminal, new cell size, so the PTY is told about the new column count.
+  useEffect(() => {
+    const t = term.current;
+    if (!t) return;
+    const next = fontSize ?? DEFAULT_FONT_SIZE;
+    if (t.options.fontSize === next) return;
+    t.options.fontSize = next;
+    (t as unknown as { _henryFit?: () => void })._henryFit?.();
+  }, [fontSize]);
 
   return <div ref={box} className="term" onMouseDown={() => term.current?.focus()} />;
 }

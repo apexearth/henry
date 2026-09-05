@@ -219,6 +219,35 @@ export interface PeerStatus {
   error?: string;
 }
 
+/** A phone or tablet that has been granted access to this daemon (daemon/phone.ts). */
+export interface PhoneDevice {
+  id: string;
+  /** Whatever the device called itself when it claimed its invite. */
+  name: string;
+  grantedAt: number;
+  lastSeenAt?: number;
+}
+
+/** GET /api/phone/status: how a phone reaches this daemon, and which ones may. */
+export interface PhoneStatus {
+  /** Where the phone listener is bound, once it is up. */
+  listening?: { address: string; port: number };
+  /** Why it is not up (config off, no tailnet address, bind failed). */
+  listenError?: string;
+  /** What a granted phone opens: http://<address>:<port>/ */
+  url?: string;
+  /** An open invite: the one-time code, when it expires, and the url to put in the QR. */
+  invite?: { code: string; expiresAt: number; url: string };
+  devices: PhoneDevice[];
+}
+
+/** GET /api/phone/me: whether this window had to be granted access at all (only the phone
+ * listener asks for a token), and which device it is if so. */
+export interface PhoneIdentity {
+  required: boolean;
+  device?: PhoneDevice;
+}
+
 /** GET /api/federation/status. */
 export interface FederationStatus {
   name: string;
@@ -270,6 +299,12 @@ export interface HenryConfig {
     listen: "tailscale" | "off" | string;
     port: number;
   };
+  /** Henry on a phone (daemon/phone.ts): a second listener serving the same UI to devices that
+   * have been granted access by scanning a QR. Same `listen` vocabulary as federation. */
+  phone: {
+    listen: "tailscale" | "off" | string;
+    port: number;
+  };
   rules: {
     protectedBranches: string[];
     alarm: string[];
@@ -291,6 +326,7 @@ export const DEFAULT_CONFIG: HenryConfig = {
   overseer: { backend: "auto", model: "claude-opus-5", onStop: false, onFlag: false },
   mcp: { enabled: true, sessions: true },
   federation: { listen: "tailscale", port: 14712 },
+  phone: { listen: "tailscale", port: 14714 },
   rules: {
     protectedBranches: ["main", "master"],
     alarm: ["git push --force", "git push -f", "git reset --hard", "rm -rf", "git branch -D", "git checkout -- ."],

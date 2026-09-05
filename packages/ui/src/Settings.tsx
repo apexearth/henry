@@ -176,7 +176,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
                 onChange={(e) => setRules({ maxSubagentsPer10m: Math.max(1, Math.floor(Number(e.target.value) || 1)) })} />
             </Row>
             <div style={{ ...st.note, marginLeft: 0, paddingTop: 6 }}>
-              The alarm and notable command lists, federation and the port live in <code>~/.henry/config.json</code>; edits there apply without a restart.
+              The alarm and notable command lists, federation, phone access and the port live in <code>~/.henry/config.json</code>; edits there apply without a restart.
             </div>
           </Section>
         </div>

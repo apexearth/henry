@@ -34,7 +34,7 @@ the design changes; do not let it drift into a changelog.
   hot-reloads, rebuilt and reopened on edits under `src-tauri`. Each child is supervised
   with a debounced restart (1s doubling to 15s, reset after a stable run); the servers
   come back from any exit, the window only from a crash, since closing it is deliberate.
-- **Ports nobody else wants.** Daemon 14711, federation 14712, Vite dev 14713. Henry sits
+- **Ports nobody else wants.** Daemon 14711, federation 14712, Vite dev 14713, phone 14714. Henry sits
   next to whatever the user is developing, so it stays off 3000/5173/8080 and their
   neighbours, off IANA-registered numbers, and below 32768 so no OS's ephemeral range can
   land an outbound connection on it. `HENRY_PORT` overrides the daemon port everywhere
@@ -256,6 +256,67 @@ until it is back. Two machines that both listen dial each other, so each window 
   the sessions keep running. File peeks and ⌘K read from the machine of the
   session you are looking at. Global playbook and 5h/7d usage stay per machine (same
   account, same limits).
+
+## Henry on a phone
+
+The phone is not a machine Henry runs on: no daemon, no sessiond, no repos, nothing to install.
+It is **another window onto a daemon that is already running**, so what it needs is a way in and a
+shape that fits a hand. Everything a phone shows comes from the machine it is attached to, and
+through that machine's peers, so one phone reaches every Henry the desk reaches.
+
+- **A second listener, off loopback, behind a granted token.** `phone.listen` takes the same
+  vocabulary as federation — `"tailscale"` (default) binds the 100.64/10 address, `"off"` never
+  listens, an explicit address binds that — on `phone.port` (14714). It serves the UI, `/api/*`
+  and `/ws`, and nothing else: `/hook`, `/statusline` and `/mcp` are how local processes talk to
+  the daemon and are unauthenticated because loopback is the boundary, so off loopback they 404.
+  `/api/federation/*` and phone management are refused there too: a phone drives sessions, it does
+  not hand out keys. Windows on this listener take the same broadcasts as loopback ones and count
+  toward `windowCount()`, so a session's ask knows a phone is watching.
+- **The tailnet is not the credential.** A tailnet is a network of the user's devices, not one
+  trusted device: a laptop that joined it for something else must not be able to type into a
+  Claude session by knowing a port number. So access is a 256-bit token, stored as a SHA-256 in
+  `~/.henry/phones.json` (0600) and held by the browser in an HttpOnly cookie, which is also what
+  authenticates the WebSocket upgrade. Nothing in the page ever holds it.
+- **Granting is a QR, and the QR carries an invite, not the token.** "phone → show a QR code"
+  (or `henry phone invite`, which draws the same code in the terminal) opens a ten-minute,
+  one-use, five-guess window; the QR is `http://<address>:14714/?i=<code>`. The phone opens it,
+  spends the code for a token, takes it out of its address bar, and from then on just opens the
+  page. A code photographed over a shoulder is worth nothing once the phone it was shown to has
+  used it. Revoking a device (the popover's ×, `henry phone forget`) drops its hash, and its next
+  request is a 401.
+- **The QR is drawn from `shared/qr.ts`**, byte mode, error correction M, versions 1–6, written
+  here rather than pulled in because the only thing Henry encodes is a fifty-character URL. It
+  renders as one SVG path in the popover and as half-blocks in a terminal. Its test reads the
+  square back the way a scanner does — format information, mask, zigzag, de-interleave, syndromes,
+  payload — so a mistake shows up as a failing test rather than a code that will not scan.
+- **A granted phone is a window, with a window's power.** It sees the same state, including the
+  config, and can type into any session — which is strictly more than reading a settings file, so
+  withholding anything from it would be theatre. That is why granting is a deliberate scan and
+  revoking is one click, and why the popover says so in as many words.
+- **A device that has not been granted access draws one screen**: how to get a QR. There is no
+  form to type a secret into, because anyone who can reach the port can load the page.
+- **The layout is a second shape of the same bundle, not a second app.** A narrow touch screen
+  (`(pointer: coarse) and (max-width: 1024px)`, or any window under 700px) gets `mobile/`: the
+  session filling the screen, the two rails behind buttons — ☰ opens the rail as a drawer, ⋮ opens
+  Repos/Flags/Playbook/Usage as a sheet — and an ask, when there is one, as a bar under the header.
+  The panels themselves are the desktop's, bound to the store once in `panels/bound.tsx` and used
+  by both. `?mobile=1` / `?desktop=1` force either shape, which is how the phone layout gets looked
+  at from a desk.
+- **The terminal is zoomed, not reflowed.** Claude Code draws for 80 columns and wraps into a mess
+  below that, so the phone's answer is a smaller cell: − / + in the header set the xterm font size
+  (persisted per browser), starting at whatever fits 80 columns on this screen, and the PTY is told
+  the new size like any other resize.
+- **Typing is a composer, not the on-screen keyboard against xterm.** A phone keyboard has no Esc,
+  no Tab and no ⌃C, and autocorrect fights xterm's hidden textarea, so the terminal on a phone is
+  a screen you read: xterm never takes focus there. Under it sits a row of the keys Claude Code
+  actually wants (esc, tab, 1/2/3 for a permission prompt, ↑↓, ⏎, ⌃C, ⇧⏎) and a text box that
+  sends a whole line at a time.
+- **Dictation is the point of the box, and it arrives twice.** The composer is an ordinary
+  textarea, so the phone keyboard's own microphone works in it with no code at all — that is the
+  one that works everywhere. The mic button beside it is the Web Speech API: continuous,
+  hands-free, words appearing as they are recognised, for when the phone is on the desk and you
+  are looking at the terminal. It is hidden where the API is missing. Recognition is the browser's;
+  no audio goes near Henry.
 
 ## Henry's tools: what one session may know about another
 
@@ -497,6 +558,7 @@ henry/
       src/protocol.ts          # WS message union, REST shapes
       src/types.ts             # Session, RepoState, Flag, PlaybookEntry, Usage
       src/human.ts             # presence in whole minutes: hours, reading share, sit-downs, cadence
+      src/qr.ts                # QR encoder (byte mode, ECC M, v1-6) for the phone's invite code
     daemon/
       src/index.ts             # cli: start | install | uninstall | status | sessiond status|restart
       src/server.ts            # HTTP + WS on 127.0.0.1:14711, serves ui/dist
@@ -507,6 +569,8 @@ henry/
       src/fed-peer.ts          # outbound link: dial, mirror a peer's sessions, relay PTY + /api
       src/fed-crypto.ts        # identity keys, handshake, AES-GCM channel, pairing codes
       src/federation-cli.ts    # henry pair | peers [forget <name>]
+      src/phone.ts             # the phone listener: granted devices, one-use invites, what a phone may ask for
+      src/phone-cli.ts         # henry phone [invite | forget <name>]
       src/db.ts                # bun:sqlite schema + queries (~/.henry/henry.db)
       src/hooks.ts             # POST /hook, POST /statusline ingest
       src/transcript.ts        # tail ~/.claude/projects/**/<session>.jsonl
@@ -528,7 +592,15 @@ henry/
       src/protocol.ts          # wire types, PROTOCOL_VERSION; the daemon imports this file
       README.md                # why it stays boring; the protocol
     ui/
-      src/App.tsx              # top bar (activity strip, view buttons, reset) + Layout
+      src/App.tsx              # picks the shape (dock or phone); the dock's top bar + Layout
+      src/access.ts            # is this window allowed in: spend a QR's invite, or ask who we are
+      src/Qr.tsx               # a QR matrix as one SVG path
+      src/PhoneMenu.tsx        # topbar "phone": the QR, and the devices holding a token
+      src/mobile/Mobile.tsx    # the phone shape: one session, rails as drawer + sheet, zoom
+      src/mobile/Composer.tsx  # the phone's input: the keys a phone keyboard lacks, a line box, a mic
+      src/mobile/dictation.ts  # Web Speech API, for hands-free input
+      src/mobile/useMobile.ts  # which shape, the terminal's font size, the keyboard-aware height
+      src/mobile/Gate.tsx      # what an ungranted device sees: how to get a QR
       src/TopActivity.tsx      # the strip: sessions, dirty repos, my hours/prompts/cadence + "you"
       src/presence.ts          # this window beating "I am here" while you read (POST /api/presence)
       src/Layout.tsx           # Dockview root; wraps rail, terminals and tools as panels
@@ -541,6 +613,7 @@ henry/
       src/Explorer.tsx         # ⌘F: browse repos and files or grep their text, preview on the right
       src/FileView.tsx         # read-only file peek (stage, with ⌘F find) and the explorer's preview
       src/panels/{Repos,Flags,Playbook,Usage}.tsx
+      src/panels/bound.tsx     # those four wired to the store, for both the dock and the phone's sheet
       src/DiffView.tsx
       src/GitTree.tsx          # repo modals: shell, commit graph (tree), one commit + patch
 ```
@@ -558,6 +631,7 @@ claude (in PTY) ──MCP /mcp?as=session──▶ daemon (henry_activity: what 
                                                  henry_attention: come here, this one is timed)
 daemon ──on Stop / on flag──▶ overseer ──▶ playbook rows ──WS──▶ windows
 daemon ◀──ws://<tailscale ip>:14712/fed, mutually authenticated──▶ peer daemon (its sessions, relayed)
+phone ──http://<tailscale ip>:14714, granted token in a cookie──▶ daemon (the same UI, /api and /ws)
 ```
 
 Session identity: the daemon spawns `claude` with env `HENRY_SESSION=<uuid>`. Hook
@@ -629,6 +703,7 @@ unbounded input is trimmed at the door.
   "overseer": { "backend": "auto", "model": "claude-opus-5", "onStop": false, "onFlag": false, "stopMinIntervalSec": 60 },
   "mcp": { "enabled": true, "sessions": true },
   "federation": { "listen": "tailscale", "port": 14712 },
+  "phone": { "listen": "tailscale", "port": 14714 },
   "rules": {
     "protectedBranches": ["main", "master"],
     "alarm": ["git push --force", "git push -f", "git reset --hard", "rm -rf", "git branch -D", "git checkout -- ."],

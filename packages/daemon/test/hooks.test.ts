@@ -60,7 +60,7 @@ beforeAll(async () => {
   mkdirSync(join(claudeDir, "projects"), { recursive: true });
   daemon = Bun.spawn(["bun", "src/index.ts", "start"], {
     cwd: daemonDir,
-    env: { ...process.env, HENRY_HOME: home, HENRY_PORT: String(PORT), CLAUDE_CONFIG_DIR: claudeDir },
+    env: { ...process.env, HENRY_NO_PUBLIC_LISTENERS: "1", HENRY_HOME: home, HENRY_PORT: String(PORT), CLAUDE_CONFIG_DIR: claudeDir },
     stdout: "pipe",
     stderr: "inherit",
   });
@@ -397,7 +397,7 @@ describe("transcript tailer", () => {
   test("tails a file that appears later, dedupes by message id, handles partial lines and sidechains", async () => {
     const p = Bun.spawn(["bun", join(import.meta.dir, "transcript-tail.ts")], {
       cwd: daemonDir,
-      env: { ...process.env, HENRY_HOME: mkdtempSync(join(tmpdir(), "henry-tail-")), HENRY_PORT: String(PORT + 1000) },
+      env: { ...process.env, HENRY_NO_PUBLIC_LISTENERS: "1", HENRY_HOME: mkdtempSync(join(tmpdir(), "henry-tail-")), HENRY_PORT: String(PORT + 1000) },
       stdout: "pipe",
       stderr: "pipe",
     });

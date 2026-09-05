@@ -20,6 +20,7 @@ is waiting on you, and what the others changed. That is the whole problem it sol
 - A session can call for you by name when something is timed, and it lands in the window
   title.
 - Machines paired over Tailscale, so one window drives both.
+- The same thing on your phone: scan a QR, get every session in your pocket, talk to them.
 - ⌘K by filename, ⌘F to browse or `git grep` every repo, files open read-only over the
   terminal.
 - 5h and 7d subscription usage, plus tokens, cost and context per session.
@@ -104,6 +105,27 @@ address only. `henry peers` lists them, `henry peers forget <name>` drops one.
 A paired machine can do to your sessions what a window can, typing included. Pair only with
 machines you own.
 
+## Phone
+
+Nothing runs on the phone. It is another window onto the daemon on your desk, and through
+that onto the machines it is paired with.
+
+Press **phone** in the top bar, then **show a QR code**, and scan it. (`henry phone invite`
+draws the same code in a terminal.) The phone has to be on the same tailnet. Scanning
+spends a one-time, ten-minute invite for a token that lasts until you revoke it — the ×
+next to the device, or `henry phone forget <name>`.
+
+On the phone you get one session filling the screen, the session rail behind ☰, the panels
+behind ⋮, and − / + to zoom the terminal out until 80 columns fit. Typing is a composer
+rather than the on-screen keyboard against xterm: a row for the keys a phone does not have
+(esc, tab, 1/2/3, ↑↓, ⌃C) and a box that sends a line at a time. Dictate into that box with
+your keyboard's own microphone, or press ● beside it for hands-free dictation where the
+browser supports it.
+
+A phone with access is a window, typing included, so grant it deliberately. The listener is
+tailnet-only by default (`phone.listen`, `"off"` to disable it), serves nothing but the UI,
+`/api` and `/ws`, and refuses every request that does not carry a granted token.
+
 ## What a session can ask Henry
 
 Two MCP tools, loopback only, on sessions Henry starts:
@@ -120,14 +142,15 @@ Henry's config.
 
 `~/.henry/config.json`, edited in Settings (⌘,) or by hand, hot-reloaded either way. The
 keys worth knowing: `reposRoot`, `retentionDays` (30), `overseer` (the playbook, off by
-default since every entry is an LLM call), `mcp`, `federation`, `rules`. `~/.henry` also
-holds the SQLite database, the sessiond details and the federation key. `HENRY_HOME` and
-`HENRY_PORT` override both, which is how the tests stay off yours.
+default since every entry is an LLM call), `mcp`, `federation`, `phone`, `rules`. `~/.henry`
+also holds the SQLite database, the sessiond details, the federation key and the phones that
+have access. `HENRY_HOME` and `HENRY_PORT` override both, which is how the tests stay off
+yours.
 
 ## Requirements
 
 bun ≥ 1.2, node ≥ 22.6 on PATH, `claude`, git. Optional: `gh` for PR counts, a Rust
-toolchain for the native window, Tailscale for pairing.
+toolchain for the native window, Tailscale for pairing and for the phone.
 
 macOS and Windows, no WSL. On Windows a plain terminal is PowerShell, hooks run under node
 instead of curl, and the shortcuts shift to Ctrl and Alt.

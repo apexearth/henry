@@ -5,11 +5,8 @@ import { DockviewReact, type DockviewApi, type DockviewReadyEvent, type IDockvie
 import { Rail } from "./Rail";
 import { TerminalView } from "./Terminal";
 import { FileView } from "./FileView";
-import { ReposPanel } from "./panels/Repos";
-import { FlagsPanel } from "./panels/Flags";
-import { PlaybookPanel } from "./panels/Playbook";
-import { UsagePanel } from "./panels/Usage";
-import { markFlagsRead, requestDiff, requestPlaybook, setActive, useStore } from "./ws";
+import { BoundFlags, BoundPlaybook, BoundRepos, BoundUsage, useSessionFlags } from "./panels/bound";
+import { setActive, useStore } from "./ws";
 import { buildDefaultLayout, ensureSessionPanel, henryTheme, isFilePanel, isTerminalGroup, loadLayout, noteActivePanel, saveLayout, sessionTitle, setDockApi, styleTerminalGroup, TERM_PREFIX, termPanelId } from "./dock";
 
 function TerminalPanel({ api, params }: IDockviewPanelProps<{ sessionId: string }>) {
@@ -44,51 +41,23 @@ function SessionsPanel() {
 }
 
 function ReposDock() {
-  const active = useStore((s) => s.activeSessionId);
-  const repos = useStore((s) => s.repos);
-  const diffs = useStore((s) => s.diffs);
-  return (
-    <div className="dock-body">
-      <ReposPanel sessionId={active} repos={active ? repos[active] ?? [] : []} diffs={diffs}
-        onRequestDiff={(repoPath) => active && requestDiff(active, repoPath)} />
-    </div>
-  );
+  return <div className="dock-body"><BoundRepos /></div>;
 }
 
 function FlagsDock({ api }: IDockviewPanelProps) {
-  const active = useStore((s) => s.activeSessionId);
-  const flags = useStore((s) => s.flags);
-  const events = useStore((s) => s.events);
-  const sessionFlags = flags.filter((f) => !active || f.sessionId === active);
-  const unread = sessionFlags.filter((f) => !f.read).length;
+  const { unread } = useSessionFlags();
   useEffect(() => {
     api.setTitle(unread ? `Flags (${unread})` : "Flags");
   }, [api, unread]);
-  return (
-    <div className="dock-body">
-      <FlagsPanel sessionId={active} flags={sessionFlags} events={events} onMarkRead={markFlagsRead} />
-    </div>
-  );
+  return <div className="dock-body"><BoundFlags /></div>;
 }
 
 function PlaybookDock() {
-  const active = useStore((s) => s.activeSessionId);
-  const playbook = useStore((s) => s.playbook);
-  return (
-    <div className="dock-body">
-      <PlaybookPanel sessionId={active} entries={playbook.filter((p) => p.sessionId === active)} onRefresh={() => requestPlaybook(active)} />
-    </div>
-  );
+  return <div className="dock-body"><BoundPlaybook /></div>;
 }
 
 function UsageDock() {
-  const active = useStore((s) => s.activeSessionId);
-  const usage = useStore((s) => s.usage);
-  return (
-    <div className="dock-body">
-      <UsagePanel sessionId={active} usage={usage} />
-    </div>
-  );
+  return <div className="dock-body"><BoundUsage /></div>;
 }
 
 /** While a sash is being dragged, every group shows its size in pixels at its centre. */

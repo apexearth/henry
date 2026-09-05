@@ -22,6 +22,7 @@ import {
 } from "@henry/shared";
 import { showSession, showTool } from "./dock";
 import { isHere } from "./presence";
+import { useAskTitle } from "./title";
 import { answerAttention, setActive, useStore } from "./ws";
 
 /** The cadence sparkline: 10-minute buckets over the last four hours. */
@@ -145,10 +146,7 @@ export function TopActivity() {
   const counts = bucket(today, now);
   const busy = minutes.size > 0;
 
-  // The one thing worth saying from outside the window: a session asked for you by name.
-  useEffect(() => {
-    document.title = asks.length ? `❗ Henry — ${asks[0]!.message.slice(0, 60)}` : "Henry";
-  }, [asks]);
+  useAskTitle();
 
   const title = (s: Session | undefined) => s?.title ?? "a session";
 
