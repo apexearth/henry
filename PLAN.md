@@ -530,6 +530,17 @@ variables, so the stage and the chrome always match. Nothing else hard-codes a c
 Saved as `henry.theme`. Semantic colors (ok/warn/alarm) and the Claude orange stay fixed
 across themes; no light mode yet.
 
+**The context wall.** Behind every session pane is a brick wall that rises from the bottom as
+the session's context window fills, in front of a sky that runs on the wall clock: the sun
+crosses from 06:00 to 18:00, then a moon and stars, with the horizon going warm at either end.
+Two readings in one picture — how full the window is, and how late it has got — and a wall tall
+enough to blot out the sky is telling you something. The wall is the Usage panel's context
+fraction, brick by brick (one brick is ~2.5k tokens of a 200k window), coloured by the same
+green/amber/red thresholds, so a `/compact` visibly drops it. It is a canvas under xterm, whose
+background is transparent whenever the wall is on; a fourth theme choice (`sky`: off, faint,
+soft, bold) sets how hard it paints, and "off" makes the terminal background opaque again.
+Decoration only: no session state is readable from it that a panel does not also state.
+
 Tool tabs:
 - **Repos** — every repo this session has touched: branch, ahead/behind upstream,
   has-upstream, commits since session baseline, dirty count, worktree path, and a ↗

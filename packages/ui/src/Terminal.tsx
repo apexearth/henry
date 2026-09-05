@@ -48,6 +48,8 @@ export function TerminalView({ sessionId, visible, focused, fontSize }: Props) {
       fontSize: sizeRef.current ?? DEFAULT_FONT_SIZE,
       scrollback: 10000,
       allowProposedApi: true,
+      // Always on, so toggling the context wall is a theme change and not a terminal rebuild.
+      allowTransparency: true,
       theme: xtermTheme(),
     });
     const f = new FitAddon();

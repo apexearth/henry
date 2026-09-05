@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { DockviewReact, type DockviewApi, type DockviewReadyEvent, type IDockviewPanelProps, type IWatermarkPanelProps } from "dockview-react";
 import { Rail } from "./Rail";
 import { TerminalView } from "./Terminal";
+import { ContextSky } from "./ContextSky";
 import { FileView } from "./FileView";
 import { BoundFlags, BoundPlaybook, BoundRepos, BoundUsage, useSessionFlags } from "./panels/bound";
 import { setActive, useStore } from "./ws";
@@ -22,6 +23,7 @@ function TerminalPanel({ api, params }: IDockviewPanelProps<{ sessionId: string 
   }, [api]);
   return (
     <div className="term-host">
+      <ContextSky sessionId={params.sessionId} />
       <TerminalView sessionId={params.sessionId} visible={visible} focused={visible && active} />
     </div>
   );

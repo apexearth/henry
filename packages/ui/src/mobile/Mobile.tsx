@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import { isClaudeSession, type Session } from "@henry/shared";
 import { Rail } from "../Rail";
 import { TerminalView } from "../Terminal";
+import { ContextSky } from "../ContextSky";
 import { BoundFlags, BoundPlaybook, BoundRepos, BoundUsage, useSessionFlags } from "../panels/bound";
 import { useAskTitle } from "../title";
 import { answerAttention, useStore } from "../ws";
@@ -79,7 +80,10 @@ export function Mobile() {
 
       <main className="m-stage">
         {session ? (
-          <TerminalView key={session.id} sessionId={session.id} visible={!drawer && !tab} focused={false} fontSize={fontSize} />
+          <>
+            <ContextSky sessionId={session.id} />
+            <TerminalView key={session.id} sessionId={session.id} visible={!drawer && !tab} focused={false} fontSize={fontSize} />
+          </>
         ) : (
           <div className="empty">{sessions.length ? "pick a session from ☰" : "no sessions — open ☰ and start one"}</div>
         )}

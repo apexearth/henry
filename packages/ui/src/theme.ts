@@ -14,13 +14,17 @@ export const TONES = {
 } as const;
 export const HIGHLIGHTS = { blue: 255, teal: 195, green: 145, amber: 75, coral: 30, violet: 300, rose: 350 } as const;
 export const SHADES = { black: 0.11, dark: 0.18, dim: 0.24 } as const;
+/** How strongly the context wall paints behind the terminal (ContextSky); off hides it. */
+export const SKIES = { off: 0, faint: 0.3, soft: 0.55, bold: 0.85 } as const;
 
 export interface ThemeChoice {
   tone: keyof typeof TONES;
   highlight: keyof typeof HIGHLIGHTS;
   shade: keyof typeof SHADES;
+  /** The context wall behind the terminal (ContextSky). "off" makes xterm's background opaque again. */
+  sky: keyof typeof SKIES;
 }
-const DEFAULT: ThemeChoice = { tone: "slate", highlight: "blue", shade: "dark" };
+const DEFAULT: ThemeChoice = { tone: "slate", highlight: "blue", shade: "dark", sky: "soft" };
 const KEY = "henry.theme";
 
 // OKLCH -> sRGB hex. Chroma is pulled in until the color fits the gamut.
@@ -77,6 +81,7 @@ function load(): ThemeChoice {
       tone: raw.tone && raw.tone in TONES ? raw.tone : DEFAULT.tone,
       highlight: raw.highlight && raw.highlight in HIGHLIGHTS ? raw.highlight : DEFAULT.highlight,
       shade: raw.shade && raw.shade in SHADES ? raw.shade : DEFAULT.shade,
+      sky: raw.sky && raw.sky in SKIES ? raw.sky : DEFAULT.sky,
     };
   } catch {
     return DEFAULT;
@@ -123,7 +128,8 @@ export function cssVar(name: string): string {
 export function xtermTheme(): ITheme {
   const names = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white"];
   const th: Record<string, string> = {
-    background: cssVar("--bg"), foreground: cssVar("--fg"),
+    // Transparent so the context wall shows through; .term-host keeps painting --bg behind it.
+    background: cssVar("--bg") + (SKIES[current.sky] ? "00" : ""), foreground: cssVar("--fg"),
     cursor: cssVar("--fg"), cursorAccent: cssVar("--bg"),
     selectionBackground: cssVar("--sel"), selectionInactiveBackground: cssVar("--accent-soft"),
   };
