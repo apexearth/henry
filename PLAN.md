@@ -200,7 +200,11 @@ the design changes; do not let it drift into a changelog.
   shrink (sessiond drops same-size resizes for the same reason); the daemon turns raw SO/SI
   bytes in ConPTY output into spaces, since ConPTY counts them as printed cells and xterm.js
   does not, which otherwise puts the first character typed after a resize one column left
-  (Claude Code sends SI on that key). In the browser, Ctrl takes ⌘'s letters and digits, Alt takes the
+  (Claude Code sends SI on that key); the state snapshot carries the host's Windows build so
+  each terminal can set xterm's `windowsPty`, without which a window reflows scrollback that
+  ConPTY has already wrapped and lets a taller terminal pull scrollback back under ConPTY's
+  reprint, losing it. A resize reaches the daemon only once the drag has settled, since each
+  one costs a reprint. In the browser, Ctrl takes ⌘'s letters and digits, Alt takes the
   arrows (Ctrl+arrows are the terminal's) and Alt+N opens the picker (Chrome reserves
   Ctrl+N); duplicate is Ctrl+Shift+D. Tauri builds the platform's own bundles; the menu
   bar is macOS-only, and in the Windows shell Ctrl+N and Ctrl+Shift+R (reset layout) are

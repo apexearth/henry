@@ -22,6 +22,10 @@ interface Props {
 
 const DEFAULT_FONT_SIZE = 13;
 
+/** How long a resize has to settle before the PTY hears about it. Every resize costs ConPTY a
+ * full reprint of the screen, and dragging a sash fires the observer on every frame. */
+const RESIZE_SETTLE_MS = 120;
+
 // Something with a slash (or, for Windows, a backslash or drive letter) in it, or a bare
 // `name.ext`, optionally followed by `:line[:col]`. Loose on purpose: a ⌘-click on a non-file
 // simply finds nothing.
@@ -39,6 +43,14 @@ export function TerminalView({ sessionId, visible, focused, fontSize }: Props) {
   const sizeRef = useRef(fontSize);
   sizeRef.current = fontSize;
   const connectionId = useStore((s) => s.connectionId);
+  // ConPTY wraps its own lines and, before build 21376, marks none of them: told this, xterm
+  // stops reflowing the scrollback on a resize (which would re-wrap what ConPTY already
+  // wrapped) and keeps scrollback out of the viewport when rows grow, where ConPTY's reprint
+  // would overwrite it. Read at creation and re-applied below, since the first state snapshot
+  // can land after the terminal is built.
+  const windowsBuild = useStore((s) => s.windowsBuild);
+  const winRef = useRef(windowsBuild);
+  winRef.current = windowsBuild;
   const replaying = useRef(false);
 
   useEffect(() => {
@@ -51,6 +63,7 @@ export function TerminalView({ sessionId, visible, focused, fontSize }: Props) {
       // Always on, so toggling the context wall is a theme change and not a terminal rebuild.
       allowTransparency: true,
       theme: xtermTheme(),
+      ...(winRef.current ? { windowsPty: { backend: "conpty" as const, buildNumber: winRef.current } } : {}),
     });
     const f = new FitAddon();
     t.loadAddon(f);
@@ -140,6 +153,7 @@ export function TerminalView({ sessionId, visible, focused, fontSize }: Props) {
     });
 
     let last = "";
+    let settle: ReturnType<typeof setTimeout> | undefined;
     const doFit = () => {
       // A hidden dock tab has no size; fitting to it would shrink the PTY to nothing.
       if (!box.current?.clientWidth || !box.current.clientHeight) return;
@@ -148,7 +162,8 @@ export function TerminalView({ sessionId, visible, focused, fontSize }: Props) {
       // Hidden terminals stay quiet; the daemon takes the latest report.
       if (visibleRef.current && dims !== last) {
         last = dims;
-        send({ type: "pty:resize", sessionId, cols: t.cols, rows: t.rows });
+        clearTimeout(settle);
+        settle = setTimeout(() => send({ type: "pty:resize", sessionId, cols: t.cols, rows: t.rows }), RESIZE_SETTLE_MS);
       }
     };
     // On becoming visible again, re-assert the size unconditionally and ask for a repaint. The
@@ -158,6 +173,7 @@ export function TerminalView({ sessionId, visible, focused, fontSize }: Props) {
       if (!box.current?.clientWidth || !box.current.clientHeight) return;
       f.fit();
       last = `${t.cols}x${t.rows}`;
+      clearTimeout(settle);
       send({ type: "pty:resize", sessionId, cols: t.cols, rows: t.rows, redraw: true });
     };
     doFit();
@@ -170,6 +186,7 @@ export function TerminalView({ sessionId, visible, focused, fontSize }: Props) {
     (t as unknown as { _henryResync: () => void })._henryResync = resync;
     return () => {
       ro.disconnect();
+      clearTimeout(settle);
       offTheme();
       screen?.removeEventListener("mousedown", swallowModClick);
       t.dispose();
@@ -218,6 +235,14 @@ export function TerminalView({ sessionId, visible, focused, fontSize }: Props) {
     const id = requestAnimationFrame(() => term.current?.focus());
     return () => cancelAnimationFrame(id);
   }, [visible, focused]);
+
+  // The snapshot that carries the PTY host's Windows build may arrive after this terminal was
+  // built; xterm reads the option on every buffer resize, so setting it late still counts.
+  useEffect(() => {
+    const t = term.current;
+    if (!t || !windowsBuild) return;
+    t.options.windowsPty = { backend: "conpty", buildNumber: windowsBuild };
+  }, [windowsBuild]);
 
   // Zooming: same terminal, new cell size, so the PTY is told about the new column count.
   useEffect(() => {

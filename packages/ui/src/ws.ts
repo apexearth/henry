@@ -32,6 +32,9 @@ export interface UiState {
   host: string | null;
   /** Paired machines and how their links are doing (federation). */
   peers: PeerStatus[];
+  /** Windows build behind the PTYs, when the daemon runs on Windows; terminals hand it to
+   * xterm as `windowsPty` so ConPTY's own line wrapping is not reflowed twice. */
+  windowsBuild: number | null;
   /** Persisted, so a refresh reopens the session (or at least the repo) you were in. */
   activeSessionId: string | null;
   /** Which rail row of the active session is "here": under "by repo" a session is listed
@@ -65,6 +68,7 @@ let state: UiState = {
   firstRun: false,
   host: null,
   peers: [],
+  windowsBuild: null,
   activeSessionId: readLastActive()?.id ?? null,
   activeGroup: null,
   showClosed: readShowClosed(),
@@ -214,6 +218,7 @@ function handle(m: ServerMessage): void {
         firstRun: m.firstRun,
         host: m.host ?? null,
         peers: m.peers ?? [],
+        windowsBuild: m.windowsBuild ?? null,
         activeSessionId: pickActive(m.sessions, state.activeSessionId),
         hydrated: true,
       });

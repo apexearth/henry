@@ -2,6 +2,7 @@
 // else in the daemon is written against Node's path/os modules, which already do the right
 // thing per platform; this file holds the few decisions that need a platform switch.
 import { existsSync } from "node:fs";
+import { release } from "node:os";
 import { basename, delimiter, dirname, join } from "node:path";
 
 export const isWindows = process.platform === "win32";
@@ -13,6 +14,13 @@ export const isWindows = process.platform === "win32";
  * garbles a TUI, so on Windows one plain resize is both enough and all that is safe.
  */
 export const redrawByShrink = !isWindows;
+
+/**
+ * The Windows build number, for xterm.js's `windowsPty`. ConPTY before build 21376 wraps long
+ * lines itself and emits no wrap marker, so a window that reflows its own scrollback on a
+ * resize re-wraps what ConPTY already wrapped and mangles the history. Undefined off Windows.
+ */
+export const windowsBuild = isWindows ? Number(release().split(".")[2]) || undefined : undefined;
 
 /**
  * ConPTY stores SO/SI (0x0E/0x0F) as printed cells and advances its cursor, and with the

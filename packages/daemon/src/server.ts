@@ -20,6 +20,7 @@ import * as hooks from "./hooks";
 import * as mcp from "./mcp";
 import * as overseer from "./overseer";
 import * as phone from "./phone";
+import { windowsBuild } from "./platform";
 import { sessions } from "./sessions";
 
 const uiDist = join(import.meta.dir, "../../ui/dist");
@@ -131,7 +132,7 @@ export function buildState(): StateSnapshot {
 
 /** What a peer is shown: our sessions, repos, flags, usage, playbook. Never the config (keys). */
 function peerState(): FedState {
-  const { config: _config, uiBuild: _build, firstRun: _first, ...rest } = localState();
+  const { config: _config, uiBuild: _build, firstRun: _first, windowsBuild: _win, ...rest } = localState();
   return rest;
 }
 
@@ -149,6 +150,7 @@ function localState(): StateSnapshot {
     config,
     firstRun: isFirstRun(),
     uiBuild,
+    windowsBuild,
   };
 }
 

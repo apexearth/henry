@@ -59,6 +59,10 @@ export interface StateMessage {
   peers?: PeerStatus[];
   /** Identity of the ui/dist build the daemon serves (index.html mtime); windows reload when it changes. */
   uiBuild?: string;
+  /** Windows build hosting this daemon's PTYs; absent off Windows. ConPTY older than 21376
+   * wraps long lines itself and marks none of them, so the window must not reflow its own
+   * scrollback on a resize (ui/Terminal.tsx). */
+  windowsBuild?: number;
 }
 
 export type StateSnapshot = Omit<StateMessage, "type">;
