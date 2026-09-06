@@ -205,6 +205,11 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 .swatch { width: 16px; height: 16px; padding: 0; border-radius: 50%; border: 2px solid transparent; }
 .swatch:hover { border-color: var(--fg-dim); }
 .swatch.sel { border-color: var(--fg); }
+.theme-num { width: 6.5ch; padding: 1px 4px; font-size: 11px; background: var(--bg-3); border: 1px solid var(--border); border-radius: 4px; }
+.theme-num:focus { outline: none; border-color: var(--accent); }
+.theme-btn { padding: 1px 6px; font-size: 11px; color: var(--fg-dim); }
+.theme-btn:hover { color: var(--fg); }
+.theme-note { color: var(--fg-faint); font-size: 11px; padding: 1px 0 2px calc(12ch + 10px); }
 
 /* Dockview theme: Henry palette on top of the stock variable set (mirrors the abyss theme). */
 .dockview-theme-henry {

@@ -1,10 +1,14 @@
 // The session pane's backdrop: a brick wall that rises from the bottom as the session's context
-// window fills, in front of a sky that runs on the wall clock. Two readings, one picture — how
-// full the window is, and how late it has got. Purely decorative and deliberately quiet: it sits
-// under live terminal text. The fraction is the Usage panel's context bar, so the crest and the
-// bar always agree, and a /compact drops the wall back down.
+// window fills, in front of the sky that is actually outside. The sun and moon are where they
+// really are over the user's latitude and longitude (solar.ts does the arithmetic, place.ts
+// guesses the place from the time zone), so the day is as long as today's day, the winter sun
+// stays low, and the moon keeps its own hours and its real phase. Two readings, one picture —
+// how full the window is, and how late it has got. Purely decorative and deliberately quiet: it
+// sits under live terminal text. The fraction is the Usage panel's context bar, so the crest and
+// the bar always agree, and a /compact drops the wall back down.
 import { useEffect, useRef } from "react";
 import { contextFraction } from "./panels/Usage";
+import { skyState, type Body, type Sky } from "./solar";
 import { SHADES, SKIES, oklch, useTheme } from "./theme";
 import { useStore } from "./ws";
 
@@ -13,6 +17,11 @@ const BRICK_W = 42, BRICK_H = 15, MORTAR = 2;
 /** Sun, moon and stars are drawn on this grid, for the 8-bit look. */
 const PX = 4;
 const STARS = 44;
+/** Where the horizon sits, and how far above it the arc reaches. */
+const HORIZON = 0.86, ARC = 0.72;
+/** The altitude drawn at the top of the arc; a sun that never gets this high never gets there. */
+const HIGH = Math.sin((65 * Math.PI) / 180);
+const RAD = Math.PI / 180;
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const clamp01 = (x: number) => (x < 0 ? 0 : x > 1 ? 1 : x);
@@ -31,6 +40,16 @@ function heatHue(t: number): number {
   return lerp(60, 25, clamp01((t - 0.9) / 0.1));
 }
 
+/** A body on the canvas: across by the hours from its own transit, up by how high it really is.
+ * A body below the horizon still gets a point, below the line, which is where the moon looks
+ * for the sun. */
+function project(b: Body, w: number, h: number): { x: number; y: number } {
+  return {
+    x: w * (0.5 + 0.4 * (b.hour / b.half)),
+    y: h * HORIZON - h * ARC * Math.min(1, Math.sin(b.alt * RAD) / HIGH),
+  };
+}
+
 function pixelDisc(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, color: string, alpha: number) {
   ctx.globalAlpha = alpha;
   ctx.fillStyle = color;
@@ -44,32 +63,67 @@ function pixelDisc(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: num
   ctx.globalAlpha = 1;
 }
 
-/** Local time as 0..1 of the day; 0.5 is noon. The sun is up between 06:00 and 18:00. */
-function dayFraction(now = new Date()): number {
-  return (now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds()) / 86400;
+/** The terminator is an ellipse across the disc, `s` wide: +1 at new moon, 0 at the quarters, -1
+ * at full. (bx, by) points at the sun, so the lit face and the horns turn with it. */
+function isLit(dx: number, dy: number, r: number, s: number, bx: number, by: number): boolean {
+  const u = dx * bx + dy * by, v = dx * by - dy * bx;
+  return u >= s * Math.sqrt(Math.max(0, r * r - v * v));
 }
 
-/** A body's place on the 12-hour arc: t 0 is rising, 0.5 overhead, 1 setting. */
-function arc(w: number, h: number, t: number): { x: number; y: number } {
-  return { x: w * (0.1 + 0.8 * t), y: h * 0.86 - h * 0.72 * Math.sin(Math.PI * t) };
+function pixelMoon(
+  ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number,
+  lit: number, bx: number, by: number, alpha: number,
+) {
+  const s = 1 - 2 * lit;
+  const face = oklch(0.9, 0.02, 250), night = oklch(0.66, 0.02, 258);
+  const x0 = Math.floor((cx - r) / PX) * PX, y0 = Math.floor((cy - r) / PX) * PX;
+  for (let y = y0; y <= cy + r; y += PX) {
+    for (let x = x0; x <= cx + r; x += PX) {
+      const dx = x + PX / 2 - cx, dy = y + PX / 2 - cy;
+      if (dx * dx + dy * dy > r * r) continue;
+      const on = isLit(dx, dy, r, s, bx, by);
+      ctx.globalAlpha = alpha * (on ? 1 : 0.16); // the dark face stays faintly there, like earthshine
+      ctx.fillStyle = on ? face : night;
+      ctx.fillRect(x, y, PX, PX);
+    }
+  }
+  ctx.globalAlpha = alpha * 0.5;
+  ctx.fillStyle = oklch(0.78, 0.02, 250);
+  for (const [ox, oy] of [[-0.3, -0.2], [0.25, 0.1], [-0.1, 0.35]] as const) {
+    if (!isLit(ox * r, oy * r, r, s, bx, by)) continue;
+    ctx.fillRect(Math.round((cx + ox * r) / PX) * PX, Math.round((cy + oy * r) / PX) * PX, PX, PX);
+  }
+  ctx.globalAlpha = 1;
 }
 
-/** `f` is the context fraction (the wall); `d` is the time of day (the sky). */
-function draw(ctx: CanvasRenderingContext2D, w: number, h: number, f: number, L0: number, d: number) {
+function halo(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, color: string, spread: number, alpha: number) {
+  const g = ctx.createRadialGradient(x, y, r * 0.45, x, y, r * spread);
+  g.addColorStop(0, color + "40");
+  g.addColorStop(1, color + "00");
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = g;
+  ctx.fillRect(x - r * spread, y - r * spread, r * spread * 2, r * spread * 2);
+  ctx.globalAlpha = 1;
+}
+
+/** `f` is the context fraction (the wall); `sky` is where the sun and moon are right now. */
+function draw(ctx: CanvasRenderingContext2D, w: number, h: number, f: number, L0: number, sky: Sky) {
   ctx.clearRect(0, 0, w, h);
-  // Elevation: 1 at noon, 0 at 06:00 and 18:00, -1 at midnight. Everything in the sky follows it.
-  const el = Math.sin(2 * Math.PI * (d - 0.25));
+  // Everything in the sky follows the sun's real altitude: 1 with it overhead, 0 on the horizon.
+  const alt = sky.sun.alt;
+  const el = Math.sin(alt * RAD);
   const day = clamp01(el * 2.5 + 0.15);
   const dusk = clamp01(1 - Math.abs(el) * 3.5); // the warm half hour either side of the horizon
   const crest = h * (1 - clamp01(f));
 
-  const sky = ctx.createLinearGradient(0, 0, 0, h);
-  sky.addColorStop(0, oklch(L0 + lerp(0.02, 0.075, day), 0.03, lerp(272, 250, day)));
-  sky.addColorStop(1, oklch(L0 + lerp(0.045, 0.125, day) + 0.025 * dusk, 0.02 + 0.05 * dusk, lerp(lerp(268, 232, day), 35, dusk)));
-  ctx.fillStyle = sky;
+  const grad = ctx.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, oklch(L0 + lerp(0.02, 0.075, day), 0.03, lerp(272, 250, day)));
+  grad.addColorStop(1, oklch(L0 + lerp(0.045, 0.125, day) + 0.025 * dusk, 0.02 + 0.05 * dusk, lerp(lerp(268, 232, day), 35, dusk)));
+  ctx.fillStyle = grad;
   ctx.fillRect(0, 0, w, h);
 
-  const starA = clamp01(-el * 2.2 + 0.1);
+  // Stars come out through twilight, the way they do: none at -4 degrees, all of them by -14.
+  const starA = clamp01((-alt - 4) / 10);
   if (starA > 0) {
     ctx.fillStyle = oklch(0.92, 0.02, 250);
     for (let i = 0; i < STARS; i++) {
@@ -83,32 +137,24 @@ function draw(ctx: CanvasRenderingContext2D, w: number, h: number, f: number, L0
   }
 
   const r = Math.max(12, Math.min(34, Math.min(w, h) * 0.07));
-  if (el > -0.08) {
-    // Daytime: the sun climbs from the left at 06:00 and sets on the right at 18:00, going
-    // orange as it nears the horizon. A tall wall swallows it early, which is the point.
-    const { x, y } = arc(w, h, clamp01((d - 0.25) * 2));
-    const sun = oklch(0.84, 0.15, lerp(95, 32, dusk));
-    const glow = ctx.createRadialGradient(x, y, r * 0.5, x, y, r * 3);
-    glow.addColorStop(0, sun + "40");
-    glow.addColorStop(1, sun + "00");
-    ctx.fillStyle = glow;
-    ctx.fillRect(x - r * 3, y - r * 3, r * 6, r * 6);
-    pixelDisc(ctx, x, y, r, sun, 1);
-  } else {
-    const { x, y } = arc(w, h, clamp01((((d + 0.5) % 1) - 0.25) * 2));
-    const moon = oklch(0.9, 0.02, 250);
-    const glow = ctx.createRadialGradient(x, y, r * 0.4, x, y, r * 2.2);
-    glow.addColorStop(0, moon + "26");
-    glow.addColorStop(1, moon + "00");
-    ctx.fillStyle = glow;
-    ctx.fillRect(x - r * 2.2, y - r * 2.2, r * 4.4, r * 4.4);
-    pixelDisc(ctx, x, y, r * 0.68, moon, 0.9);
-    ctx.globalAlpha = 0.5;
-    ctx.fillStyle = oklch(0.78, 0.02, 250);
-    for (const [cx, cy] of [[-0.3, -0.2], [0.25, 0.1], [-0.1, 0.35]] as const) {
-      ctx.fillRect(Math.round((x + cx * r) / PX) * PX, Math.round((y + cy * r) / PX) * PX, PX, PX);
-    }
-    ctx.globalAlpha = 1;
+  const sun = project(sky.sun, w, h);
+  // The moon keeps its own schedule, which slips the best part of an hour a day, and half the
+  // time that puts it up in daylight. The real one is still up there at noon; this one bows out,
+  // fading through twilight and gone by the time the sun is properly up, so the daytime sky
+  // stays as plain as the terminal text over it wants it to be.
+  const moonA = 0.9 * clamp01((2 - alt) / 10);
+  if (sky.moon.alt > -1 && moonA > 0.01) {
+    const m = project(sky.moon, w, h);
+    const dx = sun.x - m.x, dy = sun.y - m.y;
+    const d = Math.hypot(dx, dy) || 1;
+    halo(ctx, m.x, m.y, r * 0.68, oklch(0.9, 0.02, 250), 2.2, moonA * (0.2 + 0.8 * sky.lit));
+    pixelMoon(ctx, m.x, m.y, r * 0.68, sky.lit, dx / d, dy / d, moonA);
+  }
+  if (sky.sun.alt > -1) {
+    // It goes orange as it nears the horizon. A tall wall swallows it early, which is the point.
+    const c = oklch(0.84, 0.15, lerp(95, 32, dusk));
+    halo(ctx, sun.x, sun.y, r, c, 3, 1);
+    pixelDisc(ctx, sun.x, sun.y, r, c, 1);
   }
 
   // Running bond, bottom-up and left to right. The newest brick fades in, so a few hundred
@@ -142,11 +188,11 @@ export function ContextSky({ sessionId }: { sessionId: string }) {
   const frac = useStore((s) => contextFraction(s.usage.perSession[sessionId]));
   const strength = SKIES[theme.sky];
   const on = strength > 0 && frac !== undefined;
-  // The wall grows toward `target`; `shown` is where the animation has got to. `day` moves on
-  // its own clock, a minute at a time.
+  // The wall grows toward `target`; `shown` is where the animation has got to. The sky is
+  // recomputed a minute at a time, which is finer than anything up there moves.
   const target = useRef(0);
   const shown = useRef(0);
-  const day = useRef(dayFraction());
+  const sky = useRef<Sky>(skyState(new Date(), theme.lat, theme.lon));
   const kick = useRef<() => void>(() => {});
 
   useEffect(() => {
@@ -155,6 +201,8 @@ export function ContextSky({ sessionId }: { sessionId: string }) {
     if (!el || !ctx) return;
     const L0 = SHADES[theme.shade]; // the theme's background lightness; the sky sits just above it
     const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const observe = () => (sky.current = skyState(new Date(), theme.lat, theme.lon));
+    observe();
     let w = 0, h = 0, raf = 0;
     const tick = () => {
       raf = 0;
@@ -164,7 +212,7 @@ export function ContextSky({ sessionId }: { sessionId: string }) {
         shown.current += d * 0.1;
         raf = requestAnimationFrame(tick);
       }
-      if (w && h) draw(ctx, w, h, shown.current, L0, day.current);
+      if (w && h) draw(ctx, w, h, shown.current, L0, sky.current);
     };
     kick.current = () => {
       if (!raf) raf = requestAnimationFrame(tick);
@@ -177,11 +225,11 @@ export function ContextSky({ sessionId }: { sessionId: string }) {
       el.width = Math.round(w * dpr);
       el.height = Math.round(h * dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      draw(ctx, w, h, shown.current, L0, day.current);
+      draw(ctx, w, h, shown.current, L0, sky.current);
     });
     ro.observe(el);
     const clock = setInterval(() => {
-      day.current = dayFraction();
+      observe();
       kick.current();
     }, 60_000);
     kick.current();

@@ -3,6 +3,7 @@
 // computed in OKLCH and emitted as hex so xterm's WebGL renderer can parse them.
 import type { ITheme } from "@xterm/xterm";
 import { useSyncExternalStore } from "react";
+import { clampLat, clampLon, guessPlace } from "./place";
 
 export const TONES = {
   graphite: { h: 250, c: 0 },
@@ -23,8 +24,12 @@ export interface ThemeChoice {
   shade: keyof typeof SHADES;
   /** The context wall behind the terminal (ContextSky). "off" makes xterm's background opaque again. */
   sky: keyof typeof SKIES;
+  /** Where the sky is drawn from, in degrees north and east: it sets where the sun and moon are
+   * and how long the day is. Seeded from the time zone, corrected by hand in the theme menu. */
+  lat: number;
+  lon: number;
 }
-const DEFAULT: ThemeChoice = { tone: "slate", highlight: "blue", shade: "dark", sky: "soft" };
+const DEFAULT: ThemeChoice = { tone: "slate", highlight: "blue", shade: "dark", sky: "soft", ...guessPlace() };
 const KEY = "henry.theme";
 
 // OKLCH -> sRGB hex. Chroma is pulled in until the color fits the gamut.
@@ -82,6 +87,8 @@ function load(): ThemeChoice {
       highlight: raw.highlight && raw.highlight in HIGHLIGHTS ? raw.highlight : DEFAULT.highlight,
       shade: raw.shade && raw.shade in SHADES ? raw.shade : DEFAULT.shade,
       sky: raw.sky && raw.sky in SKIES ? raw.sky : DEFAULT.sky,
+      lat: typeof raw.lat === "number" ? clampLat(raw.lat) : DEFAULT.lat,
+      lon: typeof raw.lon === "number" ? clampLon(raw.lon) : DEFAULT.lon,
     };
   } catch {
     return DEFAULT;

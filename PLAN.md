@@ -536,15 +536,25 @@ Saved as `henry.theme`. Semantic colors (ok/warn/alarm) and the Claude orange st
 across themes; no light mode yet.
 
 **The context wall.** Behind every session pane is a brick wall that rises from the bottom as
-the session's context window fills, in front of a sky that runs on the wall clock: the sun
-crosses from 06:00 to 18:00, then a moon and stars, with the horizon going warm at either end.
-Two readings in one picture — how full the window is, and how late it has got — and a wall tall
-enough to blot out the sky is telling you something. The wall is the Usage panel's context
+the session's context window fills, in front of the sky that is actually outside: the sun and
+moon stand where they really stand over the user's latitude and longitude, so the day is as
+long as today's day is, the winter sun stays low, the moon keeps its own hours and its real
+phase, and the stars come out through twilight. Two readings in one picture — how full the
+window is, and how late it has got — and a wall tall enough to blot out the sky is telling you
+something. The wall is the Usage panel's context
 fraction, brick by brick (one brick is ~2.5k tokens of a 200k window), coloured by the same
 green/amber/red thresholds, so a `/compact` visibly drops it. It is a canvas under xterm, whose
 background is transparent whenever the wall is on; a fourth theme choice (`sky`: off, faint,
 soft, bold) sets how hard it paints, and "off" makes the terminal background opaque again.
 Decoration only: no session state is readable from it that a panel does not also state.
+
+The sky's arithmetic is local (`solar.ts`, the standard low-precision solar and lunar series,
+good to a fraction of a degree): no weather or almanac API, so it works offline and on a
+plane, and nothing about the user leaves the machine. The place is guessed from the browser's
+time zone (`place.ts`), which needs no geolocation prompt and is right to within a few
+hundred kilometres — minutes of sunset. When the sky is on, the theme popover shows the
+latitude and longitude with today's sunrise and sunset under them; both are editable, and a
+`locate` button asks the browser for something exact only when the user clicks it.
 
 Tool tabs:
 - **Repos** — every repo this session has touched: branch, ahead/behind upstream,
