@@ -96,6 +96,8 @@ export function TerminalView({ sessionId, visible, focused, fontSize }: Props) {
       const n = ev.key === "n" || ev.key === "N";
       if (n && !ev.shiftKey && ((ev.metaKey || ev.ctrlKey) && !ev.altKey || (!isMac && ev.altKey && !ev.ctrlKey))) return false;
       if ((ev.metaKey || ev.ctrlKey) && !ev.altKey && (/^[1-9]$/.test(ev.key) || (ev.metaKey && /^[kf]$/i.test(ev.key)) || (mod(ev) && ev.key === "/"))) return false;
+      // Off macOS the explorer sits on Alt+F in here, since Ctrl+F stays the terminal's forward-char.
+      if (!isMac && ev.altKey && !ev.ctrlKey && !ev.metaKey && /^f$/i.test(ev.key)) return false;
       if (arrowMod(ev) && !ev.ctrlKey && ev.key.startsWith("Arrow")) return false;
       // Shift+Enter inserts a newline in Claude Code's prompt: send ESC CR, the sequence its own
       // /terminal-setup binds. Plain shells keep a normal Enter. keypress must be swallowed too or

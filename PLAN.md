@@ -205,8 +205,9 @@ the design changes; do not let it drift into a changelog.
   ConPTY has already wrapped and lets a taller terminal pull scrollback back under ConPTY's
   reprint, losing it. A resize reaches the daemon only once the drag has settled, since each
   one costs a reprint. In the browser, Ctrl takes ⌘'s letters and digits, Alt takes the
-  arrows (Ctrl+arrows are the terminal's) and Alt+N opens the picker (Chrome reserves
-  Ctrl+N); duplicate is Ctrl+Shift+D. Tauri builds the platform's own bundles; the menu
+  arrows (Ctrl+arrows are the terminal's), Alt+N opens the picker (Chrome reserves
+  Ctrl+N) and Alt+F the explorer (Ctrl+F is the terminal's forward-char, so it only
+  reaches the window from outside one); duplicate is Ctrl+Shift+D. Tauri builds the platform's own bundles; the menu
   bar is macOS-only, and in the Windows shell Ctrl+N and Ctrl+Shift+R (reset layout) are
   page bindings, with nothing on Ctrl+R so the terminal keeps reverse search.
 

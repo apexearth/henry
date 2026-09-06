@@ -17,7 +17,7 @@ import { Settings } from "./Settings";
 import { Keys } from "./Keys";
 import { TopActivity } from "./TopActivity";
 import { closePeek, getDockApi, isFilePanel, resetLayout, showSession, stageStep } from "./dock";
-import { MOD, arrowMod, isMac, mod } from "./platform";
+import { ARROW_MOD, MOD, arrowMod, isMac, mod } from "./platform";
 import { inShell, onMenu } from "./shell";
 import { activeRowIndex, railRows, setActive, useStore, type RailRow } from "./ws";
 
@@ -96,8 +96,10 @@ function DesktopApp() {
       // ⌘F over a file peek in view finds within it; anywhere else it opens the explorer (repos,
       // files and text, with a preview). ⌘⇧F is the explorer in text mode regardless, seeded from
       // the peek's find bar when one is open. ⌃F too, outside the terminal where it is
-      // forward-char. Chrome lets a page take ⌘F, unlike ⌘N.
-      if ((e.key === "f" || e.key === "F") && !e.altKey && (e.metaKey || !(e.target as HTMLElement | null)?.closest?.(".xterm"))) {
+      // forward-char; off macOS that leaves the terminal with no way in, so Alt+F stands in there
+      // the way Alt+N does for a new session. Chrome lets a page take ⌘F and Alt+F, unlike ⌘N.
+      const inTerminal = !!(e.target as HTMLElement | null)?.closest?.(".xterm");
+      if ((e.key === "f" || e.key === "F") && (isMac ? !e.altKey && (e.metaKey || !inTerminal) : e.altKey ? !e.ctrlKey : !inTerminal)) {
         e.preventDefault();
         if (e.shiftKey) {
           setExplorer({ text: document.querySelector<HTMLInputElement>(".peek-find input")?.value ?? "" });
@@ -142,7 +144,7 @@ function DesktopApp() {
         <TopActivity />
         <span style={{ flex: 1 }} />
         <PrsMenu />
-        <button className="topbar-btn" onClick={() => setExplorer({})} title={`browse repos and files, or search their text (${MOD}F)`}>explore</button>
+        <button className="topbar-btn" onClick={() => setExplorer({})} title={`browse repos and files, or search their text (${ARROW_MOD}F)`}>explore</button>
         <RemotesMenu />
         <PhoneMenu />
         <ThemeMenu />

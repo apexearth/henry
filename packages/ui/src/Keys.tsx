@@ -22,7 +22,7 @@ const SECTIONS: [string, Key[]][] = [
   ]],
   ["files", [
     [isMac ? ["⌘K", "⌃K"] : ["Ctrl+K"], isMac ? "find a file to peek at (⌃K stays kill-line in the terminal)" : "find a file to peek at (outside the terminal, where it is kill-line)"],
-    [isMac ? ["⌘F", "⌃F"] : ["Ctrl+F"], isMac ? "explore: repos, their files and their text, with a preview; over a peek, find within that file (⌃F stays forward-char in the terminal)" : "explore: repos, their files and their text, with a preview; over a peek, find within that file (outside the terminal)"],
+    [isMac ? ["⌘F", "⌃F"] : ["Alt+F", "Ctrl+F"], isMac ? "explore: repos, their files and their text, with a preview; over a peek, find within that file (⌃F stays forward-char in the terminal)" : "explore: repos, their files and their text, with a preview; over a peek, find within that file (Ctrl+F outside the terminal only, where it stays forward-char)"],
     [[isMac ? "⌘⇧F" : "Ctrl+Shift+F"], "explore in text mode (git grep across the repos), taking the peek's find term along"],
     [["↩", "⇧↩"], "in a peek's find bar: next / previous match"],
     [[isMac ? "⌘ click" : "Ctrl click"], "peek at a path in terminal output or a diff header"],

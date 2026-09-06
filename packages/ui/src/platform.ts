@@ -6,7 +6,8 @@ export const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(
 /** The "command" modifier for a keyboard event: ⌘ on macOS, Ctrl elsewhere. */
 export const mod = (e: { metaKey: boolean; ctrlKey: boolean }) => (isMac ? e.metaKey : e.ctrlKey);
 
-/** The modifier for the arrow-key shortcuts (rail ↑/↓, stage ←/→): ⌘ on macOS, Alt elsewhere. */
+/** The modifier for the shortcuts the terminal would otherwise claim (rail ↑/↓, stage ←/→,
+ * and off macOS the explorer's F): ⌘ on macOS, Alt elsewhere. */
 export const arrowMod = (e: { metaKey: boolean; altKey: boolean }) => (isMac ? e.metaKey : e.altKey);
 
 /** Shortcut labels for tooltips. */
