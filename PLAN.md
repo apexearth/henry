@@ -21,6 +21,20 @@ the design changes; do not let it drift into a changelog.
   restart. Kept boring on purpose: it changes twice a year; a protocol version in the
   hello lets the daemon warn, and `henry sessiond restart` drains it (exit once no
   session runs) or `--now` hangs everything up. Stopping the daemon never stops it.
+- **A window attaching gets the screen, not the bytes that made it.** The ring is raw PTY
+  output, and replaying it into a fresh xterm is only right for a program that printed
+  lines. A full-screen app repaints with absolute cursor addressing at whatever geometry
+  the PTY had then, so every stale frame lands again in the wrong rows at the window's
+  current size, and the ring's 2 MB cut falls mid escape sequence: scrolling back through
+  a Claude session found interleaved old frames. The daemon therefore keeps a headless
+  xterm per session (`daemon/src/screen.ts`, `@xterm/headless` + the serialize addon),
+  feeds it the same stream windows get, and answers `attach` with a serialised buffer —
+  cells, cursor, scrollback and modes, plus the mouse encoding the serializer omits and
+  the bytes still in its parser. Frames collapse into state, so this is far more real
+  history than 2 MB of repaints ever held. It lives in the daemon because sessiond takes
+  no dependencies; a daemon restart re-seeds each emulator from the ring, which costs one
+  imperfect reconstruction and is exact from the next byte on. `pty:scrollback` did not
+  change shape, so windows and peers need to know none of this.
 - **TypeScript end to end.** Bun runtime for the daemon, Vite + React + xterm.js for
   the UI. Agentic-first: the stack Claude writes and tests fastest.
 - **Browser or native, same page.** The daemon serves the UI at `http://127.0.0.1:14711`.
@@ -571,6 +585,16 @@ Tool tabs:
   Any commit hash (tree rows, the commits-since-baseline log, a commit's parents) opens
   that commit: metadata, message and its patch vs the first parent (`GET /api/repo/commit`).
   These are full-screen modals over the app and stack; Esc closes the top one.
+- **History** — the conversation behind a Claude session, scrollable and searchable.
+  The terminal cannot hold it: Claude Code's TUI takes the alternate screen at startup
+  (`?1049h`, never released, mouse tracking on) and an alternate screen has no scrollback
+  by definition, so a resumed session has nothing above the frame to scroll back into.
+  The turns exist in the transcript the tailer already follows, so `GET /api/history`
+  reads its tail on demand (`daemon/src/history.ts`: stateless, no cache, ~400 turns) and
+  the panel renders prose in full, tool calls as one line each, and results folded until
+  clicked — a result matching the search unfolds itself. Subagent turns are marked and
+  hidden by default. On a phone, where the terminal is a porthole, this is the readable
+  view of what a session is doing.
 - **Flags** — feed of `notable`/`alarm` events with unread badge; each links back
   to the tool call and the rule that fired.
 - **Playbook** — the overseer's running log for this session, newest first, plus a
@@ -622,6 +646,8 @@ henry/
       src/human.ts             # my minutes recorded + rolled up by local day (GET /api/human, POST /api/presence)
       src/overseer.ts          # playbook writer (api | claude-cli backend)
       src/installer.ts         # settings.json merge/unmerge
+      src/screen.ts            # a headless xterm per session; attach is answered with its serialised buffer
+      src/history.ts           # GET /api/history: a Claude session's turns, read from its transcript
       src/platform.ts          # the Windows switches: default shell, .cmd spawning, PATH key, shims
       hooks/henry-hook.sh      # tiny script installed into settings.json (henry-hook.mjs on Windows)
       hooks/henry-statusline.sh  # (henry-statusline.mjs on Windows)
@@ -650,8 +676,9 @@ henry/
       src/FilePicker.tsx       # ⌘K: find a file to peek at
       src/Explorer.tsx         # ⌘F: browse repos and files or grep their text, preview on the right
       src/FileView.tsx         # read-only file peek (stage, with ⌘F find) and the explorer's preview
-      src/panels/{Repos,Flags,Playbook,Usage}.tsx
-      src/panels/bound.tsx     # those four wired to the store, for both the dock and the phone's sheet
+      src/panels/{Repos,History,Flags,Playbook,Usage}.tsx
+      src/panels/bound.tsx     # those five wired to the store, for both the dock and the phone's sheet
+      src/history.ts           # GET /api/history + the hook that refetches a session's turns
       src/DiffView.tsx
       src/GitTree.tsx          # repo modals: shell, commit graph (tree), one commit + patch
 ```

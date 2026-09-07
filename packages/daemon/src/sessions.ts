@@ -14,6 +14,7 @@ import { boundPort, config, henryDir } from "./config";
 import * as db from "./db";
 import { syncLaunchMcp, writeLaunchBin, writeLaunchSettings } from "./installer";
 import { defaultShell, expandTilde, prependPath, programName, redrawByShrink, resolveClaude, spawnSpec } from "./platform";
+import { screens } from "./screen";
 import { SessiondClient, type SessionSummary } from "./sessiond-client";
 
 export interface CreateOptions {
@@ -82,6 +83,9 @@ class SessionManager extends EventEmitter<SessionEvents> {
     this.client.on("data", (id, data) => {
       const l = this.live.get(id);
       if (!l) return;
+      // The emulator hears everything before any window does, so a snapshot taken inside a
+      // later attach covers exactly the bytes already published.
+      screens.write(id, data);
       this.noteTitle(l, data);
       this.emit("data", id, data);
     });
@@ -131,7 +135,7 @@ class SessionManager extends EventEmitter<SessionEvents> {
       const l = this.live.get(sum.id);
       if (l && !l.local) {
         if (sum.status === "exited" && l.session.status === "running") this.finish(l, sum.exitCode ?? 0);
-        this.client.send({ op: "attach", id: sum.id });
+        this.rebuildScreen(sum);
         continue;
       }
       const row = db.getSession(sum.id);
@@ -157,13 +161,14 @@ class SessionManager extends EventEmitter<SessionEvents> {
       if (!row) db.insertSession(session);
       else if (Object.keys(patch).length) db.updateSession(session.id, patch);
       this.live.set(sum.id, { session });
-      this.client.send({ op: "attach", id: sum.id });
+      this.rebuildScreen(sum);
       this.emit("update", session);
     }
     // Live entries sessiond no longer has (it was restarted underneath us).
     for (const l of this.live.values()) {
       if (l.local || known.has(l.session.id)) continue;
       l.local = "\x1b[2m[henry] sessiond restarted; terminal output was not retained\x1b[0m\r\n";
+      screens.forget(l.session.id);
       if (l.session.status === "running") this.finish(l, 1);
     }
     if (this.started) return;
@@ -182,6 +187,19 @@ class SessionManager extends EventEmitter<SessionEvents> {
     }
   }
 
+  /**
+   * (Re)attach to a session sessiond holds and rebuild its emulator from the ring. Called for
+   * every summary on connect and on every reconnect: while the socket was down the emulator
+   * missed bytes, and the ring is the only place they still exist. History deeper than the
+   * ring does not survive a daemon restart — sessiond keeps bytes, not screens.
+   */
+  private rebuildScreen(sum: SessionSummary): void {
+    this.client.attach(sum.id, (raw) => {
+      screens.forget(sum.id);
+      screens.open(sum.id, sum.cols, sum.rows, raw);
+    });
+  }
+
   list(): Session[] {
     return [...this.live.values()].map((l) => l.session).sort((a, b) => a.createdAt - b.createdAt);
   }
@@ -191,15 +209,19 @@ class SessionManager extends EventEmitter<SessionEvents> {
   }
 
   /**
-   * Scrollback for a window that is attaching. `cb` runs synchronously when the data is
-   * known (local note) or inside sessiond's reply handler, before any later live "data"
-   * event fires, so a caller that subscribes to live output inside `cb` sees an ordered
-   * stream. Unknown session: cb is not called.
+   * Scrollback for a window that is attaching: a snapshot of the session's emulator (screen.ts),
+   * not the bytes that produced it. `cb` runs synchronously when the state is known (snapshot or
+   * local note) or inside sessiond's reply handler, before any later live "data" event fires, so
+   * a caller that subscribes to live output inside `cb` sees an ordered stream with no gap and no
+   * repeat. Unknown session: cb is not called.
    */
   withScrollback(id: string, cb: (data: string) => void): void {
     const l = this.live.get(id);
     if (!l) return;
     if (l.local !== undefined) return cb(l.local);
+    const snap = screens.snapshot(id);
+    if (snap !== undefined) return cb(snap);
+    // No emulator yet: a rebuild is still in flight, so fall back to the raw ring.
     this.client.attach(id, cb);
   }
 
@@ -262,7 +284,9 @@ class SessionManager extends EventEmitter<SessionEvents> {
       env.HENRY_CLAUDE = resolveClaude();
     }
     const spec = spawnSpec(command, args);
-    this.client.send({ op: "spawn", id, command: spec.command, args: spec.args, cwd, env, cols: opts.cols ?? 120, rows: opts.rows ?? 36 });
+    const cols = opts.cols ?? 120, rows = opts.rows ?? 36;
+    screens.open(id, cols, rows);
+    this.client.send({ op: "spawn", id, command: spec.command, args: spec.args, cwd, env, cols, rows });
     this.client.send({ op: "attach", id });
     this.emit("update", session);
     return session;
@@ -281,6 +305,7 @@ class SessionManager extends EventEmitter<SessionEvents> {
       setTimeout(() => this.resize(id, cols, rows), 40);
       return;
     }
+    screens.resize(id, cols, rows);
     this.client.send({ op: "resize", id, cols, rows });
   }
 
@@ -299,6 +324,7 @@ class SessionManager extends EventEmitter<SessionEvents> {
     } else {
       this.live.delete(id);
       this.titleTail.delete(id);
+      screens.forget(id);
       db.dismissSession(id);
       if (l.local === undefined) this.client.send({ op: "kill", id });
     }

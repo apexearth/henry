@@ -15,6 +15,7 @@ import type { Client } from "./federation";
 import type { FedState, PeerLink } from "./fed-peer";
 import * as git from "./git";
 import * as files from "./files";
+import { readHistory } from "./history";
 import { backfillPresence, humanStats, notePresence } from "./human";
 import * as hooks from "./hooks";
 import * as mcp from "./mcp";
@@ -491,6 +492,11 @@ export async function handleApi(req: Request, url: URL, origin: ApiOrigin): Prom
         notePresence(source);
         if (Array.isArray(body?.backfill)) backfillPresence(source, body.backfill.filter((n) => typeof n === "number"));
         return json({ ok: true });
+      }
+      // The conversation behind a Claude session. Its TUI owns the alternate screen, so the
+      // terminal has no scrollback to hold this; the transcript does.
+      if (pathname === "/api/history") {
+        return json(readHistory(url.searchParams.get("sessionId") ?? "", Number(url.searchParams.get("limit")) || undefined));
       }
       if (pathname === "/api/events") {
         return json(db.listEvents({ sessionId: url.searchParams.get("session") ?? undefined, limit: Number(url.searchParams.get("limit")) || 200 }));

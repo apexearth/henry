@@ -409,3 +409,35 @@ export interface GrepResult {
   /** Some hits were dropped: the per-search cap or the output cap was reached. */
   truncated: boolean;
 }
+
+/** One piece of a turn. Prose, a tool Claude called, or what the tool answered. */
+export interface HistoryBlock {
+  kind: "text" | "thinking" | "tool" | "result";
+  text: string;
+  /** kind "tool": the tool's name. */
+  name?: string;
+  /** The text was cut to keep a page readable. */
+  clipped?: boolean;
+}
+
+/** One message in the conversation, in the order the transcript wrote it. */
+export interface HistoryTurn {
+  /** The transcript line's uuid: stable across refetches, so React keys and scroll anchors hold. */
+  uuid: string;
+  at: number;
+  role: "user" | "assistant";
+  /** Written by a subagent, not the main chain. Folded away unless asked for. */
+  sidechain?: boolean;
+  model?: string;
+  blocks: HistoryBlock[];
+}
+
+/** GET /api/history?sessionId=[&limit=]: the conversation behind a Claude session. */
+export interface History {
+  sessionId: string;
+  turns: HistoryTurn[];
+  /** False when older turns were left unread above the window. */
+  complete: boolean;
+  /** No transcript to read: not a Claude session, or it has not written one yet. */
+  reason?: string;
+}

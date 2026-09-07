@@ -11,7 +11,7 @@ import { isClaudeSession, type Session } from "@henry/shared";
 import { Rail } from "../Rail";
 import { TerminalView } from "../Terminal";
 import { ContextSky } from "../ContextSky";
-import { BoundFlags, BoundPlaybook, BoundRepos, BoundUsage, useSessionFlags } from "../panels/bound";
+import { BoundFlags, BoundHistory, BoundPlaybook, BoundRepos, BoundUsage, useSessionFlags } from "../panels/bound";
 import { useAskTitle } from "../title";
 import { answerAttention, useStore } from "../ws";
 import { Composer } from "./Composer";
@@ -19,6 +19,8 @@ import { useFontSize, useViewportHeight } from "./useMobile";
 
 const TABS = [
   { id: "repos", title: "repos", body: BoundRepos },
+  // On a phone the terminal is a porthole; the conversation is much easier to read here.
+  { id: "history", title: "history", body: BoundHistory },
   { id: "flags", title: "flags", body: BoundFlags },
   { id: "playbook", title: "playbook", body: BoundPlaybook },
   { id: "usage", title: "usage", body: BoundUsage },

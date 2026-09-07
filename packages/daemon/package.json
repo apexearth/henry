@@ -16,7 +16,9 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.123.0",
-    "@henry/shared": "workspace:*"
+    "@henry/shared": "workspace:*",
+    "@xterm/addon-serialize": "^0.14.0",
+    "@xterm/headless": "^6.0.0"
   },
   "devDependencies": {
     "@types/bun": "^1.2.0",

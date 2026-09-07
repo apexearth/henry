@@ -146,3 +146,10 @@ export function xtermTheme(): ITheme {
   });
   return th as ITheme;
 }
+
+/** How opaque a cell's own background colour is painted. The terminal's background is fully
+ * transparent so the context wall shows through it, and a highlighted line would otherwise be a
+ * solid slab in front of the wall. The bolder the wall, the more of it comes through the slab. */
+export function cellBgAlpha(): number {
+  return 1 - SKIES[current.sky] / 2;
+}
