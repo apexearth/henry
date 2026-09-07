@@ -6,10 +6,11 @@ import { isClaudeSession } from "@henry/shared";
 import { baseName } from "./platform";
 import { getState } from "./ws";
 
-export type ToolId = "sessions" | "repos" | "flags" | "playbook" | "usage";
+export type ToolId = "sessions" | "repos" | "history" | "flags" | "playbook" | "usage";
 export const TOOLS: { id: ToolId; title: string }[] = [
   { id: "sessions", title: "Sessions" },
   { id: "repos", title: "Repos" },
+  { id: "history", title: "History" },
   { id: "flags", title: "Flags" },
   { id: "playbook", title: "Playbook" },
   { id: "usage", title: "Usage" },

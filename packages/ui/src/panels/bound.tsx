@@ -2,8 +2,10 @@
 // show the same thing. The panels themselves stay pure: props in, no store.
 import { ReposPanel } from "./Repos";
 import { FlagsPanel } from "./Flags";
+import { HistoryPanel } from "./History";
 import { PlaybookPanel } from "./Playbook";
 import { UsagePanel } from "./Usage";
+import { useHistory } from "../history";
 import { markFlagsRead, requestDiff, requestPlaybook, useStore } from "../ws";
 
 export function BoundRepos() {
@@ -34,6 +36,12 @@ export function BoundPlaybook() {
   const active = useStore((s) => s.activeSessionId);
   const playbook = useStore((s) => s.playbook);
   return <PlaybookPanel sessionId={active} entries={playbook.filter((p) => p.sessionId === active)} onRefresh={() => requestPlaybook(active)} />;
+}
+
+export function BoundHistory() {
+  const active = useStore((s) => s.activeSessionId);
+  const { history, loading, refresh } = useHistory(active);
+  return <HistoryPanel sessionId={active} history={history} loading={loading} onRefresh={refresh} />;
 }
 
 export function BoundUsage() {

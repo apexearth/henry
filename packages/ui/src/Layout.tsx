@@ -6,7 +6,7 @@ import { Rail } from "./Rail";
 import { TerminalView } from "./Terminal";
 import { ContextSky } from "./ContextSky";
 import { FileView } from "./FileView";
-import { BoundFlags, BoundPlaybook, BoundRepos, BoundUsage, useSessionFlags } from "./panels/bound";
+import { BoundFlags, BoundHistory, BoundPlaybook, BoundRepos, BoundUsage, useSessionFlags } from "./panels/bound";
 import { setActive, useStore } from "./ws";
 import { buildDefaultLayout, ensureSessionPanel, henryTheme, isFilePanel, isTerminalGroup, loadLayout, noteActivePanel, saveLayout, sessionTitle, setDockApi, styleTerminalGroup, TERM_PREFIX, termPanelId } from "./dock";
 
@@ -52,6 +52,11 @@ function FlagsDock({ api }: IDockviewPanelProps) {
     api.setTitle(unread ? `Flags (${unread})` : "Flags");
   }, [api, unread]);
   return <div className="dock-body"><BoundFlags /></div>;
+}
+
+/** The history pane scrolls its own list, so it owns the box rather than sitting in dock-body. */
+function HistoryDock() {
+  return <div className="dock-body" style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}><BoundHistory /></div>;
 }
 
 function PlaybookDock() {
@@ -115,6 +120,7 @@ const components = {
   file: FilePanel,
   sessions: SessionsPanel,
   repos: ReposDock,
+  history: HistoryDock,
   flags: FlagsDock,
   playbook: PlaybookDock,
   usage: UsageDock,

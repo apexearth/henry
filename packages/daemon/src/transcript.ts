@@ -136,6 +136,14 @@ export function isTailing(sessionId: string): boolean {
   return tails.has(sessionId);
 }
 
+/** Where this session's conversation is written (history.ts reads it). A hook-supplied path
+ * wins, as it does for tailing; otherwise it is derived from the cwd the way Claude Code does. */
+export function transcriptPathOf(session: Session): string | undefined {
+  const tail = tails.get(session.id);
+  if (tail) return tail.path;
+  return session.claudeSessionId ? transcriptPathFor(session.cwd, session.claudeSessionId) : undefined;
+}
+
 /** Merge what the statusline knows about a session (its cost is authoritative). */
 export function noteStatuslineUsage(sessionId: string, hint: StatuslineHint): void {
   hints.set(sessionId, { ...hints.get(sessionId), ...hint });
