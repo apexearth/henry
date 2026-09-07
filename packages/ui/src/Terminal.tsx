@@ -7,7 +7,7 @@ import { isClaudeSession } from "@henry/shared";
 import { getState, send, subscribePty, useStore } from "./ws";
 import { openPeek, splitLineRef } from "./FileView";
 import { arrowMod, isMac, mod } from "./platform";
-import { cssVar, onTheme, xtermTheme } from "./theme";
+import { cellBgAlpha, cssVar, onTheme, xtermTheme } from "./theme";
 
 interface Props {
   sessionId: string;
@@ -32,6 +32,30 @@ const RESIZE_SETTLE_MS = 120;
 const PATH_RE = /(?<![\w@:/.\\-])(?:[A-Za-z]:)?(?:~[\\/]|\.{1,2}[\\/]|[\\/])?[\w.@+-]+(?:[\\/][\w.@+-]+)+(?::\d+(?::\d+)?)?|(?<![\w@:/.\\-])[\w@+-]+(?:\.[\w@+-]+)*\.[A-Za-z]{2,5}(?::\d+(?::\d+)?)?/g;
 // Terminal-to-host reports: DA1/DA2/DSR/CPR, DECRQM, OSC and DCS replies, focus events.
 const REPORT_RE = /^\x1b(\[[?>]?[\d;]*[cRn]|\[\?[\d;]*\$y|\][^\x07\x1b]*(\x07|\x1b\\)|P[^\x1b]*\x1b\\|\[[IO])/;
+
+// A background rectangle in xterm's WebGL renderer: 8 floats, alpha last.
+const RECT_FLOATS = 8, RECT_ALPHA = 7;
+interface RectRenderer { _vertices: { attributes: Float32Array; count: number }; renderBackgrounds(): void }
+let softened = false;
+
+/** xterm's WebGL renderer hardcodes alpha 1 on every cell background it paints, so a line an app
+ * gives a background colour lands as a solid slab in front of the context wall, while the
+ * terminal's own background is see-through. Re-alpha the rectangles on their way to the GPU.
+ * Patched on the prototype, once: the renderer is rebuilt on a WebGL context restore. Rectangle 0
+ * is the viewport, which already carries the theme background's own alpha. */
+function softenCellBackgrounds(webgl: WebglAddon) {
+  if (softened) return;
+  const inner = webgl as unknown as { _renderer?: { _rectangleRenderer?: { value?: RectRenderer } } };
+  const proto = inner._renderer?._rectangleRenderer?.value && Object.getPrototypeOf(inner._renderer._rectangleRenderer.value!);
+  const orig = proto?.renderBackgrounds;
+  if (typeof orig !== "function") return; // xterm changed shape: leave the slabs opaque
+  softened = true;
+  proto.renderBackgrounds = function (this: RectRenderer) {
+    const a = cellBgAlpha();
+    for (let i = 1; i < this._vertices.count; i++) this._vertices.attributes[i * RECT_FLOATS + RECT_ALPHA] = a;
+    orig.call(this);
+  };
+}
 
 export function TerminalView({ sessionId, visible, focused, fontSize }: Props) {
   const box = useRef<HTMLDivElement>(null);
@@ -72,6 +96,7 @@ export function TerminalView({ sessionId, visible, focused, fontSize }: Props) {
       const webgl = new WebglAddon();
       webgl.onContextLoss(() => webgl.dispose());
       t.loadAddon(webgl);
+      softenCellBackgrounds(webgl);
     } catch (e) {
       console.warn("[henry] WebGL renderer unavailable, using DOM renderer", e);
     }
