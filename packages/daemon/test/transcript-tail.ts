@@ -65,6 +65,15 @@ const evs = db.listEvents({ sessionId: sid });
 assert(JSON.stringify(evs.map((e) => e.summary)) === JSON.stringify(["subagent finished", "subagent started"]), `sidechain events: ${evs.map((e) => e.summary)}`);
 assert(evs.every((e) => e.kind === "transcript"), "event kind transcript");
 
+// a compaction drops the context reading straight away, without waiting for the next turn
+assert(db.listSessionUsage()[sid].contextTokens === 13, `context before compaction, got ${db.listSessionUsage()[sid].contextTokens}`);
+const boundary = (meta: Record<string, unknown>) =>
+  JSON.stringify({ type: "system", subtype: "compact_boundary", isSidechain: false, content: "Conversation compacted", compactMetadata: meta });
+appendFileSync(path, boundary({ trigger: "manual", preTokens: 190_000 }) + "\n"); // pre-postTokens Claude Code: nothing to go on
+appendFileSync(path, boundary({ trigger: "manual", preTokens: 190_000, postTokens: 8871 }) + "\n");
+await waitFor("context after compaction", () => db.listSessionUsage()[sid]?.contextTokens === 8871);
+assert(db.listSessionUsage()[sid].inputTokens === 21, "compaction does not touch spend totals");
+
 // switching transcripts for the same session (e.g. /clear) carries totals forward
 const path2 = join(home, "t2.jsonl");
 writeFileSync(path2, line("n1", { input_tokens: 100, output_tokens: 0 }) + "\n");

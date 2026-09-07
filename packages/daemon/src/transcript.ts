@@ -284,6 +284,9 @@ interface TranscriptLine {
   agentId?: string;
   /** `/rename` writes {type:"custom-title", customTitle}. */
   customTitle?: string;
+  /** {type:"system"} lines carry a subtype; "compact_boundary" is the one that matters here. */
+  subtype?: string;
+  compactMetadata?: { postTokens?: number };
   message?: {
     id?: string;
     model?: string;
@@ -310,6 +313,14 @@ function handleLine(tail: Tail, raw: string): boolean {
   noteSidechain(tail, line);
   if (line.type === "custom-title" && typeof line.customTitle === "string") sessions.setTitle(tail.sessionId, line.customTitle);
   if (line.type === "user") noteToolResults(tail, line);
+  // A compaction rewrites the window without making an API call, so the reading below would
+  // stay at the pre-compact high until the next turn. postTokens is the size afterwards.
+  if (line.type === "system" && line.subtype === "compact_boundary" && line.isSidechain !== true) {
+    const post = line.compactMetadata?.postTokens;
+    if (typeof post !== "number") return false;
+    tail.context = post;
+    return true;
+  }
   if (line.type !== "assistant") return false;
   const usage = line.message?.usage;
   if (!usage) return false;
