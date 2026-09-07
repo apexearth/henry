@@ -95,6 +95,8 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 
 .rail { display: flex; flex-direction: column; height: 100%; background: var(--bg-2); min-width: 0; }
 .rail-list { flex: 1; overflow-y: auto; }
+/* Hiding is by hand, one row or one group at a time, so the count is the only way back. */
+.rail-hidden { flex: none; display: flex; gap: 8px; align-items: center; justify-content: space-between; padding: 5px 10px; border-bottom: 1px solid var(--border); color: var(--fg-dim); font-size: 11px; }
 .rail-item { padding: 0 8px 0 6px; height: 26px; cursor: pointer; border-left: 2px solid transparent; display: flex; gap: 6px; align-items: center; white-space: nowrap; }
 .rail-item:hover { background: var(--bg-3); }
 .rail-item.active { background: var(--bg-3); border-left-color: var(--accent); }
@@ -105,6 +107,7 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 .rail-item .title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .rail-item .sub { flex: 0 1 auto; max-width: 40%; color: var(--fg-dim); font-size: 11px; overflow: hidden; text-overflow: ellipsis; }
 .rail-item .close { flex: none; opacity: 0; background: none; border: none; padding: 0 2px; color: var(--fg-dim); }
+.rail-item .close:hover { color: var(--fg); }
 .rail-item:hover .close { opacity: 1; }
 .mark { flex: none; width: 14px; text-align: center; }
 .mark.shell { font-size: 10px; font-weight: bold; letter-spacing: -1px; color: var(--fg-dim); }
@@ -153,6 +156,9 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 .rail-group-h { position: sticky; top: 0; z-index: 1; display: flex; gap: 6px; align-items: center; padding: 6px 8px 2px; background: var(--bg-2); color: var(--fg-dim); font-size: 10px; letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; }
 .rail-group-h .name { overflow: hidden; text-overflow: ellipsis; }
 .rail-group-h .n { flex: none; margin-left: auto; color: var(--fg-faint); }
+.rail-group-h .hide { flex: none; opacity: 0; background: none; border: none; padding: 0 2px; color: var(--fg-dim); font-size: 11px; }
+.rail-group-h:hover .hide { opacity: 1; }
+.rail-group-h .hide:hover { color: var(--fg); }
 .rail-groupby { background: none; border: none; padding: 0; color: var(--fg-dim); font: inherit; font-size: 11px; }
 .rail-groupby:hover { color: var(--fg); }
 .rail-new-wrap { flex: none; padding: 8px 10px; border-top: 1px solid var(--border); }

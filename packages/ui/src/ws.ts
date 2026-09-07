@@ -48,6 +48,9 @@ export interface UiState {
   /** Rail: machines folded away, by name ("" for this one). Their header stays so they can be
    * unfolded; their rows leave the list and the ⌘1..9 order. Persisted. */
   hiddenMachines: string[];
+  /** Rail: sessions hidden by hand, by id. Nothing is killed; the rows just leave the list and
+   * the ⌘1..9 order until "show all". Persisted, pruned to sessions that still exist. */
+  hiddenSessions: string[];
   /** Raw event feed (capped), for the Flags/raw-events views. */
   events: HenryEvent[];
   /** Diffs by `${sessionId}\n${repoPath}`. */
@@ -74,6 +77,7 @@ let state: UiState = {
   showClosed: readShowClosed(),
   groupBy: readGroupBy(),
   hiddenMachines: readHiddenMachines(),
+  hiddenSessions: readHiddenSessions(),
   events: [],
   diffs: {},
 };
@@ -98,6 +102,15 @@ function readGroupBy(): GroupBy {
 function readHiddenMachines(): string[] {
   try {
     const v = JSON.parse(localStorage.getItem("henry.hiddenMachines") ?? "[]") as unknown;
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function readHiddenSessions(): string[] {
+  try {
+    const v = JSON.parse(localStorage.getItem("henry.hiddenSessions") ?? "[]") as unknown;
     return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
   } catch {
     return [];
@@ -272,9 +285,10 @@ function handle(m: ServerMessage): void {
 /** The rail's order: running sessions oldest first, then (when shown) exited ones newest first.
  * The exited session you are looking at stays listed until you move on. ⌘1..9 and ⌘↑/↓ follow it. */
 function baseOrder(s: UiState): Session[] {
-  const running = s.sessions.filter((x) => x.status === "running");
+  const shown = (x: Session) => !s.hiddenSessions.includes(x.id);
+  const running = s.sessions.filter((x) => x.status === "running" && shown(x));
   const closed = s.sessions
-    .filter((x) => x.status !== "running" && (s.showClosed || x.id === s.activeSessionId))
+    .filter((x) => x.status !== "running" && (s.showClosed || x.id === s.activeSessionId) && shown(x))
     .sort((a, b) => (b.endedAt ?? b.createdAt) - (a.endedAt ?? a.createdAt));
   return [...running, ...closed];
 }
@@ -380,6 +394,7 @@ function railCache(s: UiState): { groups: RailGroup[]; flat: Session[]; rows: Ra
     c.s.activeSessionId === s.activeSessionId &&
     c.s.groupBy === s.groupBy &&
     c.s.hiddenMachines === s.hiddenMachines &&
+    c.s.hiddenSessions === s.hiddenSessions &&
     c.s.repos === s.repos &&
     c.s.attention === s.attention
   )
@@ -429,6 +444,32 @@ export function toggleShowClosed(): void {
     localStorage.setItem("henry.showClosed", showClosed ? "1" : "0");
   } catch {}
   setState({ showClosed });
+}
+
+/** How many sessions the hide buttons are keeping out of the list. An exited one only counts
+ * where it would otherwise be listed, or the line would claim rows the closed toggle is
+ * already holding back. */
+export function hiddenCount(s: UiState = state): number {
+  return s.sessions.filter((x) => s.hiddenSessions.includes(x.id) && (x.status === "running" || s.showClosed)).length;
+}
+
+/** Take one session, or a whole group's worth, out of the rail. Nothing is killed or
+ * disconnected: the rows leave the list, and the line above it brings them all back. */
+export function hideSessions(ids: string[]): void {
+  if (ids.some((id) => !state.hiddenSessions.includes(id))) writeHidden([...new Set([...state.hiddenSessions, ...ids])]);
+}
+
+export function showAllSessions(): void {
+  if (state.hiddenSessions.length) writeHidden([]);
+}
+
+function writeHidden(ids: string[]): void {
+  // Sessions the daemon has forgotten would otherwise pile up in storage for good.
+  const hiddenSessions = ids.filter((id) => state.sessions.some((x) => x.id === id));
+  try {
+    localStorage.setItem("henry.hiddenSessions", JSON.stringify(hiddenSessions));
+  } catch {}
+  setState({ hiddenSessions });
 }
 
 /** Fold a machine's sessions away (or bring them back). Nothing is disconnected: the rows just

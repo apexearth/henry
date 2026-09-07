@@ -133,6 +133,12 @@ the design changes; do not let it drift into a changelog.
   A repo name is coloured by a hash of the name wherever it appears (group headers, row
   sub-labels, the Repos panel, the Files section, the new-session picker), so one repo is one
   colour across grouping modes, restarts and machines; "no repo" and the attention groups stay grey.
+- **Hiding is by hand, and always reversible.** Hovering a row or a group header shows a ⊘:
+  clicking it takes those sessions out of the list and out of the ⌘1..9 order, killing nothing.
+  Hiding is per session, not per row, so a session hidden from one repo group leaves the others
+  too. A line above the list counts what is hidden and brings it all back ("show all"), so a
+  session can never be lost behind it. Persisted per browser, pruned to sessions the daemon
+  still knows.
 - **Activity is derived, never polled.** Every Claude session carries `activity`:
   `working` (a turn is running), `needsInput` (blocked on a permission prompt), `waiting`
   (the turn ended, the next move is mine) or `idle` (waiting >10 min, or silent >15 min

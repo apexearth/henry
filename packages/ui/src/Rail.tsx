@@ -6,7 +6,7 @@ import { MOD, baseName, isMac } from "./platform";
 import { inShell, onMenu } from "./shell";
 import { hueText, nameHue } from "./theme";
 import { showSession } from "./dock";
-import { activeRowIndex, answerAttention, duplicateSession, killSession, railGroups, railRows, resumeSession, setActive, setGroupBy, toggleMachine, toggleShowClosed, useStore, type GroupBy } from "./ws";
+import { activeRowIndex, answerAttention, duplicateSession, hiddenCount, hideSessions, killSession, railGroups, railRows, resumeSession, setActive, setGroupBy, showAllSessions, toggleMachine, toggleShowClosed, useStore, type GroupBy } from "./ws";
 
 const base = baseName;
 
@@ -116,6 +116,7 @@ export function Rail() {
   const host = useStore((s) => s.host);
   const sessions = useStore((s) => s.sessions);
   const showClosed = useStore((s) => s.showClosed);
+  const hidden = useStore(hiddenCount);
   const active = useStore((s) => s.activeSessionId);
   const flags = useStore((s) => s.flags);
   const attention = useStore((s) => s.attention);
@@ -162,6 +163,12 @@ export function Rail() {
 
   return (
     <div className="rail">
+      {hidden > 0 && (
+        <div className="rail-hidden">
+          <span>{hidden} session{hidden === 1 ? "" : "s"} hidden</span>
+          <button className="rail-toggle" onClick={showAllSessions} title="bring every hidden session back into the list">show all</button>
+        </div>
+      )}
       <div className="rail-list">
         {groups.map((g, gi) => (
           <div key={g.key} className="rail-group">
@@ -178,6 +185,8 @@ export function Rail() {
               <div className="rail-group-h" title={g.title}>
                 <span className="name" style={g.hue !== undefined ? { color: hueText(g.hue) } : undefined}>{g.label}</span>
                 <span className="n">{g.sessions.length}</span>
+                <button className="hide" title={"hide " + (g.sessions.length === 1 ? "this session" : "these " + g.sessions.length + " sessions") + " — they leave the rail everywhere, not just here"}
+                  onClick={() => hideSessions(g.sessions.map((x) => x.id))}>⊘</button>
               </div>
             )}
             {!g.hidden && g.sessions.map((s: Session) => {
@@ -219,6 +228,8 @@ export function Rail() {
                     <button className="close" title="resume this Claude session in a new tab"
                       onClick={(e) => { e.stopPropagation(); resumeSession(s); }}>↻</button>
                   )}
+                  <button className="close hide" title="hide this session from the rail; it keeps running"
+                    onClick={(e) => { e.stopPropagation(); hideSessions([s.id]); }}>⊘</button>
                   <button className="close" title={on ? "kill session" : "close"}
                     onClick={(e) => { e.stopPropagation(); killSession(s.id); }}>×</button>
                 </div>
