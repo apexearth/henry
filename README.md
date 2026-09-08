@@ -154,8 +154,12 @@ yours.
 
 ## Requirements
 
-bun ≥ 1.2, node ≥ 22.6 on PATH, `claude`, git. Optional: `gh` for PR counts, a Rust
+bun ≥ 1.4.2, node ≥ 22.6 on PATH, `claude`, git. Optional: `gh` for PR counts, a Rust
 toolchain for the native window, Tailscale for pairing and for the phone.
+
+Bun 1.2.x on Windows kept about a kilobyte of native memory for every hook and statusline
+request the daemon answered, which at Henry's request rate was gigabytes a day; 1.4.2 does
+not. The daemon says so at start when it is running on less (`bun upgrade` fixes it).
 
 macOS and Windows, no WSL. On Windows a plain terminal is PowerShell, hooks run under node
 instead of curl, and the shortcuts shift to Ctrl and Alt.

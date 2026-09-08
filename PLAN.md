@@ -793,6 +793,10 @@ unbounded input is trimmed at the door.
   collection a module keeps — screens, transcript tails, git watchers, links, asks — after a
   full collection when asked (`?gc=1`); `POST /api/debug/heap-snapshot` writes a
   Chrome-loadable snapshot into `~/.henry`; `henry status` prints the one-line summary.
+  What it found first: Bun 1.2.19 on Windows kept ~1 KB of native memory (JS heap flat) for
+  every `/hook` and `/statusline` request, 3.4 GB in a day of nine sessions; 1.4.2 holds
+  flat over the same load, so 1.4.2 is the floor and the daemon warns at start when it is
+  running on less. The transcript, PTY, git, federation and MCP paths all plateau.
 
 ```json
 {

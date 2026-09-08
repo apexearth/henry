@@ -347,7 +347,19 @@ async function serveStatic(pathname: string): Promise<Response> {
   return new Response(Bun.file(join(uiDist, "index.html")));
 }
 
+/** Bun 1.2.19 on Windows kept ~1 KB of native memory per /hook and /statusline request the
+ * daemon answered (JS heap flat, RSS in the gigabytes after a day of nine sessions); 1.4.2
+ * holds flat under the same load (PLAN.md). Observe and flag: the daemon runs either way. */
+const BUN_FLOOR = "1.4.2";
+function warnOldBun(): void {
+  const at = (v: string) => v.split(".").map(Number);
+  const [a, b, c] = at(Bun.version), [x, y, z] = at(BUN_FLOOR);
+  if (a! > x! || (a === x && (b! > y! || (b === y && c! >= z!)))) return;
+  console.error(`[henry] running on Bun ${Bun.version}; this daemon leaks memory per request on Bun < ${BUN_FLOOR}. Run \`bun upgrade\` and restart.`);
+}
+
 export async function startServer(): Promise<void> {
+  warnOldBun();
   // Reconcile with sessiond before answering anyone, so the first /api/state is right.
   await sessions.start();
   // Re-derives each running session's activity from its last hook, then ages it on a tick.
