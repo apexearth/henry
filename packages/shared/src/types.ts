@@ -34,6 +34,11 @@ export interface Session {
   pid?: number;
   /** Short name of the machine whose daemon owns this session (config.host, default os.hostname()). */
   host?: string;
+  /** Windows build of the machine hosting this PTY; absent off Windows. ConPTY older than 21376
+   * wraps long lines itself and marks none of them, so a window must not reflow its own
+   * scrollback (ui/Terminal.tsx). It belongs to the session, not to the window: a Mac window
+   * showing a federated Windows session needs it as much as a window on that machine. */
+  windowsBuild?: number;
   /** Set by the daemon you are attached to on sessions it relays from a paired machine
    * (federation): the peer's name in this daemon's peer list. Absent on local sessions. */
   peer?: string;

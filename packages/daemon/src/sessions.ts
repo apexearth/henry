@@ -13,7 +13,7 @@ import * as attention from "./attention";
 import { boundPort, config, henryDir } from "./config";
 import * as db from "./db";
 import { syncLaunchMcp, writeLaunchBin, writeLaunchSettings } from "./installer";
-import { defaultShell, expandTilde, prependPath, programName, redrawByShrink, resolveClaude, spawnSpec } from "./platform";
+import { defaultShell, expandTilde, prependPath, programName, redrawByShrink, resolveClaude, spawnSpec, windowsBuild } from "./platform";
 import { screens } from "./screen";
 import { SessiondClient, type SessionSummary } from "./sessiond-client";
 
@@ -160,7 +160,7 @@ class SessionManager extends EventEmitter<SessionEvents> {
       Object.assign(session, patch);
       if (!row) db.insertSession(session);
       else if (Object.keys(patch).length) db.updateSession(session.id, patch);
-      this.live.set(sum.id, { session });
+      this.hold(sum.id, { session });
       this.rebuildScreen(sum);
       this.emit("update", session);
     }
@@ -183,7 +183,7 @@ class SessionManager extends EventEmitter<SessionEvents> {
       if (this.live.has(s.id) || known.has(s.id) || s.createdAt < cutoff) continue;
       if (s.status === "running") s.status = "exited";
       const note = "\x1b[2m[henry] session from a previous daemon run; terminal output was not retained\x1b[0m\r\n";
-      this.live.set(s.id, { session: s, local: note, external: s.command === "external" });
+      this.hold(s.id, { session: s, local: note, external: s.command === "external" });
     }
   }
 
@@ -198,6 +198,16 @@ class SessionManager extends EventEmitter<SessionEvents> {
       screens.forget(sum.id);
       screens.open(sum.id, sum.cols, sum.rows, raw);
     });
+  }
+
+  /** Everything in `live` is this daemon's own session, so it leaves here stamped with this
+   * machine: its host name and, on Windows, its ConPTY build. The build travels with the
+   * session because the window that draws it may be on another machine (federation), and only
+   * the host knows whether the bytes came out of ConPTY. */
+  private hold(id: string, entry: Live): void {
+    entry.session.host ??= localHost();
+    entry.session.windowsBuild = windowsBuild;
+    this.live.set(id, entry);
   }
 
   list(): Session[] {
@@ -262,7 +272,7 @@ class SessionManager extends EventEmitter<SessionEvents> {
       parentSessionId: opts.parentSessionId,
       host: localHost(),
     };
-    this.live.set(id, { session });
+    this.hold(id, { session });
     db.insertSession(session);
     // What this session will name for the rest of its life, hooks and MCP url alike. The
     // daemon keeps answering here even after its port moves (server.ts, syncAliasListeners).
@@ -362,9 +372,8 @@ class SessionManager extends EventEmitter<SessionEvents> {
   /** Register a session Henry did not spawn (hooks.ts, for a claude started elsewhere). No PTY behind it. */
   registerExternal(session: Session): void {
     if (this.live.has(session.id)) return;
-    session.host ??= localHost();
     const note = `[henry] external session: started outside Henry, output not captured (cwd ${session.cwd})\r\n`;
-    this.live.set(session.id, { session, local: note, external: true });
+    this.hold(session.id, { session, local: note, external: true });
     db.insertSession(session);
     this.emit("update", session);
   }

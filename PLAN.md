@@ -203,7 +203,14 @@ the design changes; do not let it drift into a changelog.
   run immediately. Both triggers default off; see Config.
 - **Windows is a first-class host, with the same three processes.** The platform switches
   live in one daemon module (`platform.ts`) and one function in sessiond; everything else
-  goes through Node's path/os modules. What differs: sessiond runs PTYs on ConPTY and
+  goes through Node's path/os modules. What differs: sessiond opens PTYs on node-pty's bundled
+  `conpty.dll`, not the one in the OS (`HENRY_CONPTY_DLL=0` goes back). The inbox ConPTY on
+  Windows 10 consumes an app's mouse-tracking DECSETs and forwards none of them, so nothing
+  downstream learns the app wants the wheel, and a wheel report written back reaches nobody —
+  which is the whole of Claude Code's own scrollback, so scrolling up in a Windows session did
+  nothing at all while the same session scrolled fine on macOS. The bundled one relays the
+  modes and delivers the reports. It is chosen at spawn, so a session started before the
+  switch keeps the old one. sessiond runs PTYs on ConPTY and
   node-pty there rejects signals, so `kill` terminates instead of delivering SIGHUP; the
   daemon starts sessiond through PowerShell's `Start-Process` (ShellExecute inherits no
   handles; a CreateProcess child inherits Bun's listening sockets, and a sessiond respawned
@@ -220,10 +227,12 @@ the design changes; do not let it drift into a changelog.
   shrink (sessiond drops same-size resizes for the same reason); the daemon turns raw SO/SI
   bytes in ConPTY output into spaces, since ConPTY counts them as printed cells and xterm.js
   does not, which otherwise puts the first character typed after a resize one column left
-  (Claude Code sends SI on that key); the state snapshot carries the host's Windows build so
-  each terminal can set xterm's `windowsPty`, without which a window reflows scrollback that
-  ConPTY has already wrapped and lets a taller terminal pull scrollback back under ConPTY's
-  reprint, losing it. A resize reaches the daemon only once the drag has settled, since each
+  (Claude Code sends SI on that key); every session carries the Windows build of the machine
+  hosting its PTY, so both the terminal in the window and the daemon's own emulator can set
+  xterm's `windowsPty`, without which either reflows scrollback that ConPTY has already
+  wrapped and lets a taller terminal pull scrollback back under ConPTY's reprint, losing it.
+  It rides on the session and not on the state snapshot because the window drawing a session
+  can be on another machine (Federation), and only the host knows what its PTY is. A resize reaches the daemon only once the drag has settled, since each
   one costs a reprint. In the browser, Ctrl takes ⌘'s letters and digits, Alt takes the
   arrows (Ctrl+arrows are the terminal's), Alt+N opens the picker (Chrome reserves
   Ctrl+N) and Alt+F the explorer (Ctrl+F is the terminal's forward-char, so it only
@@ -270,6 +279,12 @@ until it is back. Two machines that both listen dial each other, so each window 
   whose address or port changed is re-pointed in place (menu "address", `henry peers url
   <name> <host[:port]>`): the URL is just where to dial, the pinned key is the identity.
   `/api/federation/*` is never proxied and never served to a peer.
+- **A peer is sent this daemon's rows; a window is sent every row it shows.** The two
+  audiences want opposite halves of the same update, and a message that carries the wrong
+  one is not merely thin: a window replaces its usage table wholesale, so a local-only
+  `usage:update` blanks the context of every federated session until that peer speaks
+  again. `broadcast` therefore merges peer rows into what goes to windows and leaves what
+  goes over the link alone.
 - **Trust is not transitive.** A peer sees and drives this daemon's own sessions only.
   Messages from a peer that name a session relayed from another peer, or ask to create one
   there, are dropped: reaching that machine takes its own pairing.

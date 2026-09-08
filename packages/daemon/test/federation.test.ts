@@ -251,6 +251,17 @@ afterAll(async () => {
   }
 });
 
+/** A statusline body with a context reading: `pct` percent of a 200k window. */
+function statuslinePayload(claudeId: string, pct: number): Record<string, unknown> {
+  return {
+    hook_event_name: "Status",
+    session_id: claudeId,
+    model: { id: "claude-opus-5", display_name: "Opus" },
+    cost: { total_cost_usd: 1 },
+    context_window: { total_input_tokens: 1000, total_output_tokens: 100, context_window_size: 200000, used_percentage: pct },
+  };
+}
+
 describe("two daemons", () => {
   let alpha: Daemon;
   let beta: Daemon;
@@ -318,6 +329,11 @@ describe("two daemons", () => {
     const relayed = await waitFor("session in alpha", async () => (await state(alpha)).sessions.find((s) => s.id === betaSession));
     expect(relayed.peer).toBe("beta");
     expect(relayed.host).toBe("beta");
+    // The ConPTY build of the machine hosting the PTY travels with the session: the window
+    // drawing it may be on another machine, and only the host knows. (One machine here, so
+    // both daemons say the same thing; off Windows both say nothing.)
+    expect(relayed.windowsBuild).toBe(created.session.windowsBuild);
+    if (isWindows) expect(relayed.windowsBuild).toBeGreaterThan(0);
     expect(relayed.title).toBe("on-beta");
     expect((await fedStatus(alpha)).peers[0]?.sessions).toBe(1);
     // Beta's own view never carries a peer tag for its own session, and alpha's sessions are not on beta.
@@ -344,6 +360,31 @@ describe("two daemons", () => {
     wa2.close();
     wa.close();
     wb.close();
+  }, 30000);
+
+  test("a window keeps the peer's usage when one of this daemon's own sessions reports its own", async () => {
+    const wa = await new Win().open(alpha);
+    wa.send({ type: "session:create", cwd: alpha.home, title: "on-alpha", command: testShell.command, args: testShell.args, requestId: "a1" });
+    const local = (await wa.next("session:update", (m) => m.requestId === "a1")).session.id;
+
+    await post(beta, "/statusline", { henrySession: betaSession, payload: statuslinePayload("beta-claude", 23) });
+    const relayed = await wa.next("usage:update", (m) => m.usage.perSession[betaSession]?.contextTokens !== undefined);
+    expect(relayed.usage.perSession[betaSession]?.contextTokens).toBe(46000);
+
+    // alpha's own row lands next. What alpha sends a *peer* is its own rows alone, but what it
+    // sends a window must cover every session in that window's rail: handed the local half,
+    // the window would blank the context of everything federated until beta spoke again.
+    await post(alpha, "/statusline", { henrySession: local, payload: statuslinePayload("alpha-claude", 50) });
+    const after = await wa.next("usage:update", (m) => m.usage.perSession[local]?.contextTokens !== undefined);
+    expect(after.usage.perSession[local]?.contextTokens).toBe(100000);
+    expect(after.usage.perSession[betaSession]?.contextTokens).toBe(46000);
+
+    // Put alpha back to no sessions of its own: what it relays is counted further down.
+    wa.send({ type: "session:kill", sessionId: local });
+    await wa.next("session:update", (m) => m.session.id === local && m.session.status === "exited");
+    wa.send({ type: "session:kill", sessionId: local });
+    await waitFor("alpha's own session dismissed", async () => ((await state(alpha)).sessions.some((x) => x.id === local) ? undefined : true));
+    wa.close();
   }, 30000);
 
   test("/api/* for a peer's session is answered by the peer; federation endpoints never are", async () => {

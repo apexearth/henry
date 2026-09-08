@@ -13,7 +13,7 @@ import { chmodSync, existsSync, readFileSync, renameSync, writeFileSync } from "
 import { networkInterfaces } from "node:os";
 import { join } from "node:path";
 import type { ServerWebSocket } from "bun";
-import type { ClientMessage, FederationStatus, PeerStatus, ServerMessage, StateSnapshot } from "@henry/shared";
+import type { ClientMessage, FederationStatus, PeerStatus, ServerMessage, StateSnapshot, Usage } from "@henry/shared";
 import { config, henryDir, onConfigReload } from "./config";
 import { FED_VERSION, Handshake, fingerprint, isHello, newIdentity, newPairingCode, normalizeCode, proofsEqual, signTranscript, verifyTranscript, type Derived, type IdentityKeys } from "./fed-crypto";
 import { PeerLink, type FedState, type LinkDeps } from "./fed-peer";
@@ -499,8 +499,16 @@ export function merge(local: StateSnapshot): StateSnapshot {
   // Asks go oldest first: the one that has waited longest is the one keeping someone waiting.
   out.attention = [...local.attention, ...all.flatMap((l) => l.attention)].sort((a, b) => a.ts - b.ts);
   out.playbook = [...local.playbook, ...all.flatMap((l) => l.playbook)].sort((a, b) => b.ts - a.ts);
-  out.usage = { ...local.usage, perSession: Object.assign({}, local.usage.perSession, ...all.map((l) => l.usage)) };
+  out.usage = mergeUsage(local.usage);
   return out;
+}
+
+/** This daemon's usage rows plus every connected peer's. A window's rail shows both, so both
+ * belong in the table it holds; a peer is only ever sent our own (server.broadcast). */
+export function mergeUsage(local: Usage): Usage {
+  const all = [...links.values()].filter((l) => l.status === "connected");
+  if (!all.length) return local;
+  return { ...local, perSession: Object.assign({}, local.perSession, ...all.map((l) => l.usage)) };
 }
 
 export function statuses(): PeerStatus[] {
