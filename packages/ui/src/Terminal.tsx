@@ -157,6 +157,71 @@ export function TerminalView({ sessionId, visible, focused, fontSize }: Props) {
       t.focus(); // .xterm's handler would have done this
     };
     screen?.addEventListener("mousedown", swallowModClick);
+
+    // Drag to scroll. xterm has touch handling of its own, but it stands down whenever an app has
+    // mouse tracking on — Claude Code always does — and the scrollable viewport a finger would
+    // otherwise pan sits *under* .xterm-screen, so it never sees the touch either. On a phone
+    // that left the scrollback unreachable: there is no wheel to fall back on. Turn a drag into
+    // wheel events aimed at the terminal, the same path the mouse wheel takes, so touch inherits
+    // whatever the wheel already does here — reported to an app that asked for it, arrow keys on
+    // an alt screen, or the viewport moving — instead of a second scrolling story to keep true.
+    // A line of travel is a notch of wheel, so a drag moves the text the distance the finger went.
+    const SLOP = 6; // px of travel before a tap becomes a drag
+    const FRICTION = 0.94, FLICK_MIN = 2, COAST_MIN = 0.5; // px/frame
+    let dragging = false, dragged = false, startY = 0, lastY = 0, lastT = 0, velocity = 0, carry = 0, coast = 0;
+    const notch = (px: number) => screen?.dispatchEvent(new WheelEvent("wheel", { deltaY: px, deltaMode: 0, bubbles: true, cancelable: true }));
+    const scrollPx = (px: number) => {
+      // .xterm-screen is exactly rows tall, which is the cell height without reaching into xterm.
+      const cell = (screen?.clientHeight ?? 0) / t.rows || (t.options.fontSize ?? DEFAULT_FONT_SIZE);
+      carry += px;
+      const lines = Math.trunc(carry / cell);
+      if (!lines) return;
+      carry -= lines * cell;
+      for (let i = 0; i < Math.abs(lines); i++) notch(Math.sign(lines) * cell);
+    };
+    const onTouchStart = (ev: TouchEvent) => {
+      cancelAnimationFrame(coast);
+      coast = 0;
+      dragging = ev.touches.length === 1;
+      if (!dragging) return; // two fingers: leave the browser its pinch
+      ev.stopPropagation(); // xterm's own touch scroll would move the viewport a second time
+      dragged = false;
+      velocity = carry = 0;
+      startY = lastY = ev.touches[0]!.clientY;
+      lastT = ev.timeStamp;
+    };
+    const onTouchMove = (ev: TouchEvent) => {
+      if (!dragging || ev.touches.length !== 1) return;
+      ev.stopPropagation();
+      const y = ev.touches[0]!.clientY;
+      if (!dragged && Math.abs(y - startY) < SLOP) return;
+      dragged = true;
+      ev.preventDefault(); // a cancelled move is what keeps the drag from landing on the app as a click
+      const dy = lastY - y; // finger up, text up: the buffer follows the finger
+      const dt = ev.timeStamp - lastT;
+      if (dt > 0) velocity = (dy / dt) * 16;
+      lastY = y;
+      lastT = ev.timeStamp;
+      scrollPx(dy);
+    };
+    const onTouchEnd = () => {
+      if (!dragging) return;
+      dragging = false;
+      if (!dragged || Math.abs(velocity) < FLICK_MIN) return;
+      // A flick coasts and settles, the way every other scroller on the phone does.
+      const step = () => {
+        velocity *= FRICTION;
+        if (Math.abs(velocity) < COAST_MIN) return void (coast = 0);
+        scrollPx(velocity);
+        coast = requestAnimationFrame(step);
+      };
+      coast = requestAnimationFrame(step);
+    };
+    screen?.addEventListener("touchstart", onTouchStart as EventListener, { passive: true });
+    screen?.addEventListener("touchmove", onTouchMove as EventListener, { passive: false });
+    screen?.addEventListener("touchend", onTouchEnd);
+    screen?.addEventListener("touchcancel", onTouchEnd);
+
     // ⌘-click a path in the output to peek at it. Relative paths resolve against the session's cwd.
     t.registerLinkProvider({
       provideLinks(y, cb) {
@@ -216,7 +281,12 @@ export function TerminalView({ sessionId, visible, focused, fontSize }: Props) {
       ro.disconnect();
       clearTimeout(settle);
       offTheme();
+      cancelAnimationFrame(coast);
       screen?.removeEventListener("mousedown", swallowModClick);
+      screen?.removeEventListener("touchstart", onTouchStart as EventListener);
+      screen?.removeEventListener("touchmove", onTouchMove as EventListener);
+      screen?.removeEventListener("touchend", onTouchEnd);
+      screen?.removeEventListener("touchcancel", onTouchEnd);
       t.dispose();
       term.current = null;
     };

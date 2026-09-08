@@ -517,7 +517,10 @@ html:not([data-platform="mac"]) .xterm .xterm-viewport::-webkit-scrollbar-thumb 
 .m-zoom { color: var(--fg-faint); font-size: 11px; min-width: 16px; text-align: center; }
 .m-ask { display: block; width: 100%; text-align: left; flex: none; border: none; border-radius: 0; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--alarm) 18%, var(--bg-2)); color: var(--fg); padding: 7px 10px; font-size: 12px; }
 .m-stage { flex: 1; position: relative; min-height: 0; background: var(--bg); }
-.m-stage .term { position: absolute; inset: 0; padding: 2px 0 0 4px; }
+/* The drag that scrolls the buffer is ours (Terminal.tsx), so the browser gets no pan out of it —
+   it would otherwise spend the first frames of every drag deciding whether to steal the gesture.
+   Pinch stays with the browser. */
+.m-stage .term { position: absolute; inset: 0; padding: 2px 0 0 4px; touch-action: pinch-zoom; }
 
 /* The composer: the keys a phone keyboard cannot send, then the line you are composing. */
 .m-composer { flex: none; border-top: 1px solid var(--border); background: var(--bg-2); padding: 4px 6px calc(4px + env(safe-area-inset-bottom)); }

@@ -356,6 +356,15 @@ through that machine's peers, so one phone reaches every Henry the desk reaches.
   below that, so the phone's answer is a smaller cell: − / + in the header set the xterm font size
   (persisted per browser), starting at whatever fits 80 columns on this screen, and the PTY is told
   the new size like any other resize.
+- **A drag scrolls the buffer, as a wheel.** xterm's own touch scrolling stands down whenever an
+  app has mouse tracking on, which Claude Code always does, and the scrollable viewport a finger
+  would have panned sits under the screen element where no touch reaches it — so the scrollback
+  was unreachable on a phone, with no wheel to fall back on. Henry turns a drag on the screen into
+  wheel events at the terminal, a notch per line of travel, and lets a flick coast. Going through
+  the wheel and not `scrollLines` is the point: touch then does whatever the wheel already does
+  here — reported to an app that asked for it, arrow keys on an alt screen, the viewport otherwise
+  — rather than being a second scrolling story to keep true. A tap that never crosses six pixels
+  is still a tap, and still reaches the app as a click.
 - **Typing is a composer, not the on-screen keyboard against xterm.** A phone keyboard has no Esc,
   no Tab and no ⌃C, and autocorrect fights xterm's hidden textarea, so the terminal on a phone is
   a screen you read: xterm never takes focus there. Under it sits a row of the keys Claude Code
