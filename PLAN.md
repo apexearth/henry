@@ -85,7 +85,12 @@ the design changes; do not let it drift into a changelog.
   hands to a status command carries `rate_limits.five_hour` / `seven_day`
   utilization (verified in build 2.1.259). Henry's installed status command posts
   that JSON to the daemon. Token/cost totals per session come from the transcript
-  JSONL `usage` fields as a secondary view.
+  JSONL `usage` fields as a secondary view. A window is sent a row when that row changes
+  (`usage:session`), never the table for one session's numbers: the table (`usage:update`)
+  travels only when the 5h/7d windows move, which is a few times an hour, and a snapshot row
+  is written on the same occasions plus a five-minute heartbeat rather than per statusline
+  post. With dozens of sessions the old way was ~25 KB every two seconds to every window and
+  phone, all day, and twenty thousand identical rows a day.
 - **Open PRs come from `gh`, and only from `gh`.** The count on a repo card and the topbar
   chip are `gh pr list` for the checkout's github.com remote: no GitHub token of Henry's own,
   no new dependency, nothing stored. It is the one place the daemon reaches past the machine,
@@ -258,7 +263,10 @@ until it is back. Two machines that both listen dial each other, so each window 
   (`0.0.0.0` works, with a warning). Loopback :14711 is unchanged. The address is
   re-resolved every 30s and on config reload, and the listener rebinds when it moves: a
   tailnet switch or re-login changes the 100.x address, and a socket bound to the old one
-  stays open but unreachable.
+  stays open but unreachable. A bind that fails (the port held by another daemon on the
+  machine) is retried on a doubling wait up to 10 min and logged once per reason, and
+  `HENRY_NO_PUBLIC_LISTENERS` keeps a throwaway daemon off the tailnet address here as it
+  does for the phone listener.
 - **Identity is a per-machine Ed25519 key** in `~/.henry/federation.json` (0600), next
   to the peer list. Pairing pins the other side's key; from then on every connection is
   mutually authenticated: an X25519 ephemeral exchange, HKDF, AES-256-GCM per direction
@@ -284,7 +292,9 @@ until it is back. Two machines that both listen dial each other, so each window 
   one is not merely thin: a window replaces its usage table wholesale, so a local-only
   `usage:update` blanks the context of every federated session until that peer speaks
   again. `broadcast` therefore merges peer rows into what goes to windows and leaves what
-  goes over the link alone.
+  goes over the link alone. A row on its own (`usage:session`) names its session and needs
+  no merging; a link stores it and passes it through. The snapshot's flags and playbook are
+  capped after the merge, so a window's first frame is one cap's worth, not one per machine.
 - **Trust is not transitive.** A peer sees and drives this daemon's own sessions only.
   Messages from a peer that name a session relayed from another peer, or ask to create one
   there, are dropped: reaching that machine takes its own pairing.
@@ -735,6 +745,11 @@ unbounded input is trimmed at the door.
   to 30s and ≥1s to 60s (`git.pollIntervalFor`): `status --untracked-files=all` is
   proportional to the untracked tree, and a big un-ignored build dir must not hold the whole
   daemon to a 10s cadence. fs.watch still reports those repos immediately.
+- **A window hears about a repo when something moved.** A refresh that read the same
+  branch, head, counts and dirty total as last time is no `repos:update`, and the ones that
+  are due are coalesced per session over 300ms. A hook re-reads its repo at most every 5s;
+  the `.git` watchers and the poll carry the rest. Before this, nine sessions hooking in one
+  repo was several messages a second to every window, each a rail re-render, for nothing.
 - **Hook payloads are capped at 32KB before storage and broadcast**, strings head-first at
   4KB each with the shape intact. Rules classify the whole payload first, so nothing is
   missed; what a 300KB screenshot response leaves behind is a readable head. Uncapped, this
@@ -772,6 +787,16 @@ unbounded input is trimmed at the door.
   snapshots older than the window go at startup and every 6h, and immediately when the
   setting shrinks; `0` keeps everything. Sessions are never swept — the rail owns their
   lifetime. The newest usage snapshot survives at any age, since it is the live 5h/7d bars.
+- **The daemon can say what it is holding.** A process that runs for days is measured, not
+  guessed at: `GET /api/debug/memory` (loopback only, never proxied, refused to peers and
+  phones) reports RSS, the JSC heap, the top object types and the size of every long-lived
+  collection a module keeps — screens, transcript tails, git watchers, links, asks — after a
+  full collection when asked (`?gc=1`); `POST /api/debug/heap-snapshot` writes a
+  Chrome-loadable snapshot into `~/.henry`; `henry status` prints the one-line summary.
+  What it found first: Bun 1.2.19 on Windows kept ~1 KB of native memory (JS heap flat) for
+  every `/hook` and `/statusline` request, 3.4 GB in a day of nine sessions; 1.4.2 holds
+  flat over the same load, so 1.4.2 is the floor and the daemon warns at start when it is
+  running on less. The transcript, PTY, git, federation and MCP paths all plateau.
 
 ```json
 {

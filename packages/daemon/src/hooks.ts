@@ -387,7 +387,11 @@ function ingestStatuslineInner(body: StatuslineBody): StatuslineResult {
     perSession: {},
     updatedAt: now,
   };
-  db.insertUsageSnapshot(snapshot, now);
+  // Every session posts this every few seconds and the windows move a few times an hour:
+  // a row per post was 20k rows a day saying the same thing. One when they move, plus a
+  // heartbeat row so "last updated" stays honest.
+  const windowsMoved = !previous || !sameWindow(snapshot.fiveHour, previous.fiveHour) || !sameWindow(snapshot.sevenDay, previous.sevenDay);
+  if (windowsMoved || now - previous.updatedAt >= SNAPSHOT_HEARTBEAT_MS) db.insertUsageSnapshot(snapshot, now);
 
   const session = resolveStatuslineSession(str(body.henrySession), claudeId);
   if (session) {
@@ -408,10 +412,16 @@ function ingestStatuslineInner(body: StatuslineBody): StatuslineResult {
     if (transcriptPath || session.claudeSessionId) transcript.startTailing(session, transcriptPath);
   }
 
+  // The session's own row was queued by noteStatuslineUsage; only moved windows are worth the table.
+  if (windowsMoved) transcript.broadcastWindows();
   const usage = transcript.currentUsage();
-  transcript.scheduleBroadcast(true);
   return { usage, text: statuslineText(usage, session?.id) };
 }
+
+const SNAPSHOT_HEARTBEAT_MS = 5 * 60_000;
+
+const sameWindow = (a: RateWindow | undefined, b: RateWindow | undefined): boolean =>
+  a === b || (!!a && !!b && a.utilization === b.utilization && a.resetsAt === b.resetsAt);
 
 /** Live context size: `current_usage` (newer builds) or `used_percentage` of the window. */
 function contextTokensOf(cw: Dict): number | undefined {

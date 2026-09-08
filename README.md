@@ -95,6 +95,11 @@ bun run smoke        # throwaway daemon driven over WS, /bin/sh in place of clau
 Editing daemon source restarts only the daemon. Sessions keep running in sessiond and the
 windows reconnect. Several windows can attach to one daemon at once.
 
+`henry status` says whether the daemon answers and what it is holding (RSS, JS heap, live
+collections). For more, `curl 'http://127.0.0.1:14711/api/debug/memory?gc=1'`, and
+`curl -X POST http://127.0.0.1:14711/api/debug/heap-snapshot` writes a snapshot into
+`~/.henry` that Chrome DevTools > Memory > Load opens. Loopback only.
+
 ## Machines
 
 Run Henry on each machine, then pair once: `henry pair` (or remotes → "show a pairing
@@ -149,8 +154,12 @@ yours.
 
 ## Requirements
 
-bun ≥ 1.2, node ≥ 22.6 on PATH, `claude`, git. Optional: `gh` for PR counts, a Rust
+bun ≥ 1.4.2, node ≥ 22.6 on PATH, `claude`, git. Optional: `gh` for PR counts, a Rust
 toolchain for the native window, Tailscale for pairing and for the phone.
+
+Bun 1.2.x on Windows kept about a kilobyte of native memory for every hook and statusline
+request the daemon answered, which at Henry's request rate was gigabytes a day; 1.4.2 does
+not. The daemon says so at start when it is running on less (`bun upgrade` fixes it).
 
 macOS and Windows, no WSL. On Windows a plain terminal is PowerShell, hooks run under node
 instead of curl, and the shortcuts shift to Ctrl and Alt.

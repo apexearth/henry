@@ -149,16 +149,31 @@ export function tailscaleAddress(): string | undefined {
   return undefined;
 }
 
+const isLoopback = (address: string) => address === "127.0.0.1" || address === "::1" || address.startsWith("127.");
+
 function resolveListen(): { address?: string; error?: string } {
   const want = config.federation.listen;
   if (want === "off") return { error: "federation.listen is off" };
+  let address = want;
   if (want === "tailscale") {
-    const address = tailscaleAddress();
-    return address ? { address } : { error: "no Tailscale address on this machine (federation.listen: tailscale)" };
+    const found = tailscaleAddress();
+    if (!found) return { error: "no Tailscale address on this machine (federation.listen: tailscale)" };
+    address = found;
+  }
+  // A throwaway daemon (tests, a scratch run) must not take the tailnet port the live one
+  // holds, nor answer peers in its place. Same guard as the phone listener.
+  if (process.env.HENRY_NO_PUBLIC_LISTENERS && !isLoopback(address)) {
+    return { error: `HENRY_NO_PUBLIC_LISTENERS is set; refusing to listen on ${address}` };
   }
   if (want === "0.0.0.0") console.error("[fed] listening on every interface; only paired machines can connect, but anyone can knock");
-  return { address: want };
+  return { address };
 }
+
+/** A bind that failed is retried on a doubling wait, up to this, and logged once per reason:
+ * the port in use by another daemon stays in use, and 30 s of the same line helps nobody. */
+const REBIND_MAX_MS = 10 * 60_000;
+let bindFailedAt = 0;
+let bindRetryMs = REBIND_CHECK_MS;
 
 function startListener(): void {
   stopListener();
@@ -193,10 +208,15 @@ function startListener(): void {
       },
     });
     listening = { address, port };
+    bindFailedAt = 0;
+    bindRetryMs = REBIND_CHECK_MS;
     console.log(`[fed] listening on ws://${address}:${port}/fed as ${localName()} (${identityFingerprint()})`);
   } catch (e) {
+    const was = listenError;
     listenError = `cannot listen on ${address}:${port}: ${(e as Error).message}`;
-    console.error(`[fed] ${listenError}`);
+    if (listenError !== was) console.error(`[fed] ${listenError}`);
+    bindFailedAt = Date.now();
+    bindRetryMs = Math.min(bindRetryMs * 2, REBIND_MAX_MS);
   }
   notifyPeers();
 }
@@ -418,14 +438,20 @@ export function init(d: Deps): void {
  * previous attempt failed (Tailscale not up yet at daemon start). */
 function rebindIfMoved(): void {
   const want = resolveListen();
-  if (want.address !== listening?.address || (want.address && config.federation.port !== listening?.port)) startListener();
+  const moved = want.address !== listening?.address || (want.address && config.federation.port !== listening?.port);
+  if (!moved) return;
+  if (!listening && bindFailedAt && Date.now() - bindFailedAt < bindRetryMs) return;
+  startListener();
 }
 
 export function start(): void {
   store = loadStore();
   startListener();
   syncLinks();
-  onConfigReload(rebindIfMoved);
+  onConfigReload(() => {
+    bindFailedAt = 0; // an edited config is a reason to try again now
+    rebindIfMoved();
+  });
   // The tailnet address can change under us (switching tailnets, re-login); the old socket
   // stays bound to an address nobody can reach, so poll rather than trust the first bind.
   rebindTimer = setInterval(rebindIfMoved, REBIND_CHECK_MS);
@@ -438,6 +464,12 @@ export function stop(): void {
   stopListener();
   for (const l of links.values()) l.close();
   links.clear();
+}
+
+export function stats(): Record<string, number> {
+  let peerSessions = 0;
+  for (const l of links.values()) peerSessions += l.sessions.size;
+  return { fedLinks: links.size, fedInbound: inbound.size, fedPeerSessions: peerSessions, fedFailureIps: failures.size };
 }
 
 export function linkOf(sessionId: string | null | undefined): PeerLink | undefined {
@@ -489,16 +521,21 @@ export function answerAttention(id: string): boolean {
 }
 
 /** Local state plus every connected peer's, sessions tagged with `peer`. */
+/** How much history a window's snapshot carries. Applied after the merge: with peers the
+ * snapshot was every machine's cap added together, most of it never scrolled to. */
+export const STATE_FLAGS = 500;
+export const STATE_PLAYBOOK = 200;
+
 export function merge(local: StateSnapshot): StateSnapshot {
   const out: StateSnapshot = { ...local, host: localName(), peers: statuses() };
   const all = [...links.values()].filter((l) => l.status === "connected");
   if (!all.length) return out;
   out.sessions = [...local.sessions, ...all.flatMap((l) => [...l.sessions.values()])].sort((a, b) => a.createdAt - b.createdAt);
   out.repos = Object.assign({}, local.repos, ...all.map((l) => l.repos));
-  out.flags = [...local.flags, ...all.flatMap((l) => l.flags)].sort((a, b) => b.ts - a.ts);
+  out.flags = [...local.flags, ...all.flatMap((l) => l.flags)].sort((a, b) => b.ts - a.ts).slice(0, STATE_FLAGS);
   // Asks go oldest first: the one that has waited longest is the one keeping someone waiting.
   out.attention = [...local.attention, ...all.flatMap((l) => l.attention)].sort((a, b) => a.ts - b.ts);
-  out.playbook = [...local.playbook, ...all.flatMap((l) => l.playbook)].sort((a, b) => b.ts - a.ts);
+  out.playbook = [...local.playbook, ...all.flatMap((l) => l.playbook)].sort((a, b) => b.ts - a.ts).slice(0, STATE_PLAYBOOK);
   out.usage = mergeUsage(local.usage);
   return out;
 }

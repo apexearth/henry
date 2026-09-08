@@ -262,6 +262,9 @@ function handle(m: ServerMessage): void {
     case "usage:update":
       setState({ usage: m.usage });
       return;
+    case "usage:session":
+      setState({ usage: { ...state.usage, updatedAt: Math.max(state.usage.updatedAt, m.updatedAt), perSession: { ...state.usage.perSession, [m.sessionId]: m.usage } } });
+      return;
     case "playbook:update":
       setState({ playbook: [m.entry, ...state.playbook.filter((p) => p.id !== m.entry.id)].sort((a, b) => b.ts - a.ts) });
       return;

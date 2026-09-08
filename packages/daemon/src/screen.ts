@@ -48,6 +48,12 @@ class Screens {
     return this.map.has(id);
   }
 
+  stats(): Record<string, number> {
+    let pending = 0;
+    for (const s of this.map.values()) pending += s.pending.length;
+    return { screens: this.map.size, screenPendingChars: pending };
+  }
+
   /** Start an emulator for a session, or return the one it has. */
   private ensure(id: string, cols: number, rows: number): Screen {
     let s = this.map.get(id);

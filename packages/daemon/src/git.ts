@@ -612,9 +612,33 @@ function associate(sessionId: string, info: RepoInfo): boolean {
   return fresh;
 }
 
+// Every refresh used to be a repos:update to every session in the repo, whether or not
+// anything had moved, and every hook past the 2 s cache was a refresh: with nine sessions
+// hooking in one repo that was several messages a second to every window, all day, each
+// re-rendering the rail. A session hears about a repo when its state actually differs, and
+// a burst of changes (a refresh across worktrees, hooks from several sessions) is one message.
+const pendingBroadcasts = new Map<string, ReturnType<typeof setTimeout>>();
+const BROADCAST_COALESCE_MS = 300;
+
 function broadcastSession(sessionId: string): void {
-  emit({ type: "repos:update", sessionId, repos: getSessionRepos(sessionId) });
+  if (pendingBroadcasts.has(sessionId)) return;
+  pendingBroadcasts.set(
+    sessionId,
+    setTimeout(() => {
+      pendingBroadcasts.delete(sessionId);
+      emit({ type: "repos:update", sessionId, repos: getSessionRepos(sessionId) });
+    }, BROADCAST_COALESCE_MS),
+  );
 }
+
+/** What a window would see differently. `at` is not it: a re-read that found the same is no news. */
+function baseChanged(a: RepoBase | undefined, b: RepoBase | undefined): boolean {
+  if (!a || !b) return a !== b;
+  return a.branch !== b.branch || a.head !== b.head || a.upstream !== b.upstream || a.remoteUrl !== b.remoteUrl || a.ahead !== b.ahead || a.behind !== b.behind || a.dirty !== b.dirty || a.lastCommitAt !== b.lastCommitAt;
+}
+
+/** A hook re-reads the repo no more often than this; the .git watchers and the poll cover the rest. */
+const HOOK_REFRESH_MS = 5_000;
 
 /**
  * Called by hooks.ts whenever a session's hook event carries a cwd or file path.
@@ -633,11 +657,10 @@ export function noteSessionPath(sessionId: string, absPath: string): void {
         if (sha) db.upsertBaseline({ sessionId, repoPath: info.path, baselineSha: sha, firstSeen: Date.now() });
       }
       const before = bases.get(info.path);
-      const after = await refresh(info, false);
-      // Skip the broadcast when nothing changed and this session already had the repo.
-      if (fresh || before !== after || !before) {
-        for (const sid of repoSessions.get(info.path) ?? []) broadcastSession(sid);
-      }
+      const stale = !before || Date.now() - before.at >= HOOK_REFRESH_MS;
+      const after = fresh || stale ? await refresh(info, false) : before;
+      if (fresh) broadcastSession(sessionId);
+      if (baseChanged(before, after)) for (const sid of repoSessions.get(info.path) ?? []) broadcastSession(sid);
     } catch (e) {
       console.error(`[git] noteSessionPath ${info.path}:`, e);
     }
@@ -1082,17 +1105,20 @@ function nextPollDelay(commonDir: string, took: number): number {
   return delay;
 }
 
-/** Refresh every touched checkout that shares this common dir, then broadcast. */
-async function refreshShared(commonDir: string): Promise<void> {
+/** Refresh every touched checkout that shares this common dir, then broadcast what moved
+ * (everything, when `announce`: a start has windows that know nothing yet). */
+async function refreshShared(commonDir: string, announce = false): Promise<void> {
   const started = Date.now();
   const touched = new Set<string>();
   for (const [path, info] of repos) {
     if (info.commonDir !== commonDir || !repoSessions.get(path)?.size) continue;
+    const before = bases.get(path);
     try {
       await refresh(info, true);
     } catch (e) {
       console.error(`[git] refresh ${path}:`, e);
     }
+    if (!announce && !baseChanged(before, bases.get(path))) continue;
     for (const sid of repoSessions.get(path) ?? []) touched.add(sid);
   }
   // A watcher-driven refresh re-arms the poll too: it just did the poll's job.
@@ -1154,7 +1180,25 @@ export function start(): void {
   }, POLL_MS);
   poll.unref();
   const dirs = new Set([...repos.values()].filter((i) => repoSessions.get(i.path)?.size).map((i) => i.commonDir));
-  for (const d of dirs) void refreshShared(d);
+  for (const d of dirs) void refreshShared(d, true);
+}
+
+export function stats(): Record<string, number> {
+  let fsWatchers = 0;
+  for (const list of watchers.values()) fsWatchers += list.length;
+  return {
+    gitRepos: repos.size,
+    gitWatchedRepos: watchers.size,
+    gitFsWatchers: fsWatchers,
+    gitSessionRepos: sessionRepos.size,
+    gitInflight: inflight.size,
+    gitDebounces: debounces.size,
+    gitPendingBroadcasts: pendingBroadcasts.size,
+    gitDirCache: dirCache.size,
+    gitNegCache: negCache.size,
+    gitSinceCache: sinceCache.size,
+    gitIndexCache: indexCache.size,
+  };
 }
 
 /** Stop watchers and the poll (tests, shutdown). Associations stay in memory. */
@@ -1163,6 +1207,8 @@ export function stop(): void {
   poll = undefined;
   for (const t of debounces.values()) clearTimeout(t);
   debounces.clear();
+  for (const t of pendingBroadcasts.values()) clearTimeout(t);
+  pendingBroadcasts.clear();
   pollDue.clear();
   pollDelay.clear();
   for (const list of watchers.values()) for (const w of list) w.close();

@@ -139,6 +139,10 @@ const turnOf = (sessionId: string): Turn => {
 /** Last hook or statusline seen per session; only the tick reads it. */
 const lastSeen = new Map<string, number>();
 
+export function stats(): Record<string, number> {
+  return { activityTurns: turns.size, activityLastSeen: lastSeen.size };
+}
+
 export function note(sessionId: string, hookEvent: string, payload: unknown, ts = Date.now()): void {
   if (hookEvent === "SessionEnd") return clear(sessionId);
   lastSeen.set(sessionId, ts);

@@ -269,6 +269,10 @@ export class PeerLink {
         this.usage = m.usage.perSession;
         this.deps.toWindows({ type: "usage:update", usage: this.deps.buildState().usage });
         return;
+      case "usage:session":
+        this.usage[m.sessionId] = m.usage;
+        this.deps.toWindows(m);
+        return;
       case "flag":
         this.flags = [m.flag, ...this.flags.filter((f) => f.id !== m.flag.id)].slice(0, KEEP_FLAGS);
         this.deps.toWindows(m);
