@@ -102,6 +102,15 @@ describe("git", () => {
     expect(Object.keys(git.getAllSessionRepos())).toContain("s1");
   });
 
+  test("hooks that find the repo unchanged send no repos:update", async () => {
+    await Bun.sleep(400); // whatever the first touch queued has gone out
+    inbox.length = 0;
+    // A session hooks many times a minute; the repo has not moved, so no window hears of it.
+    for (let i = 0; i < 5; i++) git.noteSessionPath("s1", join(repo, "a.txt"));
+    await Bun.sleep(800);
+    expect(inbox.filter((m) => m.type === "repos:update")).toHaveLength(0);
+  });
+
   test("remoteWebUrl turns hosted remote URLs into browser links", () => {
     const out = (u: string) => `origin\t${u} (fetch)\norigin\t${u} (push)\n`;
     expect(git.remoteWebUrl(out("git@github.com:apexearth/henry.git"), "origin")).toBe("https://github.com/apexearth/henry");

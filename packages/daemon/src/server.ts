@@ -9,6 +9,7 @@ import * as activity from "./activity";
 import * as attention from "./attention";
 import { boundPort, config, expandHome, isFirstRun, onConfigReload, setConfig, setReposRoot, writePortFile } from "./config";
 import * as db from "./db";
+import * as diag from "./diag";
 import * as engagement from "./engagement";
 import * as federation from "./federation";
 import type { Client } from "./federation";
@@ -147,10 +148,10 @@ function localState(): StateSnapshot {
   return {
     sessions: sessions.list(),
     repos: git.getAllSessionRepos(),
-    flags: db.listFlags({ limit: 500 }),
+    flags: db.listFlags({ limit: federation.STATE_FLAGS }),
     attention: attention.open(),
     usage,
-    playbook: db.listPlaybook(undefined, 200),
+    playbook: db.listPlaybook(undefined, federation.STATE_PLAYBOOK),
     config,
     firstRun: isFirstRun(),
     uiBuild,
@@ -462,6 +463,9 @@ export async function startServer(): Promise<void> {
 export async function handleApi(req: Request, url: URL, origin: ApiOrigin): Promise<Response> {
   const { pathname } = url;
   const fromPeer = origin === "peer";
+  // What this process holds. For the person at this machine only: never proxied, never a
+  // peer's or a phone's business, and a heap snapshot has every secret in memory in it.
+  if (pathname.startsWith("/api/debug/")) return origin === "local" ? debugApi(req, pathname) : json({ error: "forbidden" }, 403);
   if (pathname.startsWith("/api/federation/")) return fromPeer ? json({ error: "forbidden" }, 403) : federationApi(req, url);
   // Phone access is machine business like pairing: never proxied, never served to a peer.
   // phone.verdict has already refused everything but claim and me on the phone listener.
@@ -610,6 +614,19 @@ async function phoneApi(req: Request, url: URL, origin: ApiOrigin): Promise<Resp
   if (pathname === "/api/phone/forget") {
     const body = (await readJson(req)) as { id?: string };
     return phone.forget(body?.id) ? json({ ok: true }) : json({ error: "no such device" }, 404);
+  }
+  return json({ error: "not found" }, 404);
+}
+
+/** Memory diagnostics (diag.ts). `?gc=1` collects first, so the numbers are what is retained. */
+function debugApi(req: Request, pathname: string): Response {
+  if (pathname === "/api/debug/memory") {
+    if (new URL(req.url).searchParams.get("gc") === "1") diag.collectGarbage();
+    return json(diag.memoryReport({ windows: windowCount(), aliasListeners: aliasServers.size }));
+  }
+  if (req.method === "POST" && pathname === "/api/debug/heap-snapshot") {
+    diag.collectGarbage();
+    return json(diag.writeHeapSnapshot());
   }
   return json({ error: "not found" }, 404);
 }

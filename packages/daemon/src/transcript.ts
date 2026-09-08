@@ -136,6 +136,15 @@ export function isTailing(sessionId: string): boolean {
   return tails.has(sessionId);
 }
 
+export function stats(): Record<string, number> {
+  let seen = 0, watchers = 0;
+  for (const t of tails.values()) {
+    seen += t.seen.size;
+    if (t.watcher) watchers++;
+  }
+  return { transcriptTails: tails.size, transcriptWatchers: watchers, transcriptSeenIds: seen, statuslineHints: hints.size };
+}
+
 /** Where this session's conversation is written (history.ts reads it). A hook-supplied path
  * wins, as it does for tailing; otherwise it is derived from the cwd the way Claude Code does. */
 export function transcriptPathOf(session: Session): string | undefined {
@@ -148,36 +157,54 @@ export function transcriptPathOf(session: Session): string | undefined {
 export function noteStatuslineUsage(sessionId: string, hint: StatuslineHint): void {
   hints.set(sessionId, { ...hints.get(sessionId), ...hint });
   writeUsage(sessionId);
-  scheduleBroadcast();
 }
+
+/** When a row last changed, statusline or transcript. The snapshot row's own stamp lags now
+ * that a statusline post only writes one when the windows move (hooks.ts). */
+let lastUpdatedAt = 0;
 
 /** The Usage object every window sees: latest statusline snapshot + per-session rows. */
 export function currentUsage(): Usage {
   const snapshot = db.latestUsageSnapshot<Usage>();
   const usage: Usage = snapshot?.json ?? { perSession: {}, updatedAt: 0 };
   usage.perSession = db.listSessionUsage();
+  usage.updatedAt = Math.max(usage.updatedAt, lastUpdatedAt);
   return usage;
 }
 
-let broadcastTimer: ReturnType<typeof setTimeout> | undefined;
-let lastBroadcast = 0;
+// A window used to be sent the whole table every time any row moved: with dozens of sessions
+// that was ~25 KB every two seconds, all day, to every window and phone, for one changed
+// number. Now a changed row goes out on its own (usage:session), coalesced per throttle
+// window; the table only travels with the 5h/7d windows, which move rarely (broadcastWindows).
+const dirty = new Set<string>();
+let flushTimer: ReturnType<typeof setTimeout> | undefined;
+let lastFlush = 0;
 
-/** Broadcast usage:update at most once per BROADCAST_THROTTLE_MS. */
-export function scheduleBroadcast(immediate = false): void {
-  const due = lastBroadcast + BROADCAST_THROTTLE_MS - Date.now();
-  if (immediate || due <= 0) {
-    if (broadcastTimer) clearTimeout(broadcastTimer);
-    broadcastTimer = undefined;
-    lastBroadcast = Date.now();
-    broadcast({ type: "usage:update", usage: currentUsage() });
-    return;
+function noteRowChanged(sessionId: string): void {
+  dirty.add(sessionId);
+  if (flushTimer) return;
+  const due = Math.max(0, lastFlush + BROADCAST_THROTTLE_MS - Date.now());
+  flushTimer = setTimeout(flushRows, due);
+}
+
+function flushRows(): void {
+  flushTimer = undefined;
+  lastFlush = Date.now();
+  const ids = [...dirty];
+  dirty.clear();
+  for (const sessionId of ids) {
+    const usage = db.getSessionUsage(sessionId);
+    if (usage) broadcast({ type: "usage:session", sessionId, usage, updatedAt: lastUpdatedAt });
   }
-  if (broadcastTimer) return;
-  broadcastTimer = setTimeout(() => {
-    broadcastTimer = undefined;
-    lastBroadcast = Date.now();
-    broadcast({ type: "usage:update", usage: currentUsage() });
-  }, due);
+}
+
+/** The 5h/7d windows moved: every window gets the table, rows included. */
+export function broadcastWindows(): void {
+  if (flushTimer) clearTimeout(flushTimer);
+  flushTimer = undefined;
+  dirty.clear();
+  lastFlush = Date.now();
+  broadcast({ type: "usage:update", usage: currentUsage() });
 }
 
 // ---- internals ----
@@ -191,12 +218,23 @@ function sum(a: Totals, b: Totals): Totals {
   };
 }
 
+const sameRow = (a: SessionUsage, b: SessionUsage): boolean =>
+  a.inputTokens === b.inputTokens &&
+  a.outputTokens === b.outputTokens &&
+  a.cacheRead === b.cacheRead &&
+  a.cacheWrite === b.cacheWrite &&
+  a.costUsd === b.costUsd &&
+  a.model === b.model &&
+  a.contextTokens === b.contextTokens &&
+  a.contextWindow === b.contextWindow;
+
+/** Store the session's row and queue it for windows; a row that did not move is left alone. */
 function writeUsage(sessionId: string): void {
   const tail = tails.get(sessionId);
   const hint = hints.get(sessionId);
   const totals = tail ? sum(tail.base, tail.totals) : undefined;
   const hasTranscript = !!totals && (totals.inputTokens || totals.outputTokens || totals.cacheRead || totals.cacheWrite);
-  const prev = db.listSessionUsage()[sessionId];
+  const prev = db.getSessionUsage(sessionId);
   const model = tail?.model ?? hint?.model ?? prev?.model;
   const row: SessionUsage = hasTranscript
     ? { ...totals!, costUsd: 0, model }
@@ -214,7 +252,10 @@ function writeUsage(sessionId: string): void {
   if (context !== undefined) row.contextTokens = context;
   const window = hint?.contextWindow ?? prev?.contextWindow;
   if (window !== undefined) row.contextWindow = window;
+  if (prev && sameRow(prev, row)) return;
   db.upsertSessionUsage(sessionId, row);
+  lastUpdatedAt = Date.now();
+  noteRowChanged(sessionId);
 }
 
 function ensureWatcher(tail: Tail): void {
@@ -270,10 +311,7 @@ function tick(tail: Tail): void {
     } finally {
       closeSync(fd);
     }
-    if (changed) {
-      writeUsage(tail.sessionId);
-      scheduleBroadcast();
-    }
+    if (changed) writeUsage(tail.sessionId);
   } catch (e) {
     console.error(`[transcript] ${basename(tail.path)}: ${(e as Error).message}`);
   } finally {

@@ -359,6 +359,38 @@ describe("hook ingest", () => {
     expect(st2.usage.sevenDay?.utilization).toBeCloseTo(0.55, 5);
   });
 
+  test("a statusline post that changes nothing sends nothing", async () => {
+    const payload = {
+      hook_event_name: "Status",
+      session_id: CLAUDE_ID,
+      cwd,
+      model: { id: "claude-opus-5", display_name: "Opus" },
+      cost: { total_cost_usd: 2.5 },
+      context_window: { total_input_tokens: 50000, total_output_tokens: 1500, context_window_size: 200000, used_percentage: 30 },
+      rate_limits: { five_hour: { used_percentage: 91 }, seven_day: { used_percentage: 55 } },
+    };
+    // New cost and windows: the table goes out (windows moved) and so does the row.
+    await post("/statusline", { henrySession: sessionId, payload });
+    await next("usage:update", (m) => m.usage.perSession[sessionId]?.costUsd === 2.5);
+    const before = (await state()).usage.updatedAt;
+    inbox.length = 0;
+    // The same numbers again, twice: every session posts this every few seconds all day.
+    await post("/statusline", { henrySession: sessionId, payload });
+    await post("/statusline", { henrySession: sessionId, payload });
+    await Bun.sleep(2500); // past the row throttle
+    expect(inbox.filter((m) => m.type === "usage:update" || m.type === "usage:session")).toHaveLength(0);
+    expect((await state()).usage.updatedAt).toBe(before);
+    // The row alone moves: one row, not the table.
+    inbox.length = 0;
+    await post("/statusline", { henrySession: sessionId, payload: { ...payload, cost: { total_cost_usd: 2.75 } } });
+    const row = await next("usage:session", (m) => m.sessionId === sessionId);
+    expect(row.usage.costUsd).toBe(2.75);
+    expect(inbox.filter((m) => m.type === "usage:update")).toHaveLength(0);
+    // Back to the cost the transcript test below expects to find authoritative.
+    await post("/statusline", { henrySession: sessionId, payload: { ...payload, cost: { total_cost_usd: 1.2345 } } });
+    await next("usage:session", (m) => m.sessionId === sessionId && m.usage.costUsd === 1.2345);
+  });
+
   test("transcript lines appended to the tailed JSONL update per-session tokens", async () => {
     // The tailer was started by the SessionStart hook (transcript_path). Append assistant lines.
     mkdirSync(join(transcriptPath, ".."), { recursive: true });
@@ -373,8 +405,10 @@ describe("hook ingest", () => {
     // Subagent turns carry their own context and must not overwrite the main chain's.
     appendFileSync(transcriptPath, line("msg_3", { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 90000 }, { isSidechain: true }));
 
-    const upd = await next("usage:update", (m) => m.usage.perSession[sessionId]?.inputTokens === 111, 8000);
-    const u = upd.usage.perSession[sessionId];
+    // One row on its own: a window is never sent the whole table for one session's numbers.
+    const upd = await next("usage:session", (m) => m.sessionId === sessionId && m.usage.inputTokens === 111, 8000);
+    const u = upd.usage;
+    expect(upd.updatedAt).toBeGreaterThan(0);
     expect(u.inputTokens).toBe(111);
     expect(u.outputTokens).toBe(56);
     expect(u.cacheRead).toBe(91000);

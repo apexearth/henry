@@ -214,6 +214,12 @@ class SessionManager extends EventEmitter<SessionEvents> {
     return [...this.live.values()].map((l) => l.session).sort((a, b) => a.createdAt - b.createdAt);
   }
 
+  stats(): Record<string, number> {
+    let running = 0;
+    for (const l of this.live.values()) if (l.session.status === "running") running++;
+    return { sessionsHeld: this.live.size, sessionsRunning: running, titleTails: this.titleTail.size };
+  }
+
   get(id: string): Session | undefined {
     return this.live.get(id)?.session;
   }

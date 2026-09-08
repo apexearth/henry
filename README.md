@@ -95,6 +95,11 @@ bun run smoke        # throwaway daemon driven over WS, /bin/sh in place of clau
 Editing daemon source restarts only the daemon. Sessions keep running in sessiond and the
 windows reconnect. Several windows can attach to one daemon at once.
 
+`henry status` says whether the daemon answers and what it is holding (RSS, JS heap, live
+collections). For more, `curl 'http://127.0.0.1:14711/api/debug/memory?gc=1'`, and
+`curl -X POST http://127.0.0.1:14711/api/debug/heap-snapshot` writes a snapshot into
+`~/.henry` that Chrome DevTools > Memory > Load opens. Loopback only.
+
 ## Machines
 
 Run Henry on each machine, then pair once: `henry pair` (or remotes → "show a pairing

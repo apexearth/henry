@@ -56,6 +56,12 @@ export function open(): Attention[] {
   return [...live.values()].sort((a, b) => a.ts - b.ts);
 }
 
+export function stats(): Record<string, number> {
+  let waiting = 0;
+  for (const s of waiters.values()) waiting += s.size;
+  return { attentionOpen: live.size, attentionWaiters: waiting };
+}
+
 export function openFor(sessionId: string): Attention[] {
   return open().filter((a) => a.sessionId === sessionId);
 }

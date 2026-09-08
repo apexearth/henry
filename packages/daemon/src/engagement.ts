@@ -18,6 +18,10 @@ export const INPUT_THROTTLE_MS = 30_000;
 const prompts = new Map<string, number[]>();
 const lastInput = new Map<string, number>();
 
+export function stats(): Record<string, number> {
+  return { engagementPrompts: prompts.size, engagementLastInput: lastInput.size };
+}
+
 /** Terminal replies xterm sends on its own (cursor reports, DA, focus, bracketed-paste
  * markers) are CSI/OSC sequences; anything left after stripping them was a person. A bare
  * ESC goes too, so Alt+key (ESC x) and Shift+Enter (ESC CR) still count by what follows. */

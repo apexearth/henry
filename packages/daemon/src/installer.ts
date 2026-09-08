@@ -375,4 +375,12 @@ export async function status(): Promise<void> {
     alive = false;
   }
   console.log(`daemon: ${url} ${alive ? "responding" + detail : "not responding"}`);
+  if (!alive) return;
+  try {
+    const res = await fetch(`${url}/api/debug/memory`, { signal: AbortSignal.timeout(2000) });
+    if (!res.ok) return;
+    const m = (await res.json()) as { uptimeSec: number; process: { rssMb: number }; jsc: { heapSizeMb: number; objectCount: number }; held: Record<string, number> };
+    const held = Object.entries(m.held).filter(([, n]) => n > 0).map(([k, n]) => `${k} ${n}`).join(", ");
+    console.log(`memory: rss ${m.process.rssMb} MB, js heap ${m.jsc.heapSizeMb} MB (${m.jsc.objectCount} objects), up ${Math.round(m.uptimeSec / 60)}m; holding ${held}`);
+  } catch {}
 }

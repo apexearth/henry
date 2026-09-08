@@ -517,14 +517,32 @@ export function pruneHistory(days: number): PruneCounts | undefined {
   return counts;
 }
 
+interface SessionUsageRow {
+  session_id: string;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read: number;
+  cache_write: number;
+  cost_usd: number;
+  model: string | null;
+  context_tokens: number | null;
+  context_window: number | null;
+}
+
+function rowToUsage(r: SessionUsageRow): SessionUsage {
+  const u: SessionUsage = { inputTokens: r.input_tokens, outputTokens: r.output_tokens, cacheRead: r.cache_read, cacheWrite: r.cache_write, costUsd: r.cost_usd, model: r.model ?? undefined };
+  if (r.context_tokens != null) u.contextTokens = r.context_tokens;
+  if (r.context_window != null) u.contextWindow = r.context_window;
+  return u;
+}
+
 export function listSessionUsage(): Record<string, SessionUsage> {
-  const rows = db.prepare("SELECT * FROM session_usage").all() as
-    { session_id: string; input_tokens: number; output_tokens: number; cache_read: number; cache_write: number; cost_usd: number; model: string | null; context_tokens: number | null; context_window: number | null }[];
   const out: Record<string, SessionUsage> = {};
-  for (const r of rows) {
-    out[r.session_id] = { inputTokens: r.input_tokens, outputTokens: r.output_tokens, cacheRead: r.cache_read, cacheWrite: r.cache_write, costUsd: r.cost_usd, model: r.model ?? undefined };
-    if (r.context_tokens != null) out[r.session_id].contextTokens = r.context_tokens;
-    if (r.context_window != null) out[r.session_id].contextWindow = r.context_window;
-  }
+  for (const r of db.prepare("SELECT * FROM session_usage").all() as SessionUsageRow[]) out[r.session_id] = rowToUsage(r);
   return out;
+}
+
+export function getSessionUsage(sessionId: string): SessionUsage | undefined {
+  const r = db.prepare("SELECT * FROM session_usage WHERE session_id = ?").get(sessionId) as SessionUsageRow | null;
+  return r ? rowToUsage(r) : undefined;
 }
