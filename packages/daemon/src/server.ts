@@ -21,7 +21,6 @@ import * as hooks from "./hooks";
 import * as mcp from "./mcp";
 import * as overseer from "./overseer";
 import * as phone from "./phone";
-import { windowsBuild } from "./platform";
 import { sessions } from "./sessions";
 
 const uiDist = join(import.meta.dir, "../../ui/dist");
@@ -84,7 +83,11 @@ function syncAliasListeners(): void {
 
 /** Send to every connected window, and on to the peers dialed in to us (local state only). */
 export function broadcast(msg: ServerMessage): void {
-  toWindows(msg);
+  // A usage:update raised here carries this daemon's rows only, which is exactly what a peer
+  // wants and not what a window wants: a window's table covers every session in its rail, so
+  // replacing it with the local half blanks the context of every federated session until the
+  // next update from that peer. Windows get the merged usage; peers get ours.
+  toWindows(msg.type === "usage:update" ? { type: "usage:update", usage: federation.mergeUsage(msg.usage) } : msg);
   federation.fanout(msg);
 }
 
@@ -133,7 +136,7 @@ export function buildState(): StateSnapshot {
 
 /** What a peer is shown: our sessions, repos, flags, usage, playbook. Never the config (keys). */
 function peerState(): FedState {
-  const { config: _config, uiBuild: _build, firstRun: _first, windowsBuild: _win, ...rest } = localState();
+  const { config: _config, uiBuild: _build, firstRun: _first, ...rest } = localState();
   return rest;
 }
 
@@ -151,7 +154,6 @@ function localState(): StateSnapshot {
     config,
     firstRun: isFirstRun(),
     uiBuild,
-    windowsBuild,
   };
 }
 

@@ -70,9 +70,10 @@ export function TerminalView({ sessionId, visible, focused, fontSize }: Props) {
   // ConPTY wraps its own lines and, before build 21376, marks none of them: told this, xterm
   // stops reflowing the scrollback on a resize (which would re-wrap what ConPTY already
   // wrapped) and keeps scrollback out of the viewport when rows grow, where ConPTY's reprint
-  // would overwrite it. Read at creation and re-applied below, since the first state snapshot
-  // can land after the terminal is built.
-  const windowsBuild = useStore((s) => s.windowsBuild);
+  // would overwrite it. It comes off the session, not the daemon: a window here can be drawing
+  // a session hosted on a Windows machine across a federation link, and vice versa. Read at
+  // creation and re-applied below, since the session can land after the terminal is built.
+  const windowsBuild = useStore((s) => s.sessions.find((x) => x.id === sessionId)?.windowsBuild);
   const winRef = useRef(windowsBuild);
   winRef.current = windowsBuild;
   const replaying = useRef(false);
@@ -263,7 +264,7 @@ export function TerminalView({ sessionId, visible, focused, fontSize }: Props) {
     return () => cancelAnimationFrame(id);
   }, [visible, focused]);
 
-  // The snapshot that carries the PTY host's Windows build may arrive after this terminal was
+  // The session that carries its PTY host's Windows build may arrive after this terminal was
   // built; xterm reads the option on every buffer resize, so setting it late still counts.
   useEffect(() => {
     const t = term.current;

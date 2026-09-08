@@ -121,6 +121,17 @@ function onExit(s: Sess, exitCode: number, signal?: number): void {
   }
 }
 
+/**
+ * Windows: node-pty's bundled conpty.dll rather than the one in the OS. The inbox ConPTY on
+ * Windows 10 consumes an app's mouse-tracking DECSETs (?1000/?1002/?1003/?1006) and forwards
+ * none of them, so nothing downstream ever learns the app wants the wheel, and a wheel report
+ * written back reaches nobody. That is the whole of Claude Code's own scrollback: on the inbox
+ * ConPTY, scrolling up in a Windows session did nothing at all. The bundled one relays the
+ * modes and delivers the reports, and the same session then scrolls its conversation the way it
+ * does on macOS. `HENRY_CONPTY_DLL=0` goes back to the OS one.
+ */
+const conpty = process.platform === "win32" && process.env.HENRY_CONPTY_DLL !== "0" ? { useConptyDll: true } : {};
+
 function spawn(conn: Conn, cmd: Extract<ClientMessage, { op: "spawn" }>): void {
   if (sessions.has(cmd.id)) return send(conn, { op: "error", id: cmd.id, message: "session id already exists" });
   if (draining) return send(conn, { op: "error", id: cmd.id, message: "sessiond is shutting down; start a new one" });
@@ -128,7 +139,7 @@ function spawn(conn: Conn, cmd: Extract<ClientMessage, { op: "spawn" }>): void {
   const rows = cmd.rows > 0 ? cmd.rows : 36;
   let term: pty.IPty;
   try {
-    term = pty.spawn(cmd.command, cmd.args ?? [], { name: "xterm-256color", cols, rows, cwd: cmd.cwd, env: cmd.env ?? {} });
+    term = pty.spawn(cmd.command, cmd.args ?? [], { name: "xterm-256color", cols, rows, cwd: cmd.cwd, env: cmd.env ?? {}, ...conpty });
   } catch (e) {
     log(`spawn ${cmd.command} failed: ${(e as Error).message}`);
     return send(conn, { op: "error", id: cmd.id, message: `spawn failed: ${(e as Error).message}` });

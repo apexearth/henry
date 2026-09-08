@@ -15,6 +15,7 @@
 // Deep import on purpose; see xterm-serialize.d.ts.
 import { SerializeAddon } from "@xterm/addon-serialize/lib/addon-serialize.mjs";
 import { Terminal, type ITerminalAddon } from "@xterm/headless";
+import { windowsBuild } from "./platform";
 
 /** Lines of real scrollback kept per session. Frames collapse into state here, so this is far
  * more history than sessiond's 2 MB of raw bytes ever held for a repainting app. */
@@ -51,7 +52,17 @@ class Screens {
   private ensure(id: string, cols: number, rows: number): Screen {
     let s = this.map.get(id);
     if (s) return s;
-    const term = new Terminal({ cols: cols > 0 ? cols : 120, rows: rows > 0 ? rows : 36, scrollback: SCROLLBACK, allowProposedApi: true });
+    // Same reason a window's xterm is told (ui/Terminal.tsx): under ConPTY this emulator must
+    // not reflow its own scrollback on a width change, nor pull scrollback back into the
+    // viewport when rows grow, where ConPTY's reprint lands on top of it. Untold, it ate its
+    // own history on every resize — and this buffer is what an attaching window is handed.
+    const term = new Terminal({
+      cols: cols > 0 ? cols : 120,
+      rows: rows > 0 ? rows : 36,
+      scrollback: SCROLLBACK,
+      allowProposedApi: true,
+      ...(windowsBuild ? { windowsPty: { backend: "conpty" as const, buildNumber: windowsBuild } } : {}),
+    });
     const ser = new SerializeAddon();
     term.loadAddon(ser as ITerminalAddon);
     s = { term, ser, pending: "", extra: new Set(), tail: "" };
