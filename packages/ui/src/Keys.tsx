@@ -16,6 +16,7 @@ const SECTIONS: [string, Key[]][] = [
     [[`${ARROW_MOD}↑`, `${ARROW_MOD}↓`], "previous / next session in the rail, wrapping"],
     [[isMac ? (inShell ? "⌘N" : "⌃N") : inShell ? "Ctrl+N" : "Alt+N"], "new session (the + new session picker)"],
     [[isMac ? "⌘D" : "Ctrl+Shift+D"], "duplicate the session in view: same kind, same folder"],
+    [[isMac ? (inShell ? "⌘`" : "⌃`") : "Ctrl+`"], "new terminal in the folder of the session in view"],
     [["⇧↩"], "newline in Claude Code's prompt instead of sending"],
     [isMac ? ["⌘C"] : ["Ctrl+C", "Ctrl+Shift+C"], isMac ? "copy the terminal selection" : "copy the terminal selection (with nothing selected, Ctrl+C still interrupts)"],
     [isMac ? ["⌘V"] : ["Ctrl+V", "Ctrl+Shift+V"], "paste into the terminal"],
@@ -76,8 +77,8 @@ export function Keys({ onClose }: { onClose: () => void }) {
         </div>
         <div className="foot hint">
           <span>{inShell
-            ? isMac ? `native window: ⌘N and ⌘⇧R come from the menu` : "native window: no menu, and nothing is reserved"
-            : `browser tab: Chrome keeps ${MOD}N and ${SHIFT_R}, so ${isMac ? "⌃N" : "Alt+N"} and the reset layout button stand in`}</span>
+            ? isMac ? `native window: ⌘N, ⌘\` and ⌘⇧R come from the menu` : "native window: no menu, and nothing is reserved"
+            : `browser tab: Chrome keeps ${MOD}N and ${SHIFT_R}${isMac ? " and ⌘`" : ""}, so ${isMac ? "⌃N, ⌃`" : "Alt+N"} and the reset layout button stand in`}</span>
           <span>Esc to close</span>
         </div>
       </div>

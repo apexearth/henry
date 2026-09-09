@@ -508,6 +508,13 @@ export function duplicateSession(): void {
   if (s) createSession(s.cwd, undefined, s.kind ?? "claude", s.peer);
 }
 
+/** A terminal in the folder of the session in view, on its machine — whatever kind that session
+ * is. Nothing happens with no active tab: there is no folder to open one in. */
+export function terminalHere(): void {
+  const s = state.sessions.find((x) => x.id === state.activeSessionId);
+  if (s) createSession(s.cwd, undefined, "shell", s.peer);
+}
+
 /** Start a new tab that resumes an exited session's Claude conversation, and drop the old tab. */
 export function resumeSession(s: Session): void {
   if (!s.claudeSessionId) return;

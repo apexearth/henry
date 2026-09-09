@@ -63,6 +63,8 @@ fn build_menu(app: &App) -> tauri::Result<Menu<Wry>> {
     #[cfg(not(target_os = "macos"))]
     let duplicate_accel = "Ctrl+Shift+D";
     let duplicate_session = MenuItem::with_id(app, "duplicate-session", "Duplicate Session", true, Some(duplicate_accel))?;
+    // ⌘` would otherwise cycle the app's windows; Henry has one, and the item claims the chord.
+    let new_terminal = MenuItem::with_id(app, "new-terminal", "New Terminal Here", true, Some("CmdOrCtrl+`"))?;
     let reset_layout = MenuItem::with_id(app, "reset-layout", "Reset Layout", true, Some("CmdOrCtrl+Shift+R"))?;
     let reload = MenuItem::with_id(app, "reload", "Reload", true, Some("CmdOrCtrl+R"))?;
 
@@ -87,7 +89,7 @@ fn build_menu(app: &App) -> tauri::Result<Menu<Wry>> {
     let file_tail: Vec<Box<dyn IsMenuItem<Wry>>> = vec![Box::new(PredefinedMenuItem::close_window(app, None)?)];
     #[cfg(not(target_os = "macos"))]
     let file_tail: Vec<Box<dyn IsMenuItem<Wry>>> = vec![Box::new(PredefinedMenuItem::close_window(app, None)?), Box::new(PredefinedMenuItem::quit(app, None)?)];
-    let mut file_items: Vec<&dyn IsMenuItem<Wry>> = vec![&new_session, &duplicate_session];
+    let mut file_items: Vec<&dyn IsMenuItem<Wry>> = vec![&new_session, &duplicate_session, &new_terminal];
     let file_sep = PredefinedMenuItem::separator(app)?;
     file_items.push(&file_sep);
     for item in &file_tail {

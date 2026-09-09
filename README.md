@@ -50,7 +50,8 @@ is doing. It is the only session selector: one terminal shows at a time. Every p
 dockable tab, so drag to split, stack or float, and "reset layout" puts back the picture
 above.
 
-⌘1..9 and ⌘↑/↓ walk the rail, ⌘D duplicates a session, ⌃N opens the new-session picker,
+⌘1..9 and ⌘↑/↓ walk the rail, ⌘D duplicates a session, ⌘` opens a terminal in the folder of
+the session you are looking at (⌃` in a browser tab), ⌃N opens the new-session picker,
 ⌘K finds a file and ⌘F browses or greps. `keys` in the top bar lists the rest. In a browser
 tab Chrome keeps ⌘N and ⌘digit, so those are Ctrl there.
 

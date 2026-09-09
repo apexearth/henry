@@ -138,7 +138,8 @@ the design changes; do not let it drift into a changelog.
   events, flags and playbook stay. `⌘1..9` (or `Ctrl`) and `⌘↑/↓` follow the rail order;
   `⌃N` (⌘N where the browser frees it) opens the "+ new" picker; `⌘D` duplicates the active
   tab, a new session of the same kind in its cwd, skipping the picker. No `⌃D`: that is EOF
-  in the terminal.
+  in the terminal. `⌘\`` (`⌃\`` in a browser tab, which never sees macOS's window-cycling
+  chord) opens a terminal in the active tab's cwd on its machine, whatever kind that tab is.
 - **Grouping is a rail-footer choice, persisted per browser.** Off by default; "by folder"
   buckets sessions on `cwd`, "by repo" on the repos the git watcher has seen the session
   touch, so a session working across two repos is listed under both (one that has touched
@@ -241,7 +242,8 @@ the design changes; do not let it drift into a changelog.
   one costs a reprint. In the browser, Ctrl takes ⌘'s letters and digits, Alt takes the
   arrows (Ctrl+arrows are the terminal's), Alt+N opens the picker (Chrome reserves
   Ctrl+N) and Alt+F the explorer (Ctrl+F is the terminal's forward-char, so it only
-  reaches the window from outside one); duplicate is Ctrl+Shift+D. Tauri builds the platform's own bundles; the menu
+  reaches the window from outside one); duplicate is Ctrl+Shift+D and a terminal here is Ctrl+` (nothing reserves it,
+  and the terminal makes no control character of it). Tauri builds the platform's own bundles; the menu
   bar is macOS-only, and in the Windows shell Ctrl+N and Ctrl+Shift+R (reset layout) are
   page bindings, with nothing on Ctrl+R so the terminal keeps reverse search.
 

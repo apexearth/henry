@@ -6,7 +6,7 @@ import { MOD, baseName, isMac } from "./platform";
 import { inShell, onMenu } from "./shell";
 import { hueText, nameHue } from "./theme";
 import { showSession } from "./dock";
-import { activeRowIndex, answerAttention, duplicateSession, hiddenCount, hideSessions, killSession, railGroups, railRows, resumeSession, setActive, setGroupBy, showAllSessions, toggleMachine, toggleShowClosed, useStore, type GroupBy } from "./ws";
+import { activeRowIndex, answerAttention, duplicateSession, hiddenCount, hideSessions, killSession, railGroups, railRows, resumeSession, setActive, setGroupBy, showAllSessions, terminalHere, toggleMachine, toggleShowClosed, useStore, type GroupBy } from "./ws";
 
 const base = baseName;
 
@@ -128,18 +128,26 @@ export function Rail() {
   // Chrome keeps ⌘N for itself (new window) and never delivers it, so ⌃N is the one that fires.
   // ⌘D (bookmark) is overridable, so it works in both. ⌃D is EOF in the terminal: never bound.
   // Off macOS Chrome reserves Ctrl+N too, so Alt+N opens the picker there, and Ctrl+Shift+D duplicates.
+  // ⌘` is the macOS window-cycling chord: the shell's menu item claims it, but a browser tab never
+  // sees it, so ⌃` stands in there. Off macOS nothing reserves Ctrl+`, and the terminal makes no
+  // control character out of it, so it is bound everywhere.
   useEffect(() => onMenu("new-session", () => setPicker(true)), []);
   useEffect(() => onMenu("duplicate-session", duplicateSession), []);
+  useEffect(() => onMenu("new-terminal", terminalHere), []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const n = e.key === "n" || e.key === "N";
       const d = e.key === "d" || e.key === "D";
+      const tick = e.code === "Backquote" || e.key === "`";
       if (n && !e.shiftKey && ((e.metaKey || e.ctrlKey) && !e.altKey || (!isMac && e.altKey && !e.ctrlKey && !e.metaKey))) {
         e.preventDefault();
         setPicker(true);
       } else if (d && !e.altKey && (isMac ? e.metaKey && !e.ctrlKey && !e.shiftKey : e.ctrlKey && e.shiftKey && !e.metaKey)) {
         e.preventDefault();
         duplicateSession();
+      } else if (tick && !e.altKey && !e.shiftKey && (isMac ? e.metaKey !== e.ctrlKey : e.ctrlKey && !e.metaKey)) {
+        e.preventDefault();
+        terminalHere();
       }
     };
     window.addEventListener("keydown", onKey, true);
