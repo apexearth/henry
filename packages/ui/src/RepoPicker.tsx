@@ -53,10 +53,19 @@ function buildRows(repos: RepoPickerEntry[], preferred: string, query: string): 
     rows.push({ key: `shell:${r.path}`, kind: "shell", path: r.path, label: labelOf(r), name: r.name, search: `terminal shell $ ${searchOf(r)}` });
   }
   const tokens = q.toLowerCase().split(/\s+/).filter(Boolean);
-  return rows.filter((row) => {
+  const matched = rows.filter((row) => {
     const hay = row.search.toLowerCase();
     return tokens.every((t) => hay.includes(t));
   });
+  if (!tokens.length) return matched;
+  // Rank by how the query hits the name, not where the row sat in the resting order: an exact
+  // name match outranks a prefix, which outranks a substring, which outranks a path-only hit.
+  // Stable, so ties keep the preferred-first, alphabetical, Claude-before-terminal order.
+  const rank = (row: Row) => {
+    const name = row.name?.toLowerCase() ?? "";
+    return tokens.reduce((n, t) => n + (name === t ? 3 : name.startsWith(t) ? 2 : name.includes(t) ? 1 : 0), 0);
+  };
+  return matched.map((row, i) => ({ row, i, r: rank(row) })).sort((a, b) => b.r - a.r || a.i - b.i).map((x) => x.row);
 }
 
 export function RepoPicker({ onClose }: { onClose: () => void }) {
