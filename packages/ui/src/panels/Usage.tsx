@@ -1,8 +1,10 @@
-// 5h / 7d utilization bars with reset countdowns, the active session's context bar, per-session
-// token + cost table, last-updated stamp. The rate bars come from the statusline snapshot
-// (henry-statusline.sh); context and rows come from the transcript tailer.
+// 5h / 7d utilization bars with reset countdowns — one pair per machine, since every daemon
+// meters its own subscription — then the active session's context bar, the per-session token +
+// cost table and a last-updated stamp. The rate bars come from each machine's statusline
+// snapshot (henry-statusline.sh); context and rows come from the transcript tailer.
 import { useEffect, useRef, useState } from "react";
-import type { RateWindow, SessionUsage, Usage } from "@henry/shared";
+import type { HostUsage, RateWindow, SessionUsage, Usage } from "@henry/shared";
+import { hueText, nameHue } from "../theme";
 import { useStore } from "../ws";
 
 export interface UsagePanelProps {
@@ -43,6 +45,24 @@ export function fmtTokens(n: number): string {
     return (v < 10 ? v.toFixed(1).replace(/\.0$/, "") : String(Math.round(v))) + suffix;
   }
   return String(Math.round(n));
+}
+
+export interface HostRow {
+  /** The machine's name; "" only when a daemon has not told us its own. */
+  name: string;
+  /** Set for a paired machine, so it can be coloured and named like it is in the rail. */
+  peer: boolean;
+  usage: HostUsage;
+}
+
+/** The machines whose limits to draw: this one first, then each connected peer by name. A
+ * daemon from before per-host windows sends only the flat pair, which is its own. */
+export function hostRows(usage: Usage, host: string | null): HostRow[] {
+  const own = { fiveHour: usage.fiveHour, sevenDay: usage.sevenDay, updatedAt: usage.updatedAt };
+  if (!usage.hosts) return [{ name: host ?? "", peer: false, usage: own }];
+  return Object.entries(usage.hosts)
+    .sort(([a], [b]) => Number(b === host) - Number(a === host) || a.localeCompare(b))
+    .map(([name, u]) => ({ name, peer: name !== host, usage: u }));
 }
 
 /** Model family only ("fable", "opus"); the full id lives in the cell tooltip. */
@@ -109,8 +129,25 @@ function useWidth(): [React.RefObject<HTMLDivElement>, number] {
 const th: React.CSSProperties = { textAlign: "right", color: "var(--fg-dim)", fontWeight: "normal", padding: "2px 4px", whiteSpace: "nowrap" };
 const td: React.CSSProperties = { textAlign: "right", padding: "2px 4px", whiteSpace: "nowrap" };
 
+/** One machine's pair of bars under its name. The name is dropped when there is only one. */
+function HostBars({ row, alone, now }: { row: HostRow; alone: boolean; now: number }) {
+  return (
+    <div style={{ marginBottom: alone ? 0 : 10 }}>
+      {!alone && (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4, fontSize: 11 }}>
+          <b style={{ color: row.peer ? hueText(nameHue(row.name)) : "var(--fg)" }}>{row.name || "this machine"}</b>
+          <span style={{ color: "var(--fg-dim)" }}>{row.usage.updatedAt ? new Date(row.usage.updatedAt).toLocaleTimeString() : "no usage yet"}</span>
+        </div>
+      )}
+      <Bar label="5h" win={row.usage.fiveHour} now={now} />
+      <Bar label="7d" win={row.usage.sevenDay} now={now} />
+    </div>
+  );
+}
+
 export function UsagePanel({ sessionId, usage }: UsagePanelProps) {
   const sessions = useStore((s) => s.sessions);
+  const host = useStore((s) => s.host);
   const [ref, width] = useWidth();
   const foldIO = width > 0 && width < FOLD_IO_BELOW;
   const showModel = !(width > 0 && width < HIDE_MODEL_BELOW);
@@ -121,7 +158,13 @@ export function UsagePanel({ sessionId, usage }: UsagePanelProps) {
     return () => clearInterval(t);
   }, []);
 
+  const hosts = hostRows(usage, host);
   const titleOf = (id: string) => sessions.find((s) => s.id === id)?.title ?? id.slice(0, 8);
+  // With peers connected the table mixes machines: say which one a row is on.
+  const whereOf = (id: string) => {
+    const peer = sessions.find((s) => s.id === id)?.peer;
+    return peer ? `${id}\non ${peer}` : id;
+  };
   // A usage row with no live session (an earlier daemon run) counts as closed.
   const isOpen = (id: string) => sessions.find((s) => s.id === id)?.status === "running";
   const rows: [string, SessionUsage][] = Object.entries(usage.perSession).sort(([a], [b]) => {
@@ -139,8 +182,9 @@ export function UsagePanel({ sessionId, usage }: UsagePanelProps) {
 
   return (
     <div ref={ref}>
-      <Bar label="5h" win={usage.fiveHour} now={now} />
-      <Bar label="7d" win={usage.sevenDay} now={now} />
+      {hosts.map((h) => (
+        <HostBars key={h.name} row={h} alone={hosts.length === 1} now={now} />
+      ))}
       {sessionId && <ContextBar usage={usage.perSession[sessionId]} />}
       {!usage.updatedAt && (
         <div style={{ color: "var(--fg-dim)", fontSize: 11, margin: "4px 0 12px" }}>
@@ -170,7 +214,7 @@ export function UsagePanel({ sessionId, usage }: UsagePanelProps) {
           <tbody>
             {rows.map(([id, u]) => (
               <tr key={id} style={{ background: id === sessionId ? "var(--bg-3)" : undefined, opacity: isOpen(id) ? 1 : 0.5 }}>
-                <td style={{ ...td, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 110 }} title={id}>
+                <td style={{ ...td, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 110 }} title={whereOf(id)}>
                   {titleOf(id)}
                 </td>
                 {showModel && <td style={td} title={u.model}>{shortModel(u.model)}</td>}

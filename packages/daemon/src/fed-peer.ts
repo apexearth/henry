@@ -2,7 +2,7 @@
 // mirrors that daemon's sessions (tagged `peer`) and relays PTY traffic and requests for
 // the windows attached here. When the link drops, its sessions leave the rail until it is
 // back; nothing about them is persisted here, the peer's own DB has all of it.
-import type { Attention, Flag, PlaybookEntry, RepoState, ServerMessage, Session, SessionUsage, StateSnapshot } from "@henry/shared";
+import type { Attention, Flag, PlaybookEntry, RepoState, ServerMessage, Session, StateSnapshot, Usage } from "@henry/shared";
 import { FED_VERSION, Handshake, fingerprint, isHello, proofsEqual, signTranscript, verifyTranscript, type Channel, type Derived, type IdentityKeys } from "./fed-crypto";
 import type { FedRequest, FedResponse, PeerRecord } from "./federation";
 
@@ -107,7 +107,8 @@ export class PeerLink {
   flags: Flag[] = [];
   /** Live asks from the peer's sessions, tagged with `peer` like the sessions they name. */
   attention: Attention[] = [];
-  usage: Record<string, SessionUsage> = {};
+  /** The peer's whole usage: its rows and its own 5h/7d windows, which are not ours. */
+  usage: Usage = { perSession: {}, updatedAt: 0 };
   playbook: PlaybookEntry[] = [];
 
   private ws?: WebSocket;
@@ -181,7 +182,7 @@ export class PeerLink {
     this.repos = {};
     this.flags = [];
     this.attention = [];
-    this.usage = {};
+    this.usage = { perSession: {}, updatedAt: 0 };
     this.playbook = [];
     for (const w of this.httpWaiters.values()) w({ type: "http:res", id: "", status: 502, contentType: "application/json", body: JSON.stringify({ error: `${this.rec.name}: ${why}` }) });
     this.httpWaiters.clear();
@@ -235,7 +236,7 @@ export class PeerLink {
         this.flags = m.flags;
         // A peer from before asks existed sends none; treat that as "nothing to show".
         this.attention = (m.attention ?? []).map((a) => this.tagAsk(a));
-        this.usage = m.usage.perSession;
+        this.usage = m.usage;
         this.playbook = m.playbook.filter((p) => p.sessionId !== null);
         this.deps.toWindows({ type: "state", ...this.deps.buildState() });
         return;
@@ -266,11 +267,15 @@ export class PeerLink {
         this.deps.toWindows(m);
         return;
       case "usage:update":
-        this.usage = m.usage.perSession;
+        this.usage = m.usage;
         this.deps.toWindows({ type: "usage:update", usage: this.deps.buildState().usage });
         return;
       case "usage:session":
-        this.usage[m.sessionId] = m.usage;
+        this.usage = {
+          ...this.usage,
+          perSession: { ...this.usage.perSession, [m.sessionId]: m.usage },
+          updatedAt: Math.max(this.usage.updatedAt, m.updatedAt),
+        };
         this.deps.toWindows(m);
         return;
       case "flag":

@@ -95,7 +95,12 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 
 /* Status strip: the gauges you glance at, one line along the bottom; each item opens Usage. */
 .statusbar { display: flex; align-items: center; padding: 0 4px; height: 22px; border-top: 1px solid var(--border); background: var(--bg-2); font-size: 11px; color: var(--fg-dim); flex: none; overflow: hidden; }
-.sb-item { background: none; border: none; border-radius: 0; padding: 0 7px; height: 100%; color: inherit; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; font-size: inherit; }
+/* The gauges keep their width; the session's own numbers give way when the strip is narrow. */
+.sb-session { display: flex; align-items: center; height: 100%; min-width: 0; flex: 0 1 auto; overflow: hidden; }
+.sb-item { background: none; border: none; border-radius: 0; padding: 0 7px; height: 100%; color: inherit; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; font-size: inherit; flex: none; }
+/* The machine a pair of windows belongs to: drawn once, tight against its bars. */
+.sb-host { padding-right: 2px; max-width: 120px; }
+.sb-host b { overflow: hidden; text-overflow: ellipsis; }
 .sb-item:hover { color: var(--fg); background: var(--bg-3); }
 .sb-item b { font-weight: 600; }
 .sb-item .sb-dim { opacity: 0.7; margin-left: -2px; }

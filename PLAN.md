@@ -308,8 +308,15 @@ until it is back. Two machines that both listen dial each other, so each window 
   hides that machine's rows (the header keeps its count, so it can be unfolded) and takes them
   out of ⌘1..9 / ⌘↑↓. Folding is a view choice, persisted per browser; the link stays up and
   the sessions keep running. File peeks and ⌘K read from the machine of the
-  session you are looking at. Global playbook and 5h/7d usage stay per machine (same
-  account, same limits).
+  session you are looking at. The global playbook stays per machine.
+- **Every machine's 5h/7d windows are shown, never added up.** A daemon meters the
+  subscription it is signed in to and only that one, so one pair of bars was one machine's
+  answer standing in for the rail's. `mergeUsage` therefore builds a `hosts` table — this
+  machine under its own name, each connected peer under theirs — for windows only; what
+  goes over a link is still this daemon's own pair, so a peer names us in its own merge and
+  trust stays non-transitive. The strip leads with the machine of the session you are
+  looking at, the Usage tab lists them all. Sharing an account means the numbers agree,
+  which is a thing you can see rather than something Henry has to assume.
 
 ## Henry on a phone
 
@@ -492,7 +499,9 @@ restored on load; "reset layout" restores the picture above.
 **Usage lives in the status strip**, one line along the bottom of the window, outside the
 dock. The gauges are things you watch while working, not a view you switch to, so they get
 the place a window's status bar has always been: left, the session you are looking at (model,
-context meter, tokens in/out, spend); right, the 5h and 7d windows with their resets. Every
+context meter, tokens in/out, spend); right, the 5h and 7d windows with their resets, one
+pair per paired machine, the machine you are working on first and named when there is more
+than one. The session's own numbers give way first when the strip runs out of room. Every
 item opens the Usage tab, which keeps the per-session table and the words. Usage used to have
 a pane of its own in the bottom-right corner; a pane costs the tool column height for a few
 numbers, and a strip costs 22px of everything.
@@ -681,10 +690,10 @@ Tool tabs:
   `parsePlaybookText` in shared turns into a headline, colored sections and bullets;
   older entries collapse to their headline. A global playbook view across all
   sessions lives on the rail footer.
-- **Usage** — 5h and 7d utilization bars with reset times; the active session's
-  context bar (occupancy vs. window); per-session token, context and cost totals. The
-  status strip shows the same numbers for the active session and the two windows, so the
-  tab is for the table and the other sessions.
+- **Usage** — 5h and 7d utilization bars with reset times, a pair per machine under its
+  name once a peer is connected; the active session's context bar (occupancy vs. window);
+  per-session token, context and cost totals. The status strip shows the same numbers for
+  the active session and the windows, so the tab is for the table and the other sessions.
   Context costs nothing extra: it is the last main-chain assistant message's input +
   cache tokens, which the transcript tailer already parses (statusline
   `context_window` fills in until the first turn and supplies the window size).

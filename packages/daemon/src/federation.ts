@@ -13,7 +13,7 @@ import { chmodSync, existsSync, readFileSync, renameSync, writeFileSync } from "
 import { networkInterfaces } from "node:os";
 import { join } from "node:path";
 import type { ServerWebSocket } from "bun";
-import type { ClientMessage, FederationStatus, PeerStatus, ServerMessage, StateSnapshot, Usage } from "@henry/shared";
+import type { ClientMessage, FederationStatus, HostUsage, PeerStatus, ServerMessage, StateSnapshot, Usage } from "@henry/shared";
 import { config, henryDir, onConfigReload } from "./config";
 import { FED_VERSION, Handshake, fingerprint, isHello, newIdentity, newPairingCode, normalizeCode, proofsEqual, signTranscript, verifyTranscript, type Derived, type IdentityKeys } from "./fed-crypto";
 import { PeerLink, type FedState, type LinkDeps } from "./fed-peer";
@@ -540,12 +540,21 @@ export function merge(local: StateSnapshot): StateSnapshot {
   return out;
 }
 
-/** This daemon's usage rows plus every connected peer's. A window's rail shows both, so both
- * belong in the table it holds; a peer is only ever sent our own (server.broadcast). */
+/** This daemon's usage rows plus every connected peer's, and one 5h/7d pair per machine. A
+ * window's rail shows every machine, so its gauges must too; the windows are per machine and
+ * never added up. A peer is only ever sent our own (server.broadcast), so `hosts` stops here
+ * and trust stays non-transitive. */
 export function mergeUsage(local: Usage): Usage {
   const all = [...links.values()].filter((l) => l.status === "connected");
-  if (!all.length) return local;
-  return { ...local, perSession: Object.assign({}, local.perSession, ...all.map((l) => l.usage)) };
+  const hosts: Record<string, HostUsage> = { [localName()]: { fiveHour: local.fiveHour, sevenDay: local.sevenDay, updatedAt: local.updatedAt } };
+  for (const l of all) hosts[l.rec.name] = { fiveHour: l.usage.fiveHour, sevenDay: l.usage.sevenDay, updatedAt: l.usage.updatedAt };
+  return {
+    ...local,
+    hosts,
+    perSession: Object.assign({}, local.perSession, ...all.map((l) => l.usage.perSession)),
+    // "never reported" in a window means no machine has, not that this one hasn't.
+    updatedAt: Math.max(local.updatedAt, ...all.map((l) => l.usage.updatedAt)),
+  };
 }
 
 export function statuses(): PeerStatus[] {
