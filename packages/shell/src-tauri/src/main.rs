@@ -14,6 +14,7 @@ use tauri::menu::AboutMetadata;
 use tauri::menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 #[cfg(not(target_os = "windows"))]
 use tauri::{App, Wry};
+use tauri::webview::NewWindowResponse;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
 fn henry_url() -> String {
@@ -22,6 +23,38 @@ fn henry_url() -> String {
     }
     let port = std::env::var("HENRY_PORT").unwrap_or_else(|_| "14711".into());
     format!("http://127.0.0.1:{port}")
+}
+
+// A `target="_blank"` link (the repo's ↗, a PR number) asks the webview for a new window,
+// which it has no way to make on its own: without an answer the click does nothing. Henry
+// has one window, so the link goes to the default browser instead. Only web URLs: the page
+// is trusted, but a stray file: or custom scheme should not launch anything.
+fn open_in_browser(url: &tauri::Url) {
+    if !matches!(url.scheme(), "http" | "https") {
+        return;
+    }
+    let url = url.as_str();
+    #[cfg(target_os = "macos")]
+    let mut cmd = {
+        let mut c = std::process::Command::new("open");
+        c.arg(url);
+        c
+    };
+    #[cfg(target_os = "windows")]
+    let mut cmd = {
+        // `start` is a cmd builtin; the empty string is its window-title slot, or the URL
+        // would be taken for one.
+        let mut c = std::process::Command::new("cmd");
+        c.args(["/C", "start", "", url]);
+        c
+    };
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let mut cmd = {
+        let mut c = std::process::Command::new("xdg-open");
+        c.arg(url);
+        c
+    };
+    let _ = cmd.spawn();
 }
 
 fn main() {
@@ -36,6 +69,10 @@ fn main() {
                 // target, which eats the HTML5 drag events dockview needs to move panels.
                 // Henry accepts no dropped files, so nothing is lost by turning it off.
                 .disable_drag_drop_handler()
+                .on_new_window(|url, _features| {
+                    open_in_browser(&url);
+                    NewWindowResponse::Deny
+                })
                 .build()?;
             #[cfg(not(target_os = "windows"))]
             app.set_menu(build_menu(app)?)?;
