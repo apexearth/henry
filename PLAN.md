@@ -472,9 +472,11 @@ config. The user is the only router, and the rail stays a truthful record of who
 │ ▣ Stealth│         xterm.js (WebGL)             │  per-repo cards:     │
 │ >_ henry │         one per session              │  branch, ↑↓ upstream │
 │ ▢ arm ⚑2 │                                      │  commits since base  │
-│ + new    │                                      ├──────────────────────┤
-│ 3 running│                                      │ Usage  5h ▇▇▁ 7d ▇▁▁ │
-└──────────┴──────────────────────────────────────┴──────────────────────┘
+│ + new    │                                      │                      │
+│ 3 running│                                      │                      │
+├──────────┴──────────────────────────────────────┴──────────────────────┤
+│ opus  ctx ▇▇▁ 41%  38k in 9k out  $1.20         5h ▇▇▁ 42% 2h10m  7d ▇▁▁ 18% 3d │
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
 That is the default arrangement, not a fixed one. The workspace is a Dockview grid
@@ -482,11 +484,16 @@ That is the default arrangement, not a fixed one. The workspace is a Dockview gr
 to split a group (top/bottom/left/right), stack it as a tab, dock it on a window edge, or
 float it. Tabs have no close button and there is no view menu: tools are rearranged, never
 dismissed. The arrangement is saved to localStorage
-(`henry.layout.v2`) and restored on load; "reset layout" restores the picture above.
+(`henry.layout.v3`; a v2 layout is read once and its usage pane folded into the tabs) and
+restored on load; "reset layout" restores the picture above.
 
-**Usage lives in the bottom-right corner**, in its own pane under the tool tabs rather than
-as a fourth tab. The rate bars are a gauge you watch while working, not a view you switch
-to, so they should never be hidden behind another tool's tab.
+**Usage lives in the status strip**, one line along the bottom of the window, outside the
+dock. The gauges are things you watch while working, not a view you switch to, so they get
+the place a window's status bar has always been: left, the session you are looking at (model,
+context meter, tokens in/out, spend); right, the 5h and 7d windows with their resets. Every
+item opens the Usage tab, which keeps the per-session table and the words. Usage used to have
+a pane of its own in the bottom-right corner; a pane costs the tool column height for a few
+numbers, and a strip costs 22px of everything.
 The selected session is saved too (`henry.active`, id + cwd), so a refresh reopens where you
 were; if that session is gone, Henry falls back to a running session in the same repo.
 
@@ -581,8 +588,9 @@ of chips answers "what is happening" without the rail: any session that asked fo
 answer / waiting on you, and uncommitted paths (plus unpushed commits) across every repo Henry
 has seen. Then a divider, and the same line answers "what have *I* been doing": time here today
 (typing or reading), prompts sent, and a four-hour cadence sparkline with your current pace.
-Flags and usage are deliberately not up here — they are panels, and the bar is for the two
-things you cannot get by looking at a panel: who wants you, and how your day is going. A chip
+Flags and usage are deliberately not up here — flags are a panel, usage is the status strip
+along the bottom, and the bar is for the two things you cannot get by looking at a panel: who
+wants you, and how your day is going. A chip
 renders only when it has something to say, and each is a shortcut: session chips jump to the
 session that has waited longest, the repo chip opens Repos, the human chips open the "you"
 popover (today in detail, the day by the hour, the last fortnight). The repos-root button is
@@ -664,7 +672,9 @@ Tool tabs:
   older entries collapse to their headline. A global playbook view across all
   sessions lives on the rail footer.
 - **Usage** — 5h and 7d utilization bars with reset times; the active session's
-  context bar (occupancy vs. window); per-session token, context and cost totals.
+  context bar (occupancy vs. window); per-session token, context and cost totals. The
+  status strip shows the same numbers for the active session and the two windows, so the
+  tab is for the table and the other sessions.
   Context costs nothing extra: it is the last main-chain assistant message's input +
   cache tokens, which the transcript tailer already parses (statusline
   `context_window` fills in until the first turn and supplies the window size).

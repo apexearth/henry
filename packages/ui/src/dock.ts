@@ -16,10 +16,10 @@ export const TOOLS: { id: ToolId; title: string }[] = [
   { id: "usage", title: "Usage" },
 ];
 
-// v2 moved Usage out of the tool tab strip into its own bottom-right pane.
-const STORAGE_KEY = "henry.layout.v2";
-/** Height of the Usage pane in the bottom-right corner: the two rate bars plus a few rows. */
-const USAGE_HEIGHT = 300;
+// v2 gave Usage its own bottom-right pane; v3 put the gauges in the status strip and made
+// Usage a tab again. A v2 layout is still read, with its usage pane folded into the tabs.
+const STORAGE_KEY = "henry.layout.v3";
+const LEGACY_KEY = "henry.layout.v2";
 export const TERM_PREFIX = "term:";
 export const termPanelId = (sessionId: string) => TERM_PREFIX + sessionId;
 export const FILE_PREFIX = "file:";
@@ -58,9 +58,16 @@ export function sessionTitle(s: Session): string {
   return `${glyph} ${s.title}${s.status === "exited" ? " (exited)" : ""}`;
 }
 
+/** True once a v2 layout was read; its usage pane gets folded into the tabs after restore. */
+let fromLegacy = false;
+
 export function loadLayout(): SerializedDockview | null {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    let raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+      raw = localStorage.getItem(LEGACY_KEY);
+      fromLegacy = !!raw;
+    }
     if (!raw) return null;
     const saved = JSON.parse(raw) as SerializedDockview;
     // Layouts saved before the left panel grew its Sessions/Files switch name no tab component,
@@ -78,43 +85,38 @@ export function saveLayout() {
   if (!api) return;
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(api.toJSON()));
+    localStorage.removeItem(LEGACY_KEY);
   } catch {
     /* quota or private mode: layout just won't persist */
   }
 }
 
-/** rail | terminals | tool tabs, with Usage under them; the pre-dock arrangement. */
+/** A restored v2 layout has Usage in a pane of its own; move it in with the other tools. */
+export function migrateRestoredLayout() {
+  if (!api || !fromLegacy) return;
+  fromLegacy = false;
+  const usage = api.getPanel("usage");
+  if (!usage || usage.group.panels.length > 1) return;
+  const sibling = TOOLS.map((t) => t.id).find((t) => t !== "usage" && t !== "sessions" && api!.getPanel(t));
+  if (!sibling) return;
+  api.removePanel(usage);
+  api.addPanel({ id: "usage", component: "usage", title: "Usage", position: { referencePanel: sibling, direction: "within" }, inactive: true });
+}
+
+/** rail | terminals | tool tabs; the pre-dock arrangement. */
 export function buildDefaultLayout() {
   if (!api) return;
   api.clear();
   api.addPanel({ id: "sessions", component: "sessions", tabComponent: "sessions", title: "Sessions" });
   api.addPanel({ id: "repos", component: "repos", title: "Repos", position: { referencePanel: "sessions", direction: "right" } });
   for (const t of TOOLS.slice(2)) {
-    if (t.id === "usage") continue; // usage is a readout you watch, not a tab you switch to
     api.addPanel({ id: t.id, component: t.id, title: t.title, position: { referencePanel: "repos", direction: "within" }, inactive: true });
   }
   // The centre group exists even with no sessions, so the rail and tools keep their widths.
   styleTerminalGroup(api.addGroup({ id: "center", referencePanel: "repos", direction: "left" }));
-  // Usage sits in the bottom-right corner. It goes in after the centre group so the split stays
-  // inside the tool column instead of spanning the stage too.
-  addUsagePane();
   for (const s of getState().sessions) ensureSessionPanel(s);
   api.getPanel("repos")?.api.setActive();
   applyDefaultSizes();
-}
-
-/** Usage's home: its own pane under the tool column, in the bottom-right corner. */
-function addUsagePane() {
-  if (!api) return;
-  const above = TOOLS.map((t) => t.id).find((t) => t !== "usage" && t !== "sessions" && api!.getPanel(t));
-  const panel = api.addPanel({
-    id: "usage",
-    component: "usage",
-    title: "Usage",
-    position: above ? { referencePanel: above, direction: "below" } : { direction: "right" },
-  });
-  requestAnimationFrame(() => panel.api.setSize({ height: USAGE_HEIGHT }));
-  return panel;
 }
 
 /** Rail and tools are fixed-width columns; terminals take the rest. Needs a measured grid. */
@@ -167,7 +169,7 @@ export function showSession(sessionId: string) {
   if (s) ensureSessionPanel(s, true);
 }
 
-/** Topbar activity chips: bring a tool forward, re-adding it if the user closed its tab. */
+/** Topbar chips and the status strip: bring a tool forward, re-adding it if its tab is gone. */
 export function showTool(id: ToolId) {
   if (!api) return;
   const existing = api.getPanel(id);
@@ -175,7 +177,6 @@ export function showTool(id: ToolId) {
     existing.api.setActive();
     return;
   }
-  if (id === "usage") return void addUsagePane();
   const title = TOOLS.find((t) => t.id === id)?.title ?? id;
   const sibling = TOOLS.map((t) => t.id).find((t) => t !== id && api!.getPanel(t));
   api.addPanel({ id, component: id, tabComponent: id === "sessions" ? "sessions" : undefined, title, position: sibling ? { referencePanel: sibling, direction: "within" } : { direction: "right" } });

@@ -9,7 +9,7 @@ import { ContextSky } from "./ContextSky";
 import { FileView } from "./FileView";
 import { BoundFlags, BoundHistory, BoundPlaybook, BoundRepos, BoundUsage, useSessionFlags } from "./panels/bound";
 import { setActive, setRailMode, useStore } from "./ws";
-import { buildDefaultLayout, ensureSessionPanel, henryTheme, isFilePanel, isTerminalGroup, loadLayout, noteActivePanel, saveLayout, sessionTitle, setDockApi, styleTerminalGroup, TERM_PREFIX, termPanelId } from "./dock";
+import { buildDefaultLayout, ensureSessionPanel, henryTheme, isFilePanel, isTerminalGroup, loadLayout, migrateRestoredLayout, noteActivePanel, saveLayout, sessionTitle, setDockApi, styleTerminalGroup, TERM_PREFIX, termPanelId } from "./dock";
 
 function TerminalPanel({ api, params }: IDockviewPanelProps<{ sessionId: string }>) {
   const [visible, setVisible] = useState(api.isVisible);
@@ -178,6 +178,7 @@ export function Layout() {
       }
     }
     if (!ok) buildDefaultLayout();
+    else migrateRestoredLayout();
     const live = new Set(sessions.map((s) => s.id));
     for (const p of api.panels) {
       // Peeks are for the moment; they don't come back with the layout.

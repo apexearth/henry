@@ -93,6 +93,15 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 .you-days .d.today em { color: var(--fg); }
 .dock { flex: 1; min-height: 0; }
 
+/* Status strip: the gauges you glance at, one line along the bottom; each item opens Usage. */
+.statusbar { display: flex; align-items: center; padding: 0 4px; height: 22px; border-top: 1px solid var(--border); background: var(--bg-2); font-size: 11px; color: var(--fg-dim); flex: none; overflow: hidden; }
+.sb-item { background: none; border: none; border-radius: 0; padding: 0 7px; height: 100%; color: inherit; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; font-size: inherit; }
+.sb-item:hover { color: var(--fg); background: var(--bg-3); }
+.sb-item b { font-weight: 600; }
+.sb-item .sb-dim { opacity: 0.7; margin-left: -2px; }
+.sb-meter { width: 36px; height: 5px; background: var(--bg); border: 1px solid var(--border); border-radius: 3px; overflow: hidden; flex: none; }
+.sb-meter > i { display: block; height: 100%; transition: width .3s; }
+
 .rail { display: flex; flex-direction: column; height: 100%; background: var(--bg-2); min-width: 0; }
 .rail-list { flex: 1; overflow-y: auto; }
 /* Hiding is by hand, one row or one group at a time, so the count is the only way back. */

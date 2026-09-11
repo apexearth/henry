@@ -22,7 +22,13 @@ beforeAll(() => {
   writeFileSync(join(root, "target", "out.bin"), "nope\n");
 });
 
-afterAll(() => rmSync(tmp, { recursive: true, force: true }));
+afterAll(() => {
+  try {
+    rmSync(tmp, { recursive: true, force: true });
+  } catch {
+    // Windows: config.ts still watches HENRY_HOME in this process, which pins the directory.
+  }
+});
 
 describe("readDirIndex", () => {
   test("walks a plain folder, skipping build and dependency directories", () => {

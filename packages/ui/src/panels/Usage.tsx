@@ -13,14 +13,14 @@ export interface UsagePanelProps {
 const AMBER = 0.7;
 const RED = 0.9;
 /** Assumed when the statusline has not reported `context_window_size` yet. */
-const DEFAULT_CONTEXT_WINDOW = 200_000;
+export const DEFAULT_CONTEXT_WINDOW = 200_000;
 
 export function contextFraction(u: SessionUsage | undefined): number | undefined {
   if (u?.contextTokens === undefined) return undefined;
   return u.contextTokens / (u.contextWindow || DEFAULT_CONTEXT_WINDOW);
 }
 
-function barColor(u: number): string {
+export function barColor(u: number): string {
   return u >= RED ? "var(--alarm)" : u >= AMBER ? "var(--warn)" : "var(--ok)";
 }
 
@@ -46,7 +46,7 @@ export function fmtTokens(n: number): string {
 }
 
 /** Model family only ("fable", "opus"); the full id lives in the cell tooltip. */
-function shortModel(m?: string): string {
+export function shortModel(m?: string): string {
   if (!m) return "–";
   return m.replace(/^claude-/, "").split("-")[0];
 }
