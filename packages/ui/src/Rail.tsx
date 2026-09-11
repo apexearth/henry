@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { isClaudeSession, type Session, type SessionActivity } from "@henry/shared";
-import { FilesSection } from "./RailFiles";
+import { FilesPane } from "./FilesPane";
 import { RepoPicker } from "./RepoPicker";
 import { MOD, baseName, isMac } from "./platform";
 import { inShell, onMenu } from "./shell";
@@ -108,20 +108,17 @@ const GROUP_LABEL: Record<GroupBy, string> = {
   attention: "by attention",
 };
 
-export function Rail() {
-  const rows = useStore(railRows);
-  const here = useStore(activeRowIndex);
-  const groups = useStore(railGroups);
-  const groupBy = useStore((s) => s.groupBy);
-  const host = useStore((s) => s.host);
-  const sessions = useStore((s) => s.sessions);
-  const showClosed = useStore((s) => s.showClosed);
-  const hidden = useStore(hiddenCount);
-  const active = useStore((s) => s.activeSessionId);
-  const flags = useStore((s) => s.flags);
-  const attention = useStore((s) => s.attention);
+/**
+ * The left pane. It shows the session list or the files of the session you are in — the same
+ * pane either way, because reading a repo is something you do *inside* a session. The switch
+ * between them lives in the panel's tab header (Layout.tsx), so no row is spent on it here.
+ *
+ * Session creation lives at this level rather than in `Rail`: ⌘N, ⌘D and ⌃` are window-wide
+ * bindings, and they must keep working while the files tree is the thing on screen.
+ */
+export function LeftPane() {
+  const mode = useStore((s) => s.railMode);
   const [picker, setPicker] = useState(false);
-  const now = useNow(15000);
 
   // In the macOS shell the File menu owns ⌘N / ⌘D and calls us through onMenu; the Windows shell
   // has no menu, so Ctrl+N lands here like in a tab (WebView2 reserves nothing). In a browser tab
@@ -153,6 +150,28 @@ export function Rail() {
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, []);
+
+  return (
+    <>
+      {mode === "files" ? <FilesPane /> : <Rail onNew={() => setPicker(true)} />}
+      {picker && <RepoPicker onClose={() => setPicker(false)} />}
+    </>
+  );
+}
+
+function Rail({ onNew }: { onNew: () => void }) {
+  const rows = useStore(railRows);
+  const here = useStore(activeRowIndex);
+  const groups = useStore(railGroups);
+  const groupBy = useStore((s) => s.groupBy);
+  const host = useStore((s) => s.host);
+  const sessions = useStore((s) => s.sessions);
+  const showClosed = useStore((s) => s.showClosed);
+  const hidden = useStore(hiddenCount);
+  const active = useStore((s) => s.activeSessionId);
+  const flags = useStore((s) => s.flags);
+  const attention = useStore((s) => s.attention);
+  const now = useNow(15000);
 
   // The repo sub-label repeats the header under "by folder" / "by repo", so it only shows
   // where it is the row's only repo cue.
@@ -246,9 +265,8 @@ export function Rail() {
           </div>
         ))}
       </div>
-      <FilesSection />
       <div className="rail-new-wrap">
-        <button className="rail-new" title={`new session (${isMac ? (inShell ? "⌘N" : "⌃N") : inShell ? "Ctrl+N" : "Alt+N"})`} onClick={() => setPicker(true)}>+ new session</button>
+        <button className="rail-new" title={`new session (${isMac ? (inShell ? "⌘N" : "⌃N") : inShell ? "Ctrl+N" : "Alt+N"})`} onClick={onNew}>+ new session</button>
       </div>
       <div className="rail-foot">
         <span title={`${working} working`}>
@@ -267,7 +285,6 @@ export function Rail() {
           </button>
         )}
       </div>
-      {picker && <RepoPicker onClose={() => setPicker(false)} />}
     </div>
   );
 }

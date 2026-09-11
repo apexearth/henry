@@ -61,7 +61,14 @@ export function sessionTitle(s: Session): string {
 export function loadLayout(): SerializedDockview | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as SerializedDockview) : null;
+    if (!raw) return null;
+    const saved = JSON.parse(raw) as SerializedDockview;
+    // Layouts saved before the left panel grew its Sessions/Files switch name no tab component,
+    // and Dockview takes that only at creation. Patching the one field here keeps everyone's
+    // arrangement instead of resetting it for a header.
+    const left = saved.panels?.sessions as { tabComponent?: string } | undefined;
+    if (left && !left.tabComponent) left.tabComponent = "sessions";
+    return saved;
   } catch {
     return null;
   }
@@ -80,7 +87,7 @@ export function saveLayout() {
 export function buildDefaultLayout() {
   if (!api) return;
   api.clear();
-  api.addPanel({ id: "sessions", component: "sessions", title: "Sessions" });
+  api.addPanel({ id: "sessions", component: "sessions", tabComponent: "sessions", title: "Sessions" });
   api.addPanel({ id: "repos", component: "repos", title: "Repos", position: { referencePanel: "sessions", direction: "right" } });
   for (const t of TOOLS.slice(2)) {
     if (t.id === "usage") continue; // usage is a readout you watch, not a tab you switch to
@@ -171,7 +178,7 @@ export function showTool(id: ToolId) {
   if (id === "usage") return void addUsagePane();
   const title = TOOLS.find((t) => t.id === id)?.title ?? id;
   const sibling = TOOLS.map((t) => t.id).find((t) => t !== id && api!.getPanel(t));
-  api.addPanel({ id, component: id, title, position: sibling ? { referencePanel: sibling, direction: "within" } : { direction: "right" } });
+  api.addPanel({ id, component: id, tabComponent: id === "sessions" ? "sessions" : undefined, title, position: sibling ? { referencePanel: sibling, direction: "within" } : { direction: "right" } });
 }
 
 

@@ -10,7 +10,7 @@
 // imported by tests without starting the server. server.ts wires it in startServer().
 import { existsSync, readFileSync, readdirSync, statSync, realpathSync, watch, type FSWatcher } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
-import type { ChangedFile, FileDiff, GrepHit, GrepResult, HenryEvent, RepoPickerEntry, RepoPrs, RepoState, ServerMessage, SessionFiles } from "@henry/shared";
+import type { ChangedFile, FileDiff, GrepHit, GrepOptions, GrepResult, HenryEvent, RepoPickerEntry, RepoPrs, RepoState, ServerMessage, SessionFiles } from "@henry/shared";
 import * as db from "./db";
 import { isWindows } from "./platform";
 import * as prs from "./prs";
@@ -898,20 +898,44 @@ const GREP_CAP_BYTES = 4 * 1024 * 1024;
 const GREP_LINE_CHARS = 240;
 const GREP_CONCURRENCY = 4;
 
+/** Globs to `git grep` pathspecs: `*.ts,!*.test.ts` → ["*.ts", ":(exclude)*.test.ts"]. */
+function pathspecs(glob: string | undefined): string[] {
+  const out: string[] = [];
+  for (const raw of (glob ?? "").split(",")) {
+    const g = raw.trim();
+    if (!g) continue;
+    out.push(g.startsWith("!") ? `:(exclude)${g.slice(1)}` : g);
+  }
+  // An exclude-only list still has to name what to search, or git matches nothing at all.
+  if (out.length && out.every((p) => p.startsWith(":(exclude)"))) out.push("*");
+  return out;
+}
+
 /**
- * Literal text search of one repo: tracked and untracked files, binaries skipped, case-sensitive
- * only when the query has an upper-case letter (smart case). `git grep` rather than ripgrep so
- * it runs wherever Henry does. Hits come in `git grep` order (path, then line).
+ * Text search of one repo: tracked and untracked files, binaries skipped. Literal and smart-case
+ * by default (case-sensitive only when the query has an upper-case letter); `opts` turns on exact
+ * case, regex, whole word, and a glob filter, which is what the files pane's toggles set.
+ * `git grep` rather than ripgrep so it runs wherever Henry does. A root that is not a repo is
+ * searched with `--no-index`, which still honours .gitignore via --exclude-standard, so a pinned
+ * plain folder searches like a repo does. Hits come in `git grep` order (path, then line).
  */
-export async function grepRepo(repoPath: string, q: string, cap = GREP_CAP_HITS): Promise<GrepResult> {
+export async function grepRepo(repoPath: string, q: string, opts: GrepOptions = {}, cap = GREP_CAP_HITS): Promise<GrepResult> {
+  if (!q) return { hits: [], truncated: false };
   const info = resolveRepo(repoPath);
-  if (!info || !q) return { hits: [], truncated: false };
-  const args = ["grep", "-n", "--column", "-I", "-z", "--untracked", "--no-color", "-F"];
-  if (q === q.toLowerCase()) args.push("-i");
-  args.push("-e", q, "--");
-  const r = await run(info.path, args, { maxBytes: GREP_CAP_BYTES });
-  // Exit 1 is "no match"; anything else (not a repo, bad args) reads as no hits too.
-  if (r.code !== 0) return { hits: [], truncated: false };
+  // No repo: search the folder itself, if it is one. `root` is what hits are reported against.
+  const root = info?.path ?? realDir(repoPath);
+  if (!root) return { hits: [], truncated: false };
+  const args = ["grep", "-n", "--column", "-I", "-z", "--no-color"];
+  args.push(info ? "--untracked" : "--no-index", "--exclude-standard");
+  args.push(opts.regex ? "-E" : "-F");
+  if (opts.word) args.push("-w");
+  if (!opts.caseSensitive && q === q.toLowerCase()) args.push("-i");
+  args.push("-e", q, "--", ...pathspecs(opts.glob));
+  // --no-index searches the cwd only when told to; a repo grep without a pathspec means the tree.
+  if (!info && !pathspecs(opts.glob).length) args.push(".");
+  const r = await run(root, args, { maxBytes: GREP_CAP_BYTES });
+  // 0 is hits, 1 is no match; anything else is git refusing — an unbalanced regex, in practice.
+  if (r.code !== 0 && r.code !== 1) return { hits: [], truncated: false, error: grepError(r.err) };
   const hits: GrepHit[] = [];
   const lines = r.out.split("\n");
   // The last segment is either the empty tail after the final \n or a line the byte cap cut short.
@@ -924,9 +948,25 @@ export async function grepRepo(repoPath: string, q: string, cap = GREP_CAP_HITS)
       truncated = true;
       break;
     }
-    hits.push({ repo: info.path, rel, ...window(Number(ln), Number(col), parts.slice(3).join("\0")) });
+    hits.push({ repo: root, rel, ...window(Number(ln), Number(col), parts.slice(3).join("\0")) });
   }
   return { hits, truncated };
+}
+
+/** git's own words, minus the "fatal: " and the "-e option, '<pattern>': " it prefixes them with. */
+function grepError(err: string): string {
+  const first = err.split("\n").find((l) => l.trim()) ?? "search failed";
+  return first.replace(/^fatal:\s*/, "").replace(/^-e option, '.*?':\s*/, "").trim() || "search failed";
+}
+
+/** An existing directory at `p`, realpath'd, or undefined. */
+function realDir(p: string): string | undefined {
+  try {
+    const real = realpathSync(p);
+    return statSync(real).isDirectory() ? real : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** A minified line can be a megabyte: keep a window around the match, re-basing `col` into it. */
@@ -938,23 +978,26 @@ function window(line: number, col: number, text: string): { line: number; col: n
   return { line, col: col - start + head.length, text: head + text.slice(start, start + GREP_LINE_CHARS) + tail };
 }
 
-/** Text search across every checkout under `root`, a few repos at a time, hits grouped by repo. */
-export async function grepRepos(root: string, q: string): Promise<GrepResult> {
-  const repos = (await listRepos(root)).filter((e) => !e.folder);
-  const results: GrepResult[] = new Array(repos.length);
+/** Text search across the named roots, a few at a time, hits grouped by root. The files pane
+ *  passes the session's repos plus what the user pinned; the explorer's old "everything" is
+ *  `grepRepos`. A root that fails (bad regex) reports its error once for the whole search. */
+export async function grepMany(roots: string[], q: string, opts: GrepOptions = {}): Promise<GrepResult> {
+  const results: GrepResult[] = new Array(roots.length);
   let next = 0;
   const worker = async () => {
-    while (next < repos.length) {
+    while (next < roots.length) {
       const i = next++;
-      results[i] = await grepRepo(repos[i].path, q);
+      results[i] = await grepRepo(roots[i], q, opts);
     }
   };
-  await Promise.all(Array.from({ length: Math.min(GREP_CONCURRENCY, repos.length) }, worker));
+  await Promise.all(Array.from({ length: Math.min(GREP_CONCURRENCY, roots.length) }, worker));
   const hits: GrepHit[] = [];
   let truncated = false;
+  let error: string | undefined;
   for (const r of results) {
     if (!r) continue;
     truncated ||= r.truncated;
+    error ??= r.error;
     for (const h of r.hits) {
       if (hits.length >= GREP_CAP_HITS) {
         truncated = true;
@@ -963,7 +1006,14 @@ export async function grepRepos(root: string, q: string): Promise<GrepResult> {
       hits.push(h);
     }
   }
-  return { hits, truncated };
+  // A bad pattern fails every root identically; say so instead of "no matches".
+  return error && !hits.length ? { hits, truncated, error } : { hits, truncated };
+}
+
+/** Text search across every checkout under `root`. */
+export async function grepRepos(root: string, q: string, opts: GrepOptions = {}): Promise<GrepResult> {
+  const repos = (await listRepos(root)).filter((e) => !e.folder);
+  return grepMany(repos.map((e) => e.path), q, opts);
 }
 
 /**

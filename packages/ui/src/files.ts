@@ -1,7 +1,7 @@
 // Files the UI knows about: a session's changed files (vs its baseline), per-repo indexes for
 // ⌘K, and the paths peeked recently. All fetched from the daemon; nothing here is pushed.
 import { useEffect, useState } from "react";
-import type { SessionFiles } from "@henry/shared";
+import type { DirIndex, SessionFiles } from "@henry/shared";
 import { useStore } from "./ws";
 
 export async function fetchSessionFiles(sessionId: string): Promise<SessionFiles> {
@@ -37,6 +37,33 @@ export async function repoIndex(repoPath: string, peer?: string): Promise<string
   index.set(key, { at: Date.now(), files });
   return files;
 }
+
+/**
+ * Every file under a files-pane root. A repo answers from `git ls-files`, which gets .gitignore
+ * and untracked files for free; a pinned folder that holds no repo is walked by the daemon
+ * instead. `listFiles` returns nothing for a non-repo, which is what picks the second path —
+ * one wasted call per root per TTL, in exchange for the caller never having to know which it is.
+ */
+export interface RootIndex {
+  files: string[];
+  /** The daemon's walk hit its cap: the tree is not the whole folder. */
+  truncated: boolean;
+}
+
+export async function rootIndex(path: string, peer?: string): Promise<RootIndex> {
+  const files = await repoIndex(path, peer);
+  if (files.length) return { files, truncated: false };
+  const key = `${peer ?? ""}\n${path}`;
+  const hit = dirIndex.get(key);
+  if (hit && Date.now() - hit.at < INDEX_TTL_MS) return hit.index;
+  const r = await fetch(`/api/fs/tree?path=${encodeURIComponent(path)}${peer ? `&peer=${encodeURIComponent(peer)}` : ""}`);
+  const body = r.ok ? ((await r.json()) as DirIndex) : undefined;
+  const index: RootIndex = { files: body?.files ?? [], truncated: body?.truncated ?? false };
+  dirIndex.set(key, { at: Date.now(), index });
+  return index;
+}
+
+const dirIndex = new Map<string, { at: number; index: RootIndex }>();
 
 const RECENT_KEY = "henry.recentFiles";
 const RECENT_MAX = 40;

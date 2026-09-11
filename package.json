@@ -9,7 +9,7 @@
   ],
   "scripts": {
     "dev": "bun run scripts/dev.ts",
-    "test": "bun run --filter @henry/daemon test",
+    "test": "bun run --filter @henry/daemon test && bun run --filter @henry/ui test",
     "build": "bun run --filter '*' build",
     "start": "bun run --cwd packages/daemon start",
     "app": "bun run --cwd packages/shell dev",

@@ -219,12 +219,57 @@ describe("git", () => {
     expect(upper.hits.map(relOf)).toEqual(["grep-me.txt:1"]);
     expect((await git.grepRepo(repo, "a.b")).hits).toEqual([]); // literal: no regex dot
     expect((await git.grepRepo(repo, "")).hits).toEqual([]);
-    expect(await git.grepRepo(repo, "needle", 2)).toMatchObject({ truncated: true });
+    expect(await git.grepRepo(repo, "needle", {}, 2)).toMatchObject({ truncated: true });
     // Every repo under the root: hits carry the repo they came from.
     const all = await git.grepRepos(root, "needle");
     expect(all.hits.every((h) => h.repo === repo)).toBe(true);
     expect(all.hits.length).toBe(3);
     rmSync(join(repo, "grep-me.txt"));
+  });
+
+  test("grep options: case, regex, whole word and globs", async () => {
+    writeFileSync(join(repo, "opts.ts"), "const Needle = 1;\nlet needle = 2;\nneedles everywhere\n");
+    writeFileSync(join(repo, "opts.md"), "needle in the docs\n");
+    const lines = (r: { hits: { rel: string; line: number }[] }) => r.hits.map((h) => `${h.rel}:${h.line}`).sort();
+    const only = (rel: string) => (r: { hits: { rel: string }[] }) => r.hits.filter((h) => h.rel === rel).length;
+
+    // Smart case would fold "needle" onto "Needle"; caseSensitive keeps them apart.
+    expect(only("opts.ts")(await git.grepRepo(repo, "needle"))).toBe(3);
+    expect(only("opts.ts")(await git.grepRepo(repo, "needle", { caseSensitive: true }))).toBe(2);
+
+    // Regex off, the dot is a literal; on, it matches.
+    expect((await git.grepRepo(repo, "n.edle")).hits).toEqual([]);
+    expect(only("opts.ts")(await git.grepRepo(repo, "n.edle", { regex: true }))).toBeGreaterThan(0);
+
+    // Whole word drops "needles".
+    expect(only("opts.ts")(await git.grepRepo(repo, "needle", { word: true }))).toBe(2);
+
+    // Globs scope the search; a "!" prefix excludes.
+    expect(lines(await git.grepRepo(repo, "needle", { glob: "*.md" }))).toEqual(["opts.md:1"]);
+    expect(lines(await git.grepRepo(repo, "needle", { glob: "*.ts,*.md" })).filter((l) => l.startsWith("opts."))).toHaveLength(4);
+    expect(lines(await git.grepRepo(repo, "needle", { glob: "!*.ts" })).includes("opts.ts:1")).toBe(false);
+
+    // A bad regex is reported, not thrown, and not mistaken for "no matches".
+    const bad = await git.grepRepo(repo, "needle[", { regex: true });
+    expect(bad.hits).toEqual([]);
+    expect(bad.error).toBeTruthy();
+    expect(bad.error).not.toContain("fatal:");
+    expect((await git.grepMany([repo], "needle[", { regex: true })).error).toBeTruthy();
+
+    rmSync(join(repo, "opts.ts"));
+    rmSync(join(repo, "opts.md"));
+  });
+
+  test("grepMany searches the named roots, including a folder that is no repo", async () => {
+    const plain = join(root, "scratch");
+    writeFileSync(join(plain, "note.txt"), "needle in a plain folder\n");
+    writeFileSync(join(repo, "in-repo.txt"), "needle in the repo\n");
+    const r = await git.grepMany([repo, plain], "needle");
+    expect(new Set(r.hits.map((h) => h.repo))).toEqual(new Set([repo, realpathSync(plain)]));
+    // A root that does not exist is skipped, not fatal.
+    expect((await git.grepMany([join(root, "nope")], "needle")).hits).toEqual([]);
+    rmSync(join(plain, "note.txt"));
+    rmSync(join(repo, "in-repo.txt"));
   });
 
   test("logSinceBaseline lists commits after the baseline", async () => {

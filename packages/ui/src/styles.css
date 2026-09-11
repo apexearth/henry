@@ -327,10 +327,47 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 .peek-line .hljs-deletion { color: #ffdcd7; background: rgba(248,81,73,.18); }
 
 /* Rail: changed files of the active session, under the sessions. */
-.rail-files { flex: 0 1 auto; max-height: 45%; overflow-y: auto; border-top: 1px solid var(--border); }
-.rail-files .files-h { cursor: pointer; }
-.files-repo { padding: 3px 8px 1px; color: var(--fg-dim); font-size: 11px; }
-.files-empty { padding: 4px 10px 6px; color: #4b515b; font-size: 11px; }
+/* The left pane's tab: the Sessions/Files switch instead of a title (Layout.tsx SessionsTab). */
+.left-tab { display: flex; gap: 2px; align-items: center; }
+.left-tab-seg { background: none; border: none; border-radius: 3px; padding: 2px 8px; font-size: 11px; color: var(--fg-faint); white-space: nowrap; }
+.left-tab-seg:hover { color: var(--fg); border-color: transparent; }
+.left-tab-seg.on { color: var(--fg); background: var(--bg-3); }
+
+/* Files pane: a folder tree of the session's repos, its filter, and the search's toggles. */
+.files-pane { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.files-filter { display: flex; gap: 4px; align-items: center; padding: 6px 6px 2px; }
+.files-filter .chip-mode { flex: none; }
+.files-filter .chip-mode kbd { font-size: 15px; }
+.files-filter .picker-input { flex: 1; margin: 0; min-width: 0; font-size: 12px; padding: 3px 6px; }
+.files-opts { display: flex; gap: 3px; align-items: center; padding: 2px 6px 5px; }
+.fopt { flex: none; background: none; border: 1px solid transparent; border-radius: 3px; padding: 1px 5px; font-size: 10px; color: var(--fg-faint); font-family: var(--mono, monospace); }
+.fopt:hover { color: var(--fg); border-color: var(--border); }
+.fopt.on { color: var(--bg); background: var(--accent); border-color: var(--accent); }
+.fglob { flex: 1; min-width: 0; background: var(--bg-3); border: 1px solid var(--border); border-radius: 3px; padding: 1px 5px; font-size: 10px; color: var(--fg); }
+.fglob::placeholder { color: var(--fg-faint); }
+.files-list { flex: 1; min-height: 0; overflow: auto; }
+.files-row { display: flex; gap: 5px; align-items: center; padding: 1px 6px 1px 0; font-size: 12px; line-height: 1.5; cursor: pointer; white-space: nowrap; }
+.files-row .title { overflow: hidden; text-overflow: ellipsis; }
+.files-row.sel { background: var(--bg-3); }
+.files-row .fold { flex: none; width: 9px; color: var(--fg-faint); font-size: 9px; }
+.files-root { font-size: 12px; }
+.files-dir .title { color: var(--fg-dim); }
+.files-file .title { color: var(--fg); }
+.files-file .fstat { flex: none; min-width: 1ch; font-size: 10px; }
+.files-count { margin-left: auto; flex: none; color: var(--fg-faint); font-size: 10px; }
+.files-unpin { margin-left: auto; flex: none; background: none; border: none; padding: 0 2px; color: var(--fg-faint); font-size: 12px; visibility: hidden; }
+.files-root:hover .files-unpin { visibility: visible; }
+.files-unpin:hover { color: var(--alarm); border-color: transparent; }
+.files-hit { gap: 6px; font-size: 11px; color: var(--fg-dim); }
+.files-hit-no { flex: none; min-width: 3ch; text-align: right; color: var(--fg-faint); font-size: 10px; }
+.files-hit-text { overflow: hidden; text-overflow: ellipsis; white-space: pre; }
+.files-hit-text mark { background: var(--accent-soft); color: var(--fg); border-radius: 2px; }
+.files-note { padding: 2px 8px; color: var(--fg-faint); font-size: 11px; }
+.files-foot { flex: none; display: flex; gap: 8px; align-items: center; justify-content: space-between; padding: 4px 8px; border-top: 1px solid var(--border); color: var(--fg-dim); font-size: 11px; }
+.files-foot > span { overflow: hidden; text-overflow: ellipsis; }
+.files-add { flex: none; padding: 4px 6px 6px; border-top: 1px solid var(--border); }
+.files-add .picker-input { width: 100%; margin: 0; font-size: 11px; padding: 3px 6px; }
+.files-err { color: var(--alarm); font-size: 11px; }
 .rail-item.file { height: 22px; }
 .fstat { flex: none; width: 1.2ch; font-size: 11px; font-weight: 600; color: var(--fg-dim); text-align: center; }
 .fstat.s-M { color: var(--warn); }
@@ -344,35 +381,9 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 .picker-files .file-cell .kind-word { margin-left: 0; overflow: hidden; text-overflow: ellipsis; }
 .picker-files .path { color: var(--fg-dim); font-size: 11px; flex: none; }
 
-/* ⌘F explorer: repos/files on the left, the selected file on the right (Explorer.tsx). */
-.explorer-bg { padding-top: 6vh; }
-.explorer { width: min(1240px, 94vw); height: 86vh; max-height: 86vh; flex-direction: row; overflow: hidden; }
-.explorer-left { flex: none; width: 380px; display: flex; flex-direction: column; border-right: 1px solid var(--border); min-width: 0; }
-.explorer-input { display: flex; gap: 6px; align-items: center; padding: 10px 12px; }
-.explorer-input .chip { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.explorer-input .picker-input { flex: 1; margin: 0; min-width: 0; }
-.explorer-left .list { flex: 1; }
-.explorer .file-cell { display: flex; gap: 8px; align-items: center; overflow: hidden; }
-.explorer .file-cell .kind-word { margin-left: 0; overflow: hidden; text-overflow: ellipsis; }
-.explorer .row .path { flex: none; }
-.explorer-git { flex: none; display: flex; gap: 8px; color: var(--fg-dim); font-size: 11px; }
-.explorer-git .dirty { color: var(--warn); }
-.explorer-git .branch { max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
-/* Text mode: one row per grep hit, the file named once above its first hit. */
-.explorer-hit { flex-direction: column; align-items: stretch; gap: 2px; padding-top: 3px; padding-bottom: 3px; }
-.explorer-hit.first { margin-top: 4px; border-top: 1px solid var(--border); padding-top: 6px; }
-.explorer-hit.first:first-child { margin-top: 0; border-top: none; }
-.explorer-hit-file { font-size: 12px; }
-.explorer-hit-file .path { margin-left: auto; }
-.explorer-hit-line { display: flex; gap: 8px; font-size: 11px; color: var(--fg-dim); overflow: hidden; }
-.explorer-hit-no { flex: none; min-width: 4ch; text-align: right; color: var(--fg-faint); }
-.explorer-hit-text { overflow: hidden; text-overflow: ellipsis; white-space: pre; }
-.explorer-hit-text mark, .peek-line mark { background: var(--accent-soft); color: var(--fg); border-radius: 2px; }
+/* Find-in-file marks, in the peek (FileView.tsx). */
+.peek-line mark { background: var(--accent-soft); color: var(--fg); border-radius: 2px; }
 .peek-line mark.cur { background: var(--accent); color: var(--bg); }
-.explorer-right { flex: 1; min-width: 0; background: var(--bg); }
-.explorer-right .peek-head { padding-left: 12px; }
-.explorer-empty { height: 100%; display: flex; flex-direction: column; gap: 8px; align-items: center; justify-content: center; color: var(--fg-dim); text-align: center; padding: 20px; }
-.explorer-empty .hint { font-size: 11px; color: var(--fg-faint); }
 
 /* Peek: lines vs the session baseline. */
 .peek-line.add { background: rgba(63, 185, 80, 0.12); }

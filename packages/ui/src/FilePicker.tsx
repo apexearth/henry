@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { focusOrigin, restoreFocus } from "./dock";
 import { openPeek } from "./FileView";
 import { recentFiles, repoIndex, splitPath, useSessionFiles } from "./files";
+import { matches } from "./match";
 import { joinPath, under } from "./platform";
 import { useStore } from "./ws";
 
@@ -20,39 +21,6 @@ interface Row {
 }
 
 const MAX_ROWS = 200;
-
-/** Subsequence match; rewards word starts, runs, and hits in the file name. -Infinity: no match. */
-function score(q: string, path: string): number {
-  const s = path.toLowerCase();
-  let qi = 0;
-  let first = -1;
-  let last = -2;
-  let bonus = 0;
-  for (let i = 0; i < s.length && qi < q.length; i++) {
-    if (s[i] !== q[qi]) continue;
-    if (first < 0) first = i;
-    if (last === i - 1) bonus += 2;
-    const prev = s[i - 1];
-    if (i === 0 || prev === "/" || prev === "." || prev === "_" || prev === "-") bonus += 3;
-    last = i;
-    qi++;
-  }
-  if (qi < q.length) return -Infinity;
-  const name = s.slice(s.lastIndexOf("/") + 1);
-  if (name.startsWith(q)) bonus += 12;
-  else if (name.includes(q)) bonus += 8;
-  return bonus - (last - first - q.length) * 0.2 - s.length * 0.005;
-}
-
-function matches(tokens: string[], path: string): number {
-  let total = 0;
-  for (const t of tokens) {
-    const sc = score(t, path);
-    if (sc === -Infinity) return -Infinity;
-    total += sc;
-  }
-  return total;
-}
 
 const TIER_GLYPH = ["", "↺", "", ""];
 

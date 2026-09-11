@@ -513,10 +513,12 @@ unified diff (untracked files against /dev/null); the peek tints added lines and
 deleted lines as struck-through ghosts where they were. A session with no baseline (a plain
 terminal) diffs against HEAD, so "changed" means "uncommitted" there.
 
-**Files in the rail.** Under the sessions, the active session's changed files
-(`GET /api/session/files?sessionId=`: working tree vs baseline per repo the session touched,
-plus the repo its cwd is in; untracked as `?`), newest mtime first, click to peek. Nothing
-to open or close: the list is derived from git.
+**The left pane is sessions or files, and the tab is the switch.** Reading a repo is something
+you do *inside* a session, not somewhere else, so the files live in the rail's pane rather than
+a tool tab of their own: a segmented `Sessions | Files` control fills the panel's Dockview tab
+(`Layout.tsx` `tabComponents`), where a title would otherwise have sat. It is a real tab, so the
+pane still drags by it. `⌘1..9` and `⌘↑/↓` switch sessions in either mode, and Esc in the filter
+goes back to the list, so Files never strands you. Persisted per browser (`henry.railMode`).
 
 **⌘K finds a file to peek at.** Changed files of the session you are looking at come first,
 then recent peeks (per browser, last 40), then, once you type, every file in that session's
@@ -524,32 +526,54 @@ repos (the one its cwd is in first) and finally other sessions' repos, fuzzy-mat
 path with a bias to file-name hits. `GET /api/repo/files?repo=` is `git ls-files` incl.
 untracked, cached 10 s. ⌃K works too, except in the terminal where it stays kill-line.
 
-**⌘F explores, so Zed stays closed.** ⌘K is for a file you can name; ⌘F is for looking
-around. It is a wide overlay: a filter on the left, the selected file on the right. With no
-repo picked the list is every checkout under the repos root (`GET /api/repos/state`: the
-Repos-panel state for all of them, read on demand, never watched) with branch, dirty count and
-ahead/behind; typing matches repo names first, then `repo/path` across every repo's index.
-Enter on a repo scopes the list to its files (`GET /api/repo/changes?repo=` marks the
-uncommitted ones), Backspace on an empty filter goes back up. ↑↓ previews on the right, read
-where the peek would read it but against HEAD, since no session owns the view; Enter opens
-the file as a peek in the stage and closes the overlay. The place you were (repo, mode, filter,
-selection) is remembered per browser, so ⌘F flips back to it. Local repos only: it browses the
-machine the window is attached to. Not an editor, and no folder tree: filtering is the
-navigation. ⌃F works outside the terminal, where it stays forward-char.
+**⌘F is a folder tree, so Zed stays closed.** ⌘K is for a file you can name; ⌘F is for
+looking around, and looking around means seeing the shape of the thing. The pane's **roots**
+are the repos of the session you are in — read from `GET /api/session/files`, not the git
+watcher's session→repo map, because that map is built from hook events and a plain terminal
+fires none, so a shell sitting in a repo would otherwise show an empty tree; that endpoint
+falls back to the repo the cwd is in and returns each file's status in the same answer.
+Under each root, `GET /api/repo/files` (`git ls-files`, .gitignore for free) is nested into a
+tree client-side (`ui/tree.ts`), with single-child directory chains collapsed onto one row —
+`packages/ui/src` as one line is the difference between a readable tree and eight rows of
+scaffolding in a 220px rail. Uncommitted files carry their status letter in place; a `●`
+toggle prunes to them, which is what the old changed-files list became. Only expanded
+directories render, so no virtualization is needed. Local repos and a peer's alike: every
+request carries the machine of the session you are looking at.
 
-**Tab flips the filter to text.** The same overlay searches file contents: `GET
-/api/repo/grep?q=[&repo=]` is `git grep` (literal, smart case, tracked and untracked files,
-binaries skipped) over the scoped repo or, unscoped, every checkout under the repos root a few
-at a time. git rather than ripgrep because git is the one tool Henry already needs on every
-machine. Hits are capped (500) and long lines windowed around the match on the daemon; the
-UI debounces typing and drops stale answers. One row per hit, the file named above its first;
-↑↓ previews the hit's line on the right, Enter opens the peek at that line. ⌘⇧F opens the
-explorer straight into text mode.
+**The filter narrows the tree, not into a list.** Matching files keep their ancestor folders
+and the tree opens itself onto them, because *where* a match sits is half of what you asked.
+Tab flips the filter between file names (fuzzy, client-side, `ui/match.ts` — shared with ⌘K
+rather than copied into it) and file contents. Contents are `GET
+/api/repo/grep?q=[&repo=…][&case=][&regex=][&word=][&glob=]`: `git grep` over the named roots,
+repeated `repo=` for each, or every checkout under the repos root when the footer's "widen"
+is pressed. git rather than ripgrep because git is the one tool Henry already needs on every
+machine. Hits render as the same tree — folders, then files carrying a hit count, unfolding to
+their lines with the match marked; up to 40 hits every file is already open, past that they
+start folded, so a broad search stays scannable. Capped at 500 hits, long lines windowed on
+the daemon, typing debounced, stale answers dropped.
 
-**⌘F over a peek finds in that file.** When a file peek is in view, ⌘F is find-in-file: a bar
-under the peek header, smart case, ↩/⇧↩ walk the matches, matched lines show the term marked
-(and lose syntax colour for it), Esc closes the bar before it closes the peek. ⌘⇧F from there
-carries the term into the explorer's text mode, so "this word, but everywhere" is one key.
+**The search has the knobs a search needs**, all persisted per browser: `Aa` exact case
+(otherwise smart case, as before), `.*` regex (`-E` instead of `-F`), `ab|` whole word (`-w`),
+and a glob box (`*.ts,!*.test.ts`) that becomes a git pathspec for the text search and filters
+the tree for the name one. Defaults are off, so the old literal smart-case search is exactly
+what a caller passing nothing still gets. **An unbalanced regex is an answer, not an
+exception**: `git grep` exits 128, and `GrepResult.error` carries git's own words to the pane,
+because a half-typed pattern reading as "no matches" is a lie.
+
+**Pinned roots are config, not view state.** `files.roots` in `config.json` (settable through
+`POST /api/config`, `~` expanded on load) holds folders worth reading that no session has
+touched; "+ folder" adds one, a hover `×` removes it. A pinned folder that holds no repo is
+walked by `GET /api/fs/tree?path=` instead — one bounded breadth-first pass skipping `.git`,
+`node_modules`, `target`, `dist` and their kin, capped at 20 000 entries, cached 10 s, saying
+so when it truncates. It does not read `.gitignore` (there is no repo to read it from), while
+`git grep --no-index --exclude-standard` searching that same folder does.
+
+**⌘F over a peek finds in that file.** ⌘F stays contextual: over a file peek in view it is
+find-in-file — a bar under the peek header, smart case, ↩/⇧↩ walk the matches, matched lines
+show the term marked (and lose syntax colour for it), Esc closes the bar before it closes the
+peek. Anywhere else ⌘F opens the files tree with the keyboard in its filter. ⌘⇧F is the tree's
+content search regardless, carrying the peek's find term along, so "this word, but everywhere"
+is one key. ⌃F works outside the terminal, where it stays forward-char.
 
 **The topbar carries the roll-up, and it is half about you.** Left of the buttons, one line
 of chips answers "what is happening" without the rail: any session that asked for you by name
@@ -672,7 +696,8 @@ henry/
       src/db.ts                # bun:sqlite schema + queries (~/.henry/henry.db)
       src/hooks.ts             # POST /hook, POST /statusline ingest
       src/transcript.ts        # tail ~/.claude/projects/**/<session>.jsonl
-      src/git.ts               # repo discovery, worktrees, status, ahead/behind, diff
+      src/git.ts               # repo discovery, worktrees, status, ahead/behind, diff, grep
+      src/files.ts             # GET /api/file (one file, capped) and /api/fs/tree (a plain folder)
       src/prs.ts               # open PRs per checkout via `gh pr list`, cached and best-effort
       src/rules.ts             # ~/.henry/config.json rules → classify events
       src/mcp.ts               # POST /mcp: Henry's tools; henry_activity + henry_attention for hosted sessions
@@ -710,8 +735,10 @@ henry/
       src/PrsMenu.tsx          # topbar open-PR count + the list behind it
       src/RepoPicker.tsx       # "+ new": typed picker over repos × {claude, terminal}
       src/FilePicker.tsx       # ⌘K: find a file to peek at
-      src/Explorer.tsx         # ⌘F: browse repos and files or grep their text, preview on the right
-      src/FileView.tsx         # read-only file peek (stage, with ⌘F find) and the explorer's preview
+      src/FilesPane.tsx        # ⌘F: the left pane's folder tree, its filter and the search's toggles
+      src/tree.ts              # flat paths -> a folder tree; collapsing, and a filter's ancestors
+      src/match.ts             # fuzzy path matching + the glob box, shared by the tree and ⌘K
+      src/FileView.tsx         # read-only file peek (stage, with ⌘F find) and the tree's preview
       src/panels/{Repos,History,Flags,Playbook,Usage}.tsx
       src/panels/bound.tsx     # those five wired to the store, for both the dock and the phone's sheet
       src/history.ts           # GET /api/history + the hook that refetches a session's turns
@@ -820,6 +847,7 @@ unbounded input is trimmed at the door.
   "mcp": { "enabled": true, "sessions": true },
   "federation": { "listen": "tailscale", "port": 14712 },
   "phone": { "listen": "tailscale", "port": 14714 },
+  "files": { "roots": [] },
   "rules": {
     "protectedBranches": ["main", "master"],
     "alarm": ["git push --force", "git push -f", "git reset --hard", "rm -rf", "git branch -D", "git checkout -- ."],

@@ -575,11 +575,23 @@ export async function handleApi(req: Request, url: URL, origin: ApiOrigin): Prom
       }
       if (pathname === "/api/session/files") return json(await git.sessionFiles(url.searchParams.get("sessionId") ?? ""));
       if (pathname === "/api/repo/files") return json(await git.listFiles(url.searchParams.get("repo") ?? ""));
-      // Text search for the explorer: one repo, or every checkout under the repos root.
+      // Text search for the files pane: the named roots (repeat `repo=`), or every checkout
+      // under the repos root when none is named. The flags are the pane's Aa / .* / ab| / glob.
       if (pathname === "/api/repo/grep") {
         const q = url.searchParams.get("q") ?? "";
-        const repo = url.searchParams.get("repo");
-        return json(repo ? await git.grepRepo(repo, q) : await git.grepRepos(config.reposRoot, q));
+        const repos = url.searchParams.getAll("repo").filter(Boolean);
+        const opts = {
+          caseSensitive: url.searchParams.get("case") === "1",
+          regex: url.searchParams.get("regex") === "1",
+          word: url.searchParams.get("word") === "1",
+          glob: url.searchParams.get("glob") || undefined,
+        };
+        return json(repos.length ? await git.grepMany(repos, q, opts) : await git.grepRepos(config.reposRoot, q, opts));
+      }
+      // The files pane's tree for a pinned root that holds no repo; a repo uses /api/repo/files.
+      if (pathname === "/api/fs/tree") {
+        const idx = files.readDirIndex(url.searchParams.get("path") ?? "");
+        return idx ? json(idx) : json({ error: "not a directory" }, 404);
       }
       if (pathname === "/api/file/diff") {
         const d = await git.fileDiff(url.searchParams.get("sessionId") || undefined, url.searchParams.get("path") ?? "");

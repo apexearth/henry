@@ -8,12 +8,12 @@
 // the composer under it is what you type or talk at.
 import { useEffect, useState } from "react";
 import { isClaudeSession, type Session } from "@henry/shared";
-import { Rail } from "../Rail";
+import { LeftPane } from "../Rail";
 import { TerminalView } from "../Terminal";
 import { ContextSky } from "../ContextSky";
 import { BoundFlags, BoundHistory, BoundPlaybook, BoundRepos, BoundUsage, useSessionFlags } from "../panels/bound";
 import { useAskTitle } from "../title";
-import { answerAttention, useStore } from "../ws";
+import { answerAttention, setRailMode, useStore } from "../ws";
 import { Composer } from "./Composer";
 import { useFontSize, useViewportHeight } from "./useMobile";
 
@@ -34,6 +34,7 @@ export function Mobile() {
   const connected = useStore((s) => s.connected);
   const hydrated = useStore((s) => s.hydrated);
   const attention = useStore((s) => s.attention);
+  const railMode = useStore((s) => s.railMode);
   const [drawer, setDrawer] = useState(false);
   const [tab, setTab] = useState<TabId | null>(null);
   const { fontSize, zoom } = useFontSize();
@@ -102,10 +103,18 @@ export function Mobile() {
           <div className="m-scrim" onClick={() => setDrawer(false)} />
           <div className="m-drawer">
             <div className="m-sheet-top">
-              <span>sessions</span>
+              {/* The drawer's header already existed to say "sessions"; it carries the same
+                  two-way switch the desktop puts in the panel tab, so the phone gets the tree too. */}
+              <div className="left-tab">
+                {(["sessions", "files"] as const).map((m) => (
+                  <button key={m} className={"left-tab-seg" + (railMode === m ? " on" : "")} onClick={() => setRailMode(m)}>
+                    {m === "sessions" ? "sessions" : "files"}
+                  </button>
+                ))}
+              </div>
               <button className="m-icon" onClick={() => setDrawer(false)} aria-label="close">×</button>
             </div>
-            <Rail />
+            <LeftPane />
           </div>
         </>
       )}

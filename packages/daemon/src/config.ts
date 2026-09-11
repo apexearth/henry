@@ -94,6 +94,7 @@ const SETTABLE = {
   mcp: ["enabled", "sessions"],
   federation: ["listen", "port"],
   phone: ["listen", "port"],
+  files: ["roots"],
   rules: ["protectedBranches", "alarm", "notable", "crossRepoWrite", "commitOnProtected", "pushToProtected", "maxSubagentsPer10m"],
 } as const;
 
@@ -105,7 +106,7 @@ export function setConfig(patch: Partial<HenryConfig>): HenryConfig {
   const incoming = patch as Record<string, unknown>;
   const next: Record<string, unknown> = { ...user };
   for (const k of SETTABLE.root) if (k in incoming) next[k] = incoming[k];
-  for (const group of ["overseer", "mcp", "federation", "phone", "rules"] as const) {
+  for (const group of ["overseer", "mcp", "federation", "phone", "files", "rules"] as const) {
     const sub = incoming[group];
     if (!sub || typeof sub !== "object") continue;
     const merged = { ...((user[group] as Record<string, unknown>) ?? {}) };
@@ -127,11 +128,16 @@ function load(): HenryConfig {
     mcp: { ...DEFAULT_CONFIG.mcp, ...(user.mcp ?? {}) },
     federation: { ...DEFAULT_CONFIG.federation, ...(user.federation ?? {}) },
     phone: { ...DEFAULT_CONFIG.phone, ...(user.phone ?? {}) },
+    files: { ...DEFAULT_CONFIG.files, ...(user.files ?? {}) },
     rules: { ...DEFAULT_CONFIG.rules, ...(user.rules ?? {}) },
   };
   if (process.env.HENRY_PORT) merged.port = Number(process.env.HENRY_PORT);
   merged.reposRoot = expandHome(merged.reposRoot);
   merged.defaultRepo = expandHome(merged.defaultRepo);
+  // Written as typed ("~/notes" stays readable in config.json), absolute everywhere else.
+  merged.files.roots = (Array.isArray(merged.files.roots) ? merged.files.roots : [])
+    .filter((p): p is string => typeof p === "string" && p.trim() !== "")
+    .map(expandHome);
   return merged;
 }
 

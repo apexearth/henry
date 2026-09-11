@@ -8,9 +8,9 @@ import { Mobile } from "./mobile/Mobile";
 import { Gate } from "./mobile/Gate";
 import { useMobile } from "./mobile/useMobile";
 import type { Access } from "./access";
-import { Explorer, type ExplorerProps } from "./Explorer";
 import { FilePicker } from "./FilePicker";
 import { sendFind } from "./FileView";
+import { openFiles } from "./FilesPane";
 import { Layout } from "./Layout";
 import { Setup } from "./Setup";
 import { Settings } from "./Settings";
@@ -41,7 +41,6 @@ function DesktopApp() {
   const connected = useStore((s) => s.connected);
   const firstRun = useStore((s) => s.hydrated && s.firstRun);
   const [finder, setFinder] = useState(false);
-  const [explorer, setExplorer] = useState<Pick<ExplorerProps, "text"> | null>(null);
   const [settings, setSettings] = useState(false);
   const [keys, setKeys] = useState(false);
 
@@ -93,21 +92,22 @@ function DesktopApp() {
         setFinder((v) => !v);
         return;
       }
-      // ⌘F over a file peek in view finds within it; anywhere else it opens the explorer (repos,
-      // files and text, with a preview). ⌘⇧F is the explorer in text mode regardless, seeded from
-      // the peek's find bar when one is open. ⌃F too, outside the terminal where it is
+      // ⌘F stays contextual: over a file peek in view it finds within that file; anywhere else
+      // it opens the left pane's files tree and puts the keyboard in its filter. ⌘⇧F is that
+      // tree's text search regardless, seeded from the peek's find bar when one is open, so
+      // "this word, but everywhere" is still one key. ⌃F too, outside the terminal where it is
       // forward-char; off macOS that leaves the terminal with no way in, so Alt+F stands in there
       // the way Alt+N does for a new session. Chrome lets a page take ⌘F and Alt+F, unlike ⌘N.
       const inTerminal = !!(e.target as HTMLElement | null)?.closest?.(".xterm");
       if ((e.key === "f" || e.key === "F") && (isMac ? !e.altKey && (e.metaKey || !inTerminal) : e.altKey ? !e.ctrlKey : !inTerminal)) {
         e.preventDefault();
         if (e.shiftKey) {
-          setExplorer({ text: document.querySelector<HTMLInputElement>(".peek-find input")?.value ?? "" });
+          openFiles(document.querySelector<HTMLInputElement>(".peek-find input")?.value ?? "");
           return;
         }
         const p = getDockApi()?.activePanel;
         if (p && isFilePanel(p.id) && !document.querySelector(".modal-bg")) sendFind("open");
-        else setExplorer((v) => (v ? null : {}));
+        else openFiles();
         return;
       }
       // Cmd+←/→ (Alt+←/→ off macOS) walk the stage: the session, then its peeks.
@@ -144,7 +144,7 @@ function DesktopApp() {
         <TopActivity />
         <span style={{ flex: 1 }} />
         <PrsMenu />
-        <button className="topbar-btn" onClick={() => setExplorer({})} title={`browse repos and files, or search their text (${ARROW_MOD}F)`}>explore</button>
+        <button className="topbar-btn" onClick={() => openFiles()} title={`browse this session's files, or search their text (${ARROW_MOD}F)`}>files</button>
         <RemotesMenu />
         <PhoneMenu />
         <ThemeMenu />
@@ -154,7 +154,6 @@ function DesktopApp() {
       </div>
       <Layout />
       {finder && <FilePicker onClose={() => setFinder(false)} />}
-      {explorer && <Explorer onClose={() => setExplorer(null)} text={explorer.text} />}
       {keys && <Keys onClose={() => setKeys(false)} />}
       {/* First run owns the screen until a repos root is set; after that everything is in Settings. */}
       {firstRun ? <Setup /> : settings && <Settings onClose={() => setSettings(false)} />}

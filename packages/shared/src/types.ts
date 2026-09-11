@@ -310,6 +310,13 @@ export interface HenryConfig {
     listen: "tailscale" | "off" | string;
     port: number;
   };
+  /** The files pane. Its roots are the active session's repos, automatically; `roots` is what
+   * the user pinned on top of those — folders worth reading that no session has touched.
+   * Config, not localStorage: a pinned folder is a preference, and follows you between windows. */
+  files: {
+    /** Absolute after load (config.ts expands "~"). */
+    roots: string[];
+  };
   rules: {
     protectedBranches: string[];
     alarm: string[];
@@ -332,6 +339,7 @@ export const DEFAULT_CONFIG: HenryConfig = {
   mcp: { enabled: true, sessions: true },
   federation: { listen: "tailscale", port: 14712 },
   phone: { listen: "tailscale", port: 14714 },
+  files: { roots: [] },
   rules: {
     protectedBranches: ["main", "master"],
     alarm: ["git push --force", "git push -f", "git reset --hard", "rm -rf", "git branch -D", "git checkout -- ."],
@@ -408,10 +416,38 @@ export interface GrepHit {
   text: string;
 }
 
-/** GET /api/repo/grep?q=[&repo=]: literal, smart-case text search of one repo or every repo. */
+/** How a text search is matched. All default off, which is the literal smart-case search
+ *  Henry has always done, so a caller that passes nothing gets the old behaviour exactly. */
+export interface GrepOptions {
+  /** Match case exactly, instead of smart case (case-insensitive while the query is lowercase). */
+  caseSensitive?: boolean;
+  /** Treat the query as a POSIX extended regex rather than a literal string. */
+  regex?: boolean;
+  /** Only match whole words. */
+  word?: boolean;
+  /** Comma-separated globs limiting which files are searched; a `!` prefix excludes. */
+  glob?: string;
+}
+
+/** GET /api/repo/grep?q=[&repo=…][&case=][&regex=][&word=][&glob=]: text search of the given
+ *  repos (repeat `repo=`), or of every repo under the repos root when none is named. */
 export interface GrepResult {
   hits: GrepHit[];
   /** Some hits were dropped: the per-search cap or the output cap was reached. */
+  truncated: boolean;
+  /** The search could not run — an invalid regex, in practice. Hits will be empty.
+   *  Reported rather than thrown so a half-typed pattern reads as "bad regex", not "no matches". */
+  error?: string;
+}
+
+/** GET /api/fs/tree?path=: a plain directory walked for the files pane, for roots that are not
+ *  git repos (a repo uses /api/repo/files, which gets .gitignore for free). */
+export interface DirIndex {
+  /** Absolute, realpath'd root that was walked. */
+  path: string;
+  /** Paths relative to `path`, forward slashes, files only. */
+  files: string[];
+  /** The walk hit its entry or byte cap and stopped: `files` is not the whole tree. */
   truncated: boolean;
 }
 

@@ -23,18 +23,22 @@ const SECTIONS: [string, Key[]][] = [
   ]],
   ["files", [
     [isMac ? ["⌘K", "⌃K"] : ["Ctrl+K"], isMac ? "find a file to peek at (⌃K stays kill-line in the terminal)" : "find a file to peek at (outside the terminal, where it is kill-line)"],
-    [isMac ? ["⌘F", "⌃F"] : ["Alt+F", "Ctrl+F"], isMac ? "explore: repos, their files and their text, with a preview; over a peek, find within that file (⌃F stays forward-char in the terminal)" : "explore: repos, their files and their text, with a preview; over a peek, find within that file (Ctrl+F outside the terminal only, where it stays forward-char)"],
-    [[isMac ? "⌘⇧F" : "Ctrl+Shift+F"], "explore in text mode (git grep across the repos), taking the peek's find term along"],
+    [isMac ? ["⌘F", "⌃F"] : ["Alt+F", "Ctrl+F"], isMac ? "the files tree of the session you are in; over a peek, find within that file (⌃F stays forward-char in the terminal)" : "the files tree of the session you are in; over a peek, find within that file (Ctrl+F outside the terminal only, where it stays forward-char)"],
+    [[isMac ? "⌘⇧F" : "Ctrl+Shift+F"], "the files tree searching file contents (git grep), taking the peek's find term along"],
     [["↩", "⇧↩"], "in a peek's find bar: next / previous match"],
     [[isMac ? "⌘ click" : "Ctrl click"], "peek at a path in terminal output or a diff header"],
     [[`${ARROW_MOD}←`, `${ARROW_MOD}→`], "walk the stage: the session, then its peeks"],
     [["esc"], "close the peek's find bar, then the peek in view, or the dialog that is open"],
   ]],
+  ["the files tree", [
+    [["⇥"], "switch the filter between file names and file contents"],
+    [["↑", "↓"], "move down the tree; ↩ opens a folder, a file, or a search hit"],
+    [["→", "←"], "open / close the folder under the cursor"],
+    [["esc"], "back to the session list"],
+  ]],
   ["pickers", [
     [["↑", "↓"], "move the selection"],
-    [["↩"], "open the selected file or start the session; in the explorer, enter the repo or open the file (at the hit's line) in the stage"],
-    [["⇥"], "explorer: switch between file names and text search"],
-    [["⌫"], "explorer: on an empty filter, back from a repo's files to the repo list"],
+    [["↩"], "open the selected file, or start the session"],
     [["esc"], "close"],
   ]],
   ["window", [
