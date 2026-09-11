@@ -1,4 +1,4 @@
-// Repo modals: the full-screen shell the Repos panel opens over the app, the commit graph
+// Repo modals: the full-screen shell a repo row in the Files pane opens over the app, the commit graph
 // ("tree") of a repo, and one commit's details + patch. Modals stack: a commit opened from
 // the tree sits above it, and Esc only closes the top one.
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -81,6 +81,7 @@ export function RepoModal({ repo, subtitle, actions, onClose, children }: RepoMo
 
   return createPortal(
     <div className="dm-bg" onMouseDown={onClose}>
+      <style>{MODAL_CSS}</style>
       <div className="dm" onMouseDown={(e) => e.stopPropagation()}>
         <div className="dm-head">
           <span className="rc-name" style={{ color: hueText(nameHue(repo.name)) }}>{repo.name}</span>
@@ -280,6 +281,28 @@ export function CommitModal({ sessionId, repo, sha, onOpenCommit, onClose }: Com
     </RepoModal>
   );
 }
+
+// The shell every repo modal shares, and the small text classes its head and bodies use.
+const MODAL_CSS = `
+.dm-bg { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 3vh 3vw; z-index: 10; }
+.dm { background: var(--bg-2); border: 1px solid var(--border); border-radius: 6px; width: 100%; height: 100%; display: flex; flex-direction: column; min-width: 0; }
+.dm-head { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+.dm-path { font-size: 11px; }
+.dm-close { background: none; border: none; padding: 0 4px; font-size: 18px; line-height: 1; color: var(--fg-dim); }
+.dm-close:hover { color: var(--fg); }
+.dm-body { flex: 1; overflow: auto; padding: 0 12px 12px; }
+.dm-body .diffview { font-size: 12px; margin-top: 0; }
+.dm-body .dv-bar { padding: 8px 0; }
+.rc-name { font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rc-path { font-size: 10px; color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rc-spacer { flex: 1; }
+.rc-dim { color: var(--fg-dim); font-size: 11px; }
+.rc-sep { color: var(--border); }
+.rc-link { background: none; border: none; padding: 0; color: var(--fg-dim); cursor: pointer; font-size: 11px; }
+.rc-link:hover, .rc-link.on { color: var(--accent); }
+.rc-err { color: var(--alarm); }
+.rc-loading { padding: 4px 0; }
+`;
 
 const TREE_CSS = `
 .gt { border-collapse: collapse; font-family: var(--mono); font-size: 12px; width: 100%; }

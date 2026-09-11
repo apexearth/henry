@@ -1,22 +1,11 @@
-// The four tool panels wired to the store, so the Dockview tabs and the phone's panel sheet
+// The tool panels wired to the store, so the Dockview tabs and the phone's panel sheet
 // show the same thing. The panels themselves stay pure: props in, no store.
-import { ReposPanel } from "./Repos";
 import { FlagsPanel } from "./Flags";
 import { HistoryPanel } from "./History";
 import { PlaybookPanel } from "./Playbook";
 import { UsagePanel } from "./Usage";
 import { useHistory } from "../history";
-import { markFlagsRead, requestDiff, requestPlaybook, useStore } from "../ws";
-
-export function BoundRepos() {
-  const active = useStore((s) => s.activeSessionId);
-  const repos = useStore((s) => s.repos);
-  const diffs = useStore((s) => s.diffs);
-  return (
-    <ReposPanel sessionId={active} repos={active ? repos[active] ?? [] : []} diffs={diffs}
-      onRequestDiff={(repoPath) => active && requestDiff(active, repoPath)} />
-  );
-}
+import { markFlagsRead, requestPlaybook, useStore } from "../ws";
 
 /** The active session's flags, and how many of them are unread (the dock tab's badge). */
 export function useSessionFlags() {

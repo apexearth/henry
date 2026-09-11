@@ -11,14 +11,15 @@ import { isClaudeSession, type Session } from "@henry/shared";
 import { LeftPane } from "../Rail";
 import { TerminalView } from "../Terminal";
 import { ContextSky } from "../ContextSky";
-import { BoundFlags, BoundHistory, BoundPlaybook, BoundRepos, BoundUsage, useSessionFlags } from "../panels/bound";
+import { FilesPane } from "../FilesPane";
+import { BoundFlags, BoundHistory, BoundPlaybook, BoundUsage, useSessionFlags } from "../panels/bound";
 import { useAskTitle } from "../title";
-import { answerAttention, setRailMode, useStore } from "../ws";
+import { answerAttention, useStore } from "../ws";
 import { Composer } from "./Composer";
 import { useFontSize, useViewportHeight } from "./useMobile";
 
 const TABS = [
-  { id: "repos", title: "repos", body: BoundRepos },
+  { id: "files", title: "files", body: FilesPane },
   // On a phone the terminal is a porthole; the conversation is much easier to read here.
   { id: "history", title: "history", body: BoundHistory },
   { id: "flags", title: "flags", body: BoundFlags },
@@ -34,7 +35,6 @@ export function Mobile() {
   const connected = useStore((s) => s.connected);
   const hydrated = useStore((s) => s.hydrated);
   const attention = useStore((s) => s.attention);
-  const railMode = useStore((s) => s.railMode);
   const [drawer, setDrawer] = useState(false);
   const [tab, setTab] = useState<TabId | null>(null);
   const { fontSize, zoom } = useFontSize();
@@ -68,7 +68,7 @@ export function Mobile() {
         <button className="m-icon" onClick={() => zoom(-1)} title="smaller text, more columns" aria-label="zoom out">−</button>
         <span className="m-zoom" title="terminal text size">{fontSize}</span>
         <button className="m-icon" onClick={() => zoom(1)} title="bigger text, fewer columns" aria-label="zoom in">+</button>
-        <button className="m-icon" onClick={() => setTab((t) => (t ? null : "repos"))} title="repos, flags, playbook, usage" aria-label="panels">
+        <button className="m-icon" onClick={() => setTab((t) => (t ? null : "files"))} title="files, history, flags, playbook, usage" aria-label="panels">
           ⋮{unread > 0 && <span className="m-badge alarm">{unread}</span>}
         </button>
       </header>
@@ -103,15 +103,7 @@ export function Mobile() {
           <div className="m-scrim" onClick={() => setDrawer(false)} />
           <div className="m-drawer">
             <div className="m-sheet-top">
-              {/* The drawer's header already existed to say "sessions"; it carries the same
-                  two-way switch the desktop puts in the panel tab, so the phone gets the tree too. */}
-              <div className="left-tab">
-                {(["sessions", "files"] as const).map((m) => (
-                  <button key={m} className={"left-tab-seg" + (railMode === m ? " on" : "")} onClick={() => setRailMode(m)}>
-                    {m === "sessions" ? "sessions" : "files"}
-                  </button>
-                ))}
-              </div>
+              <span className="dim">sessions</span>
               <button className="m-icon" onClick={() => setDrawer(false)} aria-label="close">×</button>
             </div>
             <LeftPane />

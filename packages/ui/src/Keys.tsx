@@ -34,7 +34,7 @@ const SECTIONS: [string, Key[]][] = [
     [["⇥"], "switch the filter between file names and file contents"],
     [["↑", "↓"], "move down the tree; ↩ opens a folder, a file, or a search hit"],
     [["→", "←"], "open / close the folder under the cursor"],
-    [["esc"], "back to the session list"],
+    [["esc"], "back to the terminal"],
   ]],
   ["pickers", [
     [["↑", "↓"], "move the selection"],

@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { isClaudeSession, type Session, type SessionActivity } from "@henry/shared";
-import { FilesPane } from "./FilesPane";
 import { RepoPicker } from "./RepoPicker";
 import { MOD, baseName, isMac } from "./platform";
 import { inShell, onMenu } from "./shell";
@@ -109,15 +108,10 @@ const GROUP_LABEL: Record<GroupBy, string> = {
 };
 
 /**
- * The left pane. It shows the session list or the files of the session you are in — the same
- * pane either way, because reading a repo is something you do *inside* a session. The switch
- * between them lives in the panel's tab header (Layout.tsx), so no row is spent on it here.
- *
- * Session creation lives at this level rather than in `Rail`: ⌘N, ⌘D and ⌃` are window-wide
- * bindings, and they must keep working while the files tree is the thing on screen.
+ * The left pane: the session list, and the window-wide session bindings. ⌘N, ⌘D and ⌃` live
+ * here rather than in `Rail` so they are one mount, not one per render of the list.
  */
 export function LeftPane() {
-  const mode = useStore((s) => s.railMode);
   const [picker, setPicker] = useState(false);
 
   // In the macOS shell the File menu owns ⌘N / ⌘D and calls us through onMenu; the Windows shell
@@ -153,7 +147,7 @@ export function LeftPane() {
 
   return (
     <>
-      {mode === "files" ? <FilesPane /> : <Rail onNew={() => setPicker(true)} />}
+      <Rail onNew={() => setPicker(true)} />
       {picker && <RepoPicker onClose={() => setPicker(false)} />}
     </>
   );

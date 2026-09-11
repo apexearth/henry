@@ -6,10 +6,10 @@ import { isClaudeSession } from "@henry/shared";
 import { baseName } from "./platform";
 import { getState } from "./ws";
 
-export type ToolId = "sessions" | "repos" | "history" | "flags" | "playbook" | "usage";
+export type ToolId = "sessions" | "files" | "history" | "flags" | "playbook" | "usage";
 export const TOOLS: { id: ToolId; title: string }[] = [
   { id: "sessions", title: "Sessions" },
-  { id: "repos", title: "Repos" },
+  { id: "files", title: "Files" },
   { id: "history", title: "History" },
   { id: "flags", title: "Flags" },
   { id: "playbook", title: "Playbook" },
@@ -70,15 +70,33 @@ export function loadLayout(): SerializedDockview | null {
     }
     if (!raw) return null;
     const saved = JSON.parse(raw) as SerializedDockview;
-    // Layouts saved before the left panel grew its Sessions/Files switch name no tab component,
-    // and Dockview takes that only at creation. Patching the one field here keeps everyone's
-    // arrangement instead of resetting it for a header.
+    // For a while the left panel's tab was a Sessions/Files switch; that tab component is gone.
     const left = saved.panels?.sessions as { tabComponent?: string } | undefined;
-    if (left && !left.tabComponent) left.tabComponent = "sessions";
+    if (left) delete left.tabComponent;
+    // The Repos tab became the Files tool. Renamed in place, so the tab keeps its slot.
+    renamePanel(saved, "repos", "files");
     return saved;
   } catch {
     return null;
   }
+}
+
+/** Rename a panel throughout a saved layout: its entry, and every group listing it. */
+function renamePanel(saved: SerializedDockview, from: string, to: string) {
+  const entry = saved.panels?.[from];
+  if (!entry || saved.panels[to]) return;
+  delete saved.panels[from];
+  saved.panels[to] = { ...entry, id: to, contentComponent: to, title: TOOLS.find((t) => t.id === to)?.title ?? to };
+  const walk = (node: unknown) => {
+    if (!node || typeof node !== "object") return;
+    const o = node as { views?: string[]; activeView?: string };
+    if (Array.isArray(o.views)) o.views = o.views.map((v) => (v === from ? to : v));
+    if (o.activeView === from) o.activeView = to;
+    for (const v of Object.values(o)) walk(v);
+  };
+  walk(saved.grid);
+  walk(saved.floatingGroups);
+  walk(saved.popoutGroups);
 }
 
 export function saveLayout() {
@@ -107,15 +125,15 @@ export function migrateRestoredLayout() {
 export function buildDefaultLayout() {
   if (!api) return;
   api.clear();
-  api.addPanel({ id: "sessions", component: "sessions", tabComponent: "sessions", title: "Sessions" });
-  api.addPanel({ id: "repos", component: "repos", title: "Repos", position: { referencePanel: "sessions", direction: "right" } });
+  api.addPanel({ id: "sessions", component: "sessions", title: "Sessions" });
+  api.addPanel({ id: "files", component: "files", title: "Files", position: { referencePanel: "sessions", direction: "right" } });
   for (const t of TOOLS.slice(2)) {
-    api.addPanel({ id: t.id, component: t.id, title: t.title, position: { referencePanel: "repos", direction: "within" }, inactive: true });
+    api.addPanel({ id: t.id, component: t.id, title: t.title, position: { referencePanel: "files", direction: "within" }, inactive: true });
   }
   // The centre group exists even with no sessions, so the rail and tools keep their widths.
-  styleTerminalGroup(api.addGroup({ id: "center", referencePanel: "repos", direction: "left" }));
+  styleTerminalGroup(api.addGroup({ id: "center", referencePanel: "files", direction: "left" }));
   for (const s of getState().sessions) ensureSessionPanel(s);
-  api.getPanel("repos")?.api.setActive();
+  api.getPanel("files")?.api.setActive();
   applyDefaultSizes();
 }
 
@@ -123,7 +141,7 @@ export function buildDefaultLayout() {
 function applyDefaultSizes() {
   requestAnimationFrame(() => {
     api?.getPanel("sessions")?.api.setSize({ width: 220 });
-    api?.getPanel("repos")?.api.setSize({ width: 360 });
+    api?.getPanel("files")?.api.setSize({ width: 360 });
   });
 }
 
@@ -179,7 +197,7 @@ export function showTool(id: ToolId) {
   }
   const title = TOOLS.find((t) => t.id === id)?.title ?? id;
   const sibling = TOOLS.map((t) => t.id).find((t) => t !== id && api!.getPanel(t));
-  api.addPanel({ id, component: id, tabComponent: id === "sessions" ? "sessions" : undefined, title, position: sibling ? { referencePanel: sibling, direction: "within" } : { direction: "right" } });
+  api.addPanel({ id, component: id, title, position: sibling ? { referencePanel: sibling, direction: "within" } : { direction: "right" } });
 }
 
 

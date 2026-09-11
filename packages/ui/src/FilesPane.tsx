@@ -1,18 +1,20 @@
-// The files half of the left pane. Roots are the repos the session you are looking at has
-// touched, plus whatever you pinned, so reading code still feels like being inside that session.
+// The Files tool. Roots are the repos the session you are looking at has touched, plus
+// whatever you pinned, so reading code still feels like being inside that session; each repo's
+// root row doubles as its card (branch, ↑↓, dirty count, diff / tree / remote — FilesRoot.tsx).
 // One filter, two modes: file names (fuzzy, client-side over the repo index) or file contents
 // (`git grep` on the daemon). Either way the *tree* narrows - matches keep their parent folders,
 // because where a match sits is half of what you wanted to know. Aa / .* / ab| / glob are the
 // search's usual knobs. Read-only throughout: a click opens a peek in the stage, nothing edits.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangedFile, GrepResult, RepoState } from "@henry/shared";
+import { restoreFocus, showTool } from "./dock";
 import { openPeek } from "./FileView";
+import { FilesRoot } from "./FilesRoot";
 import { rootIndex, useSessionFiles } from "./files";
 import { globFilter, matches, tokenize } from "./match";
 import { baseName, joinPath } from "./platform";
-import { hueText, nameHue } from "./theme";
 import { ancestorsOf, buildTree, type TreeNode } from "./tree";
-import { getState, setRailMode, useStore } from "./ws";
+import { getState, useStore } from "./ws";
 
 const MAX_ROWS = 2000;
 const MIN_TEXT_QUERY = 2;
@@ -110,15 +112,15 @@ type Row =
   | { kind: "hit"; key: string; root: Root; rel: string; line: number; col: number; text: string; depth: number }
   | { kind: "note"; key: string; text: string; depth: number };
 
-/** ⌘F / ⌘⇧F: show the pane and put the keyboard in its filter, in `text` mode when a term
- *  is given. The request is parked in `pending` as well as announced, because the pane may
- *  not be mounted yet — switching to it *is* what this call does. */
+/** ⌘F / ⌘⇧F: bring the tool forward and put the keyboard in its filter, in `text` mode when
+ *  a term is given. The request is parked in `pending` as well as announced, because the pane
+ *  may not be mounted yet — its tab may have been behind another tool, or gone. */
 export const FILES_EVENT = "henry:files";
 let pending: { at: number; text?: string } | undefined;
 
 export function openFiles(text?: string): void {
   pending = { at: Date.now(), text };
-  setRailMode("files");
+  showTool("files");
   window.dispatchEvent(new CustomEvent(FILES_EVENT, { detail: { text } }));
 }
 
@@ -196,6 +198,9 @@ export function FilesPane() {
     }
     return out;
   }, [sf, sessionRepos, config]);
+
+  /** The git watcher's card for each root that is a repo of this session, by path. */
+  const cards = useMemo(() => new Map(((sessionRepos ?? []) as RepoState[]).map((r) => [r.path, r] as const)), [sessionRepos]);
 
   /** Uncommitted status per file: from the session's own answer where there is one (changes vs
    *  its baseline, the Henry question), else a plain vs-HEAD read for a pinned folder. */
@@ -388,7 +393,7 @@ export function FilesPane() {
   const onKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Escape") {
       e.preventDefault();
-      return setRailMode("sessions");
+      return restoreFocus(null);
     }
     if (e.key === "Tab") {
       e.preventDefault();
@@ -472,17 +477,19 @@ export function FilesPane() {
           const on = i === selIdx;
           const pad = { paddingLeft: 4 + r.depth * 10 };
           if (r.kind === "note") return <div key={r.key} className="files-note" style={pad}>{r.text}</div>;
-          if (r.kind === "root" || r.kind === "dir") {
-            const isRoot = r.kind === "root";
+          if (r.kind === "root") {
             return (
-              <div key={r.key} className={`files-row ${isRoot ? "files-root" : "files-dir"}${on ? " sel" : ""}`} style={pad}
-                title={isRoot ? r.root.path : r.rel}
+              <FilesRoot key={r.key} path={r.root.path} name={r.root.name} pinned={r.root.pinned} repo={cards.get(r.root.path)}
+                sessionId={activeId} open={r.open} sel={on} style={pad}
+                onHover={() => setSel(r.key)} onToggle={() => toggle(r.key)} onUnpin={() => unpin(r.root.path)} />
+            );
+          }
+          if (r.kind === "dir") {
+            return (
+              <div key={r.key} className={"files-row files-dir" + (on ? " sel" : "")} style={pad} title={r.rel}
                 onMouseEnter={() => setSel(r.key)} onClick={() => toggle(r.key)}>
                 <span className="fold" aria-hidden>{r.open ? "▾" : "▸"}</span>
-                <span className="title" style={isRoot ? { color: hueText(nameHue(r.root.name)) } : undefined}>{isRoot ? r.root.name : r.name}</span>
-                {isRoot && r.root.pinned && (
-                  <button className="files-unpin" title="unpin this folder" onClick={(e) => { e.stopPropagation(); unpin(r.root.path); }}>&times;</button>
-                )}
+                <span className="title">{r.name}</span>
               </div>
             );
           }

@@ -177,7 +177,7 @@ export function TopActivity() {
         </button>
       )}
       {dirty > 0 && (
-        <button className="act-chip dirty" onClick={() => showTool("repos")}
+        <button className="act-chip dirty" onClick={() => showTool("files")}
           title={`${dirty} uncommitted path${dirty === 1 ? "" : "s"} across ${dirtyRepos.length} repo${dirtyRepos.length === 1 ? "" : "s"}: ${names(dirtyRepos.map((r) => ({ title: r.name })))}${ahead ? `\n${ahead} commit${ahead === 1 ? "" : "s"} not pushed` : ""}`}>
           ±{dirty}
           {ahead > 0 && <span className="ahead"> ↑{ahead}</span>}

@@ -3,12 +3,12 @@
 import { useEffect, useRef, useState } from "react";
 import { DockviewReact, type DockviewApi, type DockviewReadyEvent, type IDockviewPanelProps, type IWatermarkPanelProps } from "dockview-react";
 import { LeftPane } from "./Rail";
-import { MOD } from "./platform";
 import { TerminalView } from "./Terminal";
 import { ContextSky } from "./ContextSky";
 import { FileView } from "./FileView";
-import { BoundFlags, BoundHistory, BoundPlaybook, BoundRepos, BoundUsage, useSessionFlags } from "./panels/bound";
-import { setActive, setRailMode, useStore } from "./ws";
+import { FilesPane } from "./FilesPane";
+import { BoundFlags, BoundHistory, BoundPlaybook, BoundUsage, useSessionFlags } from "./panels/bound";
+import { setActive, useStore } from "./ws";
 import { buildDefaultLayout, ensureSessionPanel, henryTheme, isFilePanel, isTerminalGroup, loadLayout, migrateRestoredLayout, noteActivePanel, saveLayout, sessionTitle, setDockApi, styleTerminalGroup, TERM_PREFIX, termPanelId } from "./dock";
 
 function TerminalPanel({ api, params }: IDockviewPanelProps<{ sessionId: string }>) {
@@ -43,32 +43,9 @@ function SessionsPanel() {
   return <LeftPane />;
 }
 
-/**
- * The left panel's tab. It is a real Dockview tab, so the pane still drags by it, but instead
- * of the word "Sessions" it carries the switch between the two things the pane shows. The
- * header row was going to be spent on a title either way; this makes it do some work.
- */
-function SessionsTab() {
-  const mode = useStore((s) => s.railMode);
-  return (
-    <div className="left-tab">
-      {(["sessions", "files"] as const).map((m) => (
-        <button key={m} className={"left-tab-seg" + (mode === m ? " on" : "")}
-          // Dockview starts a drag from the tab; stop the click from reaching it as one.
-          onMouseDown={(e) => e.stopPropagation()}
-          onClick={() => setRailMode(m)}
-          title={m === "sessions" ? "the session list" : `files of the session you are in (${MOD}F)`}>
-          {m === "sessions" ? "Sessions" : "Files"}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-const tabComponents = { sessions: SessionsTab };
-
-function ReposDock() {
-  return <div className="dock-body"><BoundRepos /></div>;
+/** The tree scrolls its own list and has its own footer, so it owns the box edge to edge. */
+function FilesDock() {
+  return <div className="dock-body" style={{ padding: 0, overflow: "hidden" }}><FilesPane /></div>;
 }
 
 function FlagsDock({ api }: IDockviewPanelProps) {
@@ -144,7 +121,7 @@ const components = {
   terminal: TerminalPanel,
   file: FilePanel,
   sessions: SessionsPanel,
-  repos: ReposDock,
+  files: FilesDock,
   history: HistoryDock,
   flags: FlagsDock,
   playbook: PlaybookDock,
@@ -245,7 +222,6 @@ export function Layout() {
         className="dock"
         theme={henryTheme}
         components={components}
-        tabComponents={tabComponents}
         watermarkComponent={Watermark}
         noPanelsOverlay="emptyGroup"
         onReady={onReady}

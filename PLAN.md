@@ -151,7 +151,7 @@ the design changes; do not let it drift into a changelog.
   plus group): it alone gets the full highlight, the same session's rows under other repos
   get a half-strength bar, and `⌘↑/↓` step from the picked row, not its first echo.
   A repo name is coloured by a hash of the name wherever it appears (group headers, row
-  sub-labels, the Repos panel, the Files section, the new-session picker), so one repo is one
+  sub-labels, the Files tool, the new-session picker), so one repo is one
   colour across grouping modes, restarts and machines; "no repo" and the attention groups stay grey.
 - **Hiding is by hand, and always reversible.** Hovering a row or a group header shows a ⊘:
   clicking it takes those sessions out of the list and out of the ⌘1..9 order, killing nothing.
@@ -350,7 +350,7 @@ through that machine's peers, so one phone reaches every Henry the desk reaches.
 - **The layout is a second shape of the same bundle, not a second app.** A narrow touch screen
   (`(pointer: coarse) and (max-width: 1024px)`, or any window under 700px) gets `mobile/`: the
   session filling the screen, the two rails behind buttons — ☰ opens the rail as a drawer, ⋮ opens
-  Repos/Flags/Playbook/Usage as a sheet — and an ask, when there is one, as a bar under the header.
+  Files/History/Flags/Playbook/Usage as a sheet — and an ask, when there is one, as a bar under the header.
   The panels themselves are the desktop's, bound to the store once in `panels/bound.tsx` and used
   by both. `?mobile=1` / `?desktop=1` force either shape, which is how the phone layout gets looked
   at from a desk.
@@ -467,11 +467,11 @@ config. The user is the only router, and the rail stays a truthful record of who
 
 ```
 ┌──────────┬──────────────────────────────────────┬──────────────────────┐
-│ sessions │                                      │ Repos│Flags│Playbook │
-│ ▣ Rail fi│                                      │                      │
-│ ▣ Stealth│         xterm.js (WebGL)             │  per-repo cards:     │
-│ >_ henry │         one per session              │  branch, ↑↓ upstream │
-│ ▢ arm ⚑2 │                                      │  commits since base  │
+│ sessions │                                      │ Files│Flags│Playbook │
+│ ▣ Rail fi│                                      │ ▾ henry main ↑2 ±5 ⑂↗│
+│ ▣ Stealth│         xterm.js (WebGL)             │   ▸ packages         │
+│ >_ henry │         one per session              │   M PLAN.md          │
+│ ▢ arm ⚑2 │                                      │ ▸ arm feat/x ↑∅ ±0 ⑂ │
 │ + new    │                                      │                      │
 │ 3 running│                                      │                      │
 ├──────────┴──────────────────────────────────────┴──────────────────────┤
@@ -520,12 +520,13 @@ unified diff (untracked files against /dev/null); the peek tints added lines and
 deleted lines as struck-through ghosts where they were. A session with no baseline (a plain
 terminal) diffs against HEAD, so "changed" means "uncommitted" there.
 
-**The left pane is sessions or files, and the tab is the switch.** Reading a repo is something
-you do *inside* a session, not somewhere else, so the files live in the rail's pane rather than
-a tool tab of their own: a segmented `Sessions | Files` control fills the panel's Dockview tab
-(`Layout.tsx` `tabComponents`), where a title would otherwise have sat. It is a real tab, so the
-pane still drags by it. `⌘1..9` and `⌘↑/↓` switch sessions in either mode, and Esc in the filter
-goes back to the list, so Files never strands you. Persisted per browser (`henry.railMode`).
+**Files is the first tool tab, and it is the repo view.** The tree follows the session you are
+in, so it belongs with the other per-session tools on the right rather than in the rail: it
+took the Repos tab's slot, and each repo's root row carries what that tab's card said (branch,
+↑↓, dirty, diff / tree / remote — see "Tool tabs"). For a while the tree shared the left pane
+with the session list behind a `Sessions | Files` switch; that spent the rail's 220px on a
+tree that wants 360, and hid the list while you read. Esc in the filter puts the keyboard back
+in the terminal.
 
 **⌘K finds a file to peek at.** Changed files of the session you are looking at come first,
 then recent peeks (per browser, last 40), then, once you type, every file in that session's
@@ -542,7 +543,7 @@ falls back to the repo the cwd is in and returns each file's status in the same 
 Under each root, `GET /api/repo/files` (`git ls-files`, .gitignore for free) is nested into a
 tree client-side (`ui/tree.ts`), with single-child directory chains collapsed onto one row —
 `packages/ui/src` as one line is the difference between a readable tree and eight rows of
-scaffolding in a 220px rail. Uncommitted files carry their status letter in place; a `●`
+scaffolding in a 360px column. Uncommitted files carry their status letter in place; a `●`
 toggle prunes to them, which is what the old changed-files list became. Only expanded
 directories render, so no virtualization is needed. Local repos and a peer's alike: every
 request carries the machine of the session you are looking at.
@@ -592,7 +593,7 @@ Flags and usage are deliberately not up here — flags are a panel, usage is the
 along the bottom, and the bar is for the two things you cannot get by looking at a panel: who
 wants you, and how your day is going. A chip
 renders only when it has something to say, and each is a shortcut: session chips jump to the
-session that has waited longest, the repo chip opens Repos, the human chips open the "you"
+session that has waited longest, the repo chip opens Files, the human chips open the "you"
 popover (today in detail, the day by the hour, the last fortnight). The repos-root button is
 gone; Settings is where the path lives.
 
@@ -645,14 +646,21 @@ latitude and longitude with today's sunrise and sunset under them; both are edit
 `locate` button asks the browser for something exact only when the user clicks it.
 
 Tool tabs:
-- **Repos** — every repo this session has touched: branch, ahead/behind upstream,
-  has-upstream, commits since session baseline, dirty count, worktree path, and a ↗
-  link to the upstream remote's web page (scp/ssh/https git URLs become https).
-  `diff` → diff vs baseline (unified/split). `tree` → the commit graph of every branch,
-  as `git log --graph --all` draws it (`GET /api/repo/tree`, capped at 400 commits).
-  Any commit hash (tree rows, the commits-since-baseline log, a commit's parents) opens
+- **Files** — the folder tree of every repo this session has touched (see "⌘F is a folder
+  tree" above), where each repo's root row is also its card, on one line: name, branch,
+  `↑n ↓n` against the upstream (only the non-zero side; `↑∅` when there is no upstream),
+  `+n` commits since the session baseline (click: the log unfolds under the row), the
+  open-PR count when there is one (click: the list unfolds), then three icons — `±n` is the
+  dirty count and opens the diff vs baseline (unified/split), the graph mark opens the commit
+  graph of every branch as `git log --graph --all` draws it (`GET /api/repo/tree`, capped at
+  400 commits), `↗` opens the upstream remote's web page (scp/ssh/https git URLs become
+  https). The path, the last commit and a worktree's parent live in the row's tooltip; a
+  worktree carries a `wt` tag. Any commit hash (tree rows, the log, a commit's parents) opens
   that commit: metadata, message and its patch vs the first parent (`GET /api/repo/commit`).
-  These are full-screen modals over the app and stack; Esc closes the top one.
+  Diff, tree and commit are full-screen modals over the app and stack; Esc closes the top
+  one. This replaced a Repos tab that showed the same facts as cards, in the column the tree
+  now uses for files; a saved layout's Repos slot becomes the Files slot on load. A plain
+  terminal's root has no card until a hook associates the session with the repo, as before.
 - **History** — the conversation behind a Claude session, scrollable and searchable.
   The terminal cannot hold it: Claude Code's TUI takes the alternate screen at startup
   (`?1049h`, never released, mouse tracking on) and an alternate screen has no scrollback
@@ -745,12 +753,13 @@ henry/
       src/PrsMenu.tsx          # topbar open-PR count + the list behind it
       src/RepoPicker.tsx       # "+ new": typed picker over repos × {claude, terminal}
       src/FilePicker.tsx       # ⌘K: find a file to peek at
-      src/FilesPane.tsx        # ⌘F: the left pane's folder tree, its filter and the search's toggles
+      src/FilesPane.tsx        # ⌘F / the Files tool: the folder tree, its filter and the search's toggles
+      src/FilesRoot.tsx        # a root row of that tree: the repo card on one line, its log / PR folds and modals
       src/tree.ts              # flat paths -> a folder tree; collapsing, and a filter's ancestors
       src/match.ts             # fuzzy path matching + the glob box, shared by the tree and ⌘K
       src/FileView.tsx         # read-only file peek (stage, with ⌘F find) and the tree's preview
-      src/panels/{Repos,History,Flags,Playbook,Usage}.tsx
-      src/panels/bound.tsx     # those five wired to the store, for both the dock and the phone's sheet
+      src/panels/{History,Flags,Playbook,Usage}.tsx
+      src/panels/bound.tsx     # those four wired to the store, for both the dock and the phone's sheet
       src/history.ts           # GET /api/history + the hook that refetches a session's turns
       src/DiffView.tsx
       src/GitTree.tsx          # repo modals: shell, commit graph (tree), one commit + patch

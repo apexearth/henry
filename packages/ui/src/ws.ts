@@ -12,11 +12,6 @@ export type PtyMessage = Extract<ServerMessage, { type: "pty:data" | "pty:scroll
  * Machines are always split: this one first, then each paired peer (buildGroups). */
 export type GroupBy = "none" | "cwd" | "repos" | "attention";
 
-/** What the left pane is showing: the session list, or the files of the session you are in.
- * Both are the same pane on purpose — reading a repo's files is something you do *inside* a
- * session, not somewhere else, and ⌘1..9 / ⌘↑↓ keep working in either mode. */
-export type RailMode = "sessions" | "files";
-
 export interface UiState {
   connected: boolean;
   /** Increments on every (re)connect; terminals re-attach when it changes. */
@@ -43,8 +38,6 @@ export interface UiState {
    * once per repo, and ⌘↑/↓ must step from the row you picked, not its first echo. Not
    * persisted; unknown (null) or stale means the first row. */
   activeGroup: string | null;
-  /** Rail: sessions or files. Persisted. */
-  railMode: RailMode;
   /** Rail: list exited sessions below the running ones (default: hidden). Persisted. */
   showClosed: boolean;
   /** Rail: grouping of the session list. Persisted. */
@@ -77,7 +70,6 @@ let state: UiState = {
   peers: [],
   activeSessionId: readLastActive()?.id ?? null,
   activeGroup: null,
-  railMode: readRailMode(),
   showClosed: readShowClosed(),
   groupBy: readGroupBy(),
   hiddenMachines: readHiddenMachines(),
@@ -85,14 +77,6 @@ let state: UiState = {
   events: [],
   diffs: {},
 };
-
-function readRailMode(): RailMode {
-  try {
-    return localStorage.getItem("henry.railMode") === "files" ? "files" : "sessions";
-  } catch {
-    return "sessions";
-  }
-}
 
 function readShowClosed(): boolean {
   try {
@@ -495,13 +479,6 @@ export function toggleMachine(peer: string | undefined): void {
     localStorage.setItem("henry.hiddenMachines", JSON.stringify(hiddenMachines));
   } catch {}
   setState({ hiddenMachines });
-}
-
-export function setRailMode(railMode: RailMode): void {
-  try {
-    localStorage.setItem("henry.railMode", railMode);
-  } catch {}
-  setState({ railMode });
 }
 
 export function setGroupBy(groupBy: GroupBy): void {

@@ -35,11 +35,11 @@ calls if you turn it on (off by default), and machines you paired on your own ta
 
 ```
 ┌──────────┬──────────────────────────────────────┬──────────────────────┐
-│ sessions │                                      │ Repos│Flags│Playbook │
-│ ▣ Rail fi│                                      │                      │
-│ ▣ Stealth│         xterm.js (WebGL)             │  per-repo cards:     │
-│ >_ henry │         one per session              │  branch, ↑↓ upstream │
-│ ▢ arm ⚑2 │                                      │  commits since base  │
+│ sessions │                                      │ Files│Flags│Playbook │
+│ ▣ Rail fi│                                      │ ▾ henry main ↑2 ±5 ⑂↗│
+│ ▣ Stealth│         xterm.js (WebGL)             │   ▸ packages         │
+│ >_ henry │         one per session              │   M PLAN.md          │
+│ ▢ arm ⚑2 │                                      │ ▸ arm feat/x ↑∅ ±0 ⑂ │
 │ + new    │                                      ├──────────────────────┤
 │ 3 running│                                      │ Usage  5h ▇▇▁ 7d ▇▁▁ │
 └──────────┴──────────────────────────────────────┴──────────────────────┘
