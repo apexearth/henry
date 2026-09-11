@@ -107,7 +107,7 @@ function matchSpan(text: string, col: number, q: string, o: Opts): [number, numb
 
 type Row =
   | { kind: "root"; key: string; root: Root; open: boolean; depth: number }
-  | { kind: "dir"; key: string; root: Root; rel: string; name: string; open: boolean; depth: number }
+  | { kind: "dir"; key: string; root: Root; rel: string; name: string; open: boolean; depth: number; dirty: boolean }
   | { kind: "file"; key: string; root: Root; rel: string; name: string; depth: number; status?: ChangedFile["status"]; hits?: number; open?: boolean }
   | { kind: "hit"; key: string; root: Root; rel: string; line: number; col: number; text: string; depth: number }
   | { kind: "note"; key: string; text: string; depth: number };
@@ -332,13 +332,17 @@ export function FilesPane() {
       const filtering = text || tokens.length > 0 || !!glob || opts.changedOnly;
       const forced = filtering ? ancestorsOf(paths) : undefined;
       const isOpen = (rel: string) => (forced?.has(rel) ?? false) || open.has(nodeKey(root.path, rel));
+      // A folder carries the change marks of what is inside it, so a closed tree still shows
+      // where the work is. Only over the files this filter shows: a folder cannot look dirty
+      // on the strength of a file you filtered away.
+      const dirtyDirs = ancestorsOf(paths.filter((p) => status.has(p)));
 
       const walk = (nodes: TreeNode[], depth: number) => {
         for (const n of nodes) {
           if (out.length >= MAX_ROWS) return;
           if (n.dir) {
             const o = isOpen(n.rel);
-            out.push({ kind: "dir", key: nodeKey(root.path, n.rel), root, rel: n.rel, name: n.name, open: o, depth });
+            out.push({ kind: "dir", key: nodeKey(root.path, n.rel), root, rel: n.rel, name: n.name, open: o, depth, dirty: dirtyDirs.has(n.rel) });
             if (o) walk(n.children, depth + 1);
             continue;
           }
@@ -450,7 +454,6 @@ export function FilesPane() {
         <button className="chip chip-mode" onClick={() => { setText((v) => !v); setSel(undefined); inputRef.current?.focus(); }}
           title={text ? "searching file contents. Tab or click for file names" : "matching file names. Tab or click to search contents"}>
           <span className="mode-stack">
-            <span className="mode-head">file</span>
             <span className="mode-on">{text ? "text" : "name"}</span>
             <span className="mode-off">{text ? "name" : "text"}</span>
           </span>
@@ -486,7 +489,8 @@ export function FilesPane() {
           }
           if (r.kind === "dir") {
             return (
-              <div key={r.key} className={"files-row files-dir" + (on ? " sel" : "")} style={pad} title={r.rel}
+              <div key={r.key} className={"files-row files-dir" + (r.dirty ? " dirty" : "") + (on ? " sel" : "")} style={pad}
+                title={r.dirty ? `${r.rel} - has uncommitted changes` : r.rel}
                 onMouseEnter={() => setSel(r.key)} onClick={() => toggle(r.key)}>
                 <span className="fold" aria-hidden>{r.open ? "▾" : "▸"}</span>
                 <span className="title">{r.name}</span>

@@ -354,6 +354,8 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 .files-row .fold { flex: none; width: 9px; color: var(--fg-faint); font-size: 9px; }
 .files-root { font-size: 12px; }
 .files-dir .title { color: var(--fg-dim); }
+/* Same warn the repo card's dirty count uses: something inside is uncommitted. */
+.files-dir.dirty .title, .files-dir.dirty .fold { color: var(--warn); }
 .files-file .title { color: var(--fg); }
 .files-file .fstat { flex: none; min-width: 1ch; font-size: 10px; }
 .files-count { margin-left: auto; flex: none; color: var(--fg-faint); font-size: 10px; }
@@ -439,12 +441,11 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 .picker-machines .hint { color: var(--fg-dim); font-size: 11px; }
 .chip { background: none; border: 1px dotted var(--border); border-radius: 10px; padding: 1px 8px; font-size: 11px; color: var(--fg-dim); }
 .chip.sel { border-style: solid; border-color: currentColor; background: var(--bg-3); color: var(--fg); }
-/* The explorer's mode toggle, read top-down as "file name" or "file search": the mode in use
-   in white, the other small and muted under it, and a big ⇥ for the key that flips them.
+/* The explorer's mode toggle: the mode in use in white, the other small and muted under it,
+   and a big ⇥ for the key that flips them. The pane's own title says these are files.
    After .chip.sel on purpose: same specificity, so order decides. */
 .chip-mode, .chip-mode.sel { border: none; background: none; padding: 0 4px; display: flex; align-items: center; gap: 8px; text-align: left; max-width: none; }
 .chip-mode .mode-stack { display: flex; flex-direction: column; line-height: 1.15; }
-.chip-mode .mode-head { font-size: 11px; color: var(--fg-dim); }
 .chip-mode .mode-on { font-size: 14px; color: var(--fg); }
 .chip-mode .mode-off { font-size: 11px; color: var(--fg-faint); }
 .chip-mode:hover .mode-off { color: var(--fg-dim); }
