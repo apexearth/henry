@@ -16,8 +16,9 @@ import { Setup } from "./Setup";
 import { Settings } from "./Settings";
 import { Keys } from "./Keys";
 import { TopActivity } from "./TopActivity";
+import { StatusBar } from "./StatusBar";
 import { closePeek, getDockApi, isFilePanel, resetLayout, showSession, stageStep } from "./dock";
-import { ARROW_MOD, MOD, arrowMod, isMac, mod } from "./platform";
+import { MOD, arrowMod, isMac, mod } from "./platform";
 import { inShell, onMenu } from "./shell";
 import { activeRowIndex, railRows, setActive, useStore, type RailRow } from "./ws";
 
@@ -144,7 +145,6 @@ function DesktopApp() {
         <TopActivity />
         <span style={{ flex: 1 }} />
         <PrsMenu />
-        <button className="topbar-btn" onClick={() => openFiles()} title={`browse this session's files, or search their text (${ARROW_MOD}F)`}>files</button>
         <RemotesMenu />
         <PhoneMenu />
         <ThemeMenu />
@@ -153,6 +153,7 @@ function DesktopApp() {
         <button className="topbar-btn" onClick={resetLayout} title="back to rail | terminals | tools">reset layout</button>
       </div>
       <Layout />
+      <StatusBar />
       {finder && <FilePicker onClose={() => setFinder(false)} />}
       {keys && <Keys onClose={() => setKeys(false)} />}
       {/* First run owns the screen until a repos root is set; after that everything is in Settings. */}
