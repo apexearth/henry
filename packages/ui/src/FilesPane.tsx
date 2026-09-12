@@ -202,8 +202,9 @@ export function FilesPane() {
   /** The git watcher's card for each root that is a repo of this session, by path. */
   const cards = useMemo(() => new Map(((sessionRepos ?? []) as RepoState[]).map((r) => [r.path, r] as const)), [sessionRepos]);
 
-  /** Uncommitted status per file: from the session's own answer where there is one (changes vs
-   *  its baseline, the Henry question), else a plain vs-HEAD read for a pinned folder. */
+  /** Uncommitted status per file (vs HEAD, so a commit clears the marks): from the session's
+   *  own answer where there is one, which is also what keeps it fresh, else a one-off read for
+   *  a pinned folder. */
   const statusFor = useCallback((rootPath: string): Map<string, ChangedFile["status"]> => {
     const fromSession = sf?.repos.find((r) => r.path === rootPath);
     const list = fromSession ? fromSession.files : changes[rootPath] ?? [];

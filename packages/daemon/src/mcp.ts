@@ -140,7 +140,7 @@ const WRITE_EVENT_LIMIT = 400;
 
 /**
  * Repo-relative paths this session is on record as having written, from the hook stream.
- * `git.changedFiles` cannot answer this: it diffs the repo, so in a repo two sessions share it
+ * `git.dirtyPaths` cannot answer this: it diffs the repo, so in a repo two sessions share it
  * hands every dirty file to both of them. Bash writes leave no `file_path`, so a file missing
  * here means "not traced", never "nobody touched it" — the caller words it that way.
  */

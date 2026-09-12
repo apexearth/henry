@@ -1,4 +1,4 @@
-// Files the UI knows about: a session's changed files (vs its baseline), per-repo indexes for
+// Files the UI knows about: a session's uncommitted files (vs HEAD), per-repo indexes for
 // ⌘K, and the paths peeked recently. All fetched from the daemon; nothing here is pushed.
 import { useEffect, useState } from "react";
 import type { DirIndex, SessionFiles } from "@henry/shared";
@@ -9,7 +9,7 @@ export async function fetchSessionFiles(sessionId: string): Promise<SessionFiles
   return r.ok ? ((await r.json()) as SessionFiles) : { sessionId, repos: [] };
 }
 
-/** Changed files of one session. Refetched whenever the daemon re-broadcasts its repo state. */
+/** Uncommitted files in one session's repos. Refetched whenever the daemon re-broadcasts its repo state. */
 export function useSessionFiles(sessionId: string | null): SessionFiles | undefined {
   const repos = useStore((s) => (sessionId ? s.repos[sessionId] : undefined));
   const [files, setFiles] = useState<SessionFiles>();
