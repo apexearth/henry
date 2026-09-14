@@ -6,7 +6,7 @@ import { isClaudeSession } from "@henry/shared";
 import { baseName } from "./platform";
 import { getState } from "./ws";
 
-export type ToolId = "sessions" | "files" | "history" | "flags" | "playbook" | "usage";
+export type ToolId = "sessions" | "files" | "history" | "flags" | "playbook" | "usage" | "voice";
 export const TOOLS: { id: ToolId; title: string }[] = [
   { id: "sessions", title: "Sessions" },
   { id: "files", title: "Files" },
@@ -14,12 +14,14 @@ export const TOOLS: { id: ToolId; title: string }[] = [
   { id: "flags", title: "Flags" },
   { id: "playbook", title: "Playbook" },
   { id: "usage", title: "Usage" },
+  { id: "voice", title: "Voice" },
 ];
 
-// v2 gave Usage its own bottom-right pane; v3 put the gauges in the status strip and made
-// Usage a tab again. A v2 layout is still read, with its usage pane folded into the tabs.
-const STORAGE_KEY = "henry.layout.v3";
-const LEGACY_KEY = "henry.layout.v2";
+// v3 put the usage gauges in the status strip and made Usage a tab again; v4 added the Voice
+// pane under the tools. A v3 layout is still read, and gains that pane once on the way in —
+// one-shot, because a panel the user then closes must stay closed.
+const STORAGE_KEY = "henry.layout.v4";
+const LEGACY_KEY = "henry.layout.v3";
 export const TERM_PREFIX = "term:";
 export const termPanelId = (sessionId: string) => TERM_PREFIX + sessionId;
 export const FILE_PREFIX = "file:";
@@ -109,16 +111,24 @@ export function saveLayout() {
   }
 }
 
-/** A restored v2 layout has Usage in a pane of its own; move it in with the other tools. */
+/** A restored v3 layout predates the Voice pane; give it one, once. Run on the way in from the
+ * old key only: a pane the user closes afterwards has to stay closed. */
 export function migrateRestoredLayout() {
   if (!api || !fromLegacy) return;
   fromLegacy = false;
-  const usage = api.getPanel("usage");
-  if (!usage || usage.group.panels.length > 1) return;
-  const sibling = TOOLS.map((t) => t.id).find((t) => t !== "usage" && t !== "sessions" && api!.getPanel(t));
-  if (!sibling) return;
-  api.removePanel(usage);
-  api.addPanel({ id: "usage", component: "usage", title: "Usage", position: { referencePanel: sibling, direction: "within" }, inactive: true });
+  const sibling = siblingTool("voice");
+  if (sibling && !api.getPanel("voice")) addVoicePanel(sibling);
+}
+
+/** The first tool panel that is actually in the layout, for positioning another beside it. */
+function siblingTool(...except: ToolId[]): ToolId | undefined {
+  return TOOLS.map((t) => t.id).find((t) => t !== "sessions" && !except.includes(t) && api!.getPanel(t));
+}
+
+/** Voice gets its own pane under the tools rather than another tab: you talk to Henry while
+ * looking at something else, and a waveform behind a tab is a waveform nobody sees. */
+function addVoicePanel(reference: string) {
+  api?.addPanel({ id: "voice", component: "voice", title: "Voice", position: { referencePanel: reference, direction: "below" } });
 }
 
 /** rail | terminals | tool tabs; the pre-dock arrangement. */
@@ -128,8 +138,10 @@ export function buildDefaultLayout() {
   api.addPanel({ id: "sessions", component: "sessions", title: "Sessions" });
   api.addPanel({ id: "files", component: "files", title: "Files", position: { referencePanel: "sessions", direction: "right" } });
   for (const t of TOOLS.slice(2)) {
+    if (t.id === "voice") continue;
     api.addPanel({ id: t.id, component: t.id, title: t.title, position: { referencePanel: "files", direction: "within" }, inactive: true });
   }
+  addVoicePanel("files");
   // The centre group exists even with no sessions, so the rail and tools keep their widths.
   styleTerminalGroup(api.addGroup({ id: "center", referencePanel: "files", direction: "left" }));
   for (const s of getState().sessions) ensureSessionPanel(s);
@@ -142,6 +154,7 @@ function applyDefaultSizes() {
   requestAnimationFrame(() => {
     api?.getPanel("sessions")?.api.setSize({ width: 220 });
     api?.getPanel("files")?.api.setSize({ width: 360 });
+    api?.getPanel("voice")?.api.setSize({ height: 200 });
   });
 }
 

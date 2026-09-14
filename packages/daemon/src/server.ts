@@ -23,6 +23,7 @@ import * as mcp from "./mcp";
 import * as overseer from "./overseer";
 import * as phone from "./phone";
 import { sessions } from "./sessions";
+import * as voice from "./voice";
 
 const uiDist = join(import.meta.dir, "../../ui/dist");
 const ALL = "all";
@@ -448,8 +449,10 @@ export async function startServer(): Promise<void> {
   federation.init({ handleMessage, localState: peerState, handleApi: (req, fromPeer) => handleApi(req, new URL(req.url), fromPeer ? "peer" : "local"), toWindows, publishSession, buildState });
   federation.start();
   // After federation: the phone listener resolves the tailnet address the same way it does.
-  phone.start((hostname, port) => {
-    const s = Bun.serve<WsData>({ ...opts, hostname, port, fetch: phoneFetch });
+  phone.start((hostname, port, tls) => {
+    // tls is what makes the phone UI a secure origin, and a secure origin is what gives it a
+    // microphone at all; phone.ts decides whether there is a certificate to serve with.
+    const s = Bun.serve<WsData>({ ...opts, hostname, port, fetch: phoneFetch, ...(tls ? { tls } : {}) });
     phoneServer = s;
     return {
       port: s.port,
@@ -500,6 +503,37 @@ export async function handleApi(req: Request, url: URL, origin: ApiOrigin): Prom
         if (!body.prompt?.trim()) return json({ error: "prompt required" }, 400);
         const entry = await overseer.writeManual(body.sessionId || null, body.prompt.trim());
         return entry ? json({ entry }) : json({ error: overseer.overseerStatus().lastError ?? "overseer wrote nothing" }, 502);
+      }
+      if (pathname === "/api/voice/status") return json(voice.status());
+      // What whisper has been primed with. The panel shows it so the ear is inspectable.
+      if (pathname === "/api/voice/vocabulary") return json(await voice.vocabularyView(url.searchParams.get("session") ?? undefined));
+      // The second half of a push-to-talk turn: the text the panel already showed you, in;
+      // the spoken answer (and maybe a switch), out. Transcription is its own call above so
+      // the panel can show what it heard without waiting for the model.
+      if (req.method === "POST" && pathname === "/api/voice/answer") {
+        const why = voice.unavailable();
+        if (why) return json({ error: why }, 503);
+        const body = (await readJson(req)) as { text?: string };
+        if (!body?.text?.trim()) return json({ error: "text required" }, 400);
+        try {
+          return json(await voice.answer(body.text.trim()));
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 502);
+        }
+      }
+      // Dictation: the same ear, no answer and no voice. What comes back is typed into a
+      // session by the panel, so this is the user speaking rather than Henry saying anything.
+      if (req.method === "POST" && pathname === "/api/voice/transcribe") {
+        const why = voice.unavailable();
+        if (why) return json({ error: why }, 503);
+        const wav = new Uint8Array(await req.arrayBuffer());
+        if (!wav.byteLength) return json({ error: "no audio" }, 400);
+        if (wav.byteLength > voice.MAX_CLIP_BYTES) return json({ error: "clip too long" }, 413);
+        try {
+          return json({ text: await voice.transcribe(wav, url.searchParams.get("session") ?? undefined) });
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 502);
+        }
       }
       // Your hours, not Claude's: the topbar's activity strip polls this.
       if (pathname === "/api/human") return json(humanStats(Number(url.searchParams.get("days")) || undefined));

@@ -14,12 +14,12 @@
 // unauthenticated by design), and the endpoints that manage pairing and access themselves
 // (/api/federation/*, /api/phone/* other than claim and me). A phone drives sessions; it does
 // not hand out keys.
-import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual, X509Certificate } from "node:crypto";
 import { chmodSync, existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { networkInterfaces } from "node:os";
 import { join } from "node:path";
 import type { PhoneDevice, PhoneStatus } from "@henry/shared";
-import { config, henryDir, onConfigReload } from "./config";
+import { config, expandHome, henryDir, onConfigReload } from "./config";
 import { newPairingCode, normalizeCode } from "./fed-crypto";
 // federation.ts owns "where is this machine on the tailnet"; the phone listener wants the
 // same answer, resolved the same way.
@@ -48,10 +48,10 @@ type Server = { stop(closeActiveConnections?: boolean): void; port?: number | nu
 
 let store: Store;
 let listener: Server | undefined;
-let listening: { address: string; port: number } | undefined;
+let listening: { address: string; port: number; secure: boolean; certName?: string } | undefined;
 let listenError: string | undefined;
 let rebindTimer: ReturnType<typeof setInterval> | undefined;
-let open: ((hostname: string, port: number) => Server) | undefined;
+let open: ((hostname: string, port: number, tls?: { cert: string; key: string }) => Server) | undefined;
 let invite: { code: string; expiresAt: number; attempts: number; timer: ReturnType<typeof setTimeout> } | undefined;
 
 // ---- store ----
@@ -101,6 +101,24 @@ function resolveListen(): { address?: string; error?: string } {
   return { address };
 }
 
+/**
+ * The certificate to serve with, if one is configured and readable.
+ *
+ * Read here rather than held open, so `tailscale cert` renewing the files and the config being
+ * touched is all it takes to pick up a new one. A configured-but-unreadable certificate is a
+ * warning and a fall back to HTTP: losing the phone entirely is worse than losing the mic.
+ */
+function tlsMaterial(): { cert: string; key: string } | undefined {
+  const want = config.phone.tls;
+  if (!want?.cert || !want?.key) return undefined;
+  try {
+    return { cert: readFileSync(expandHome(want.cert), "utf8"), key: readFileSync(expandHome(want.key), "utf8") };
+  } catch (e) {
+    console.error(`[phone] cannot read phone.tls (${(e as Error).message}); serving http, so phones will have no microphone`);
+    return undefined;
+  }
+}
+
 /** The first non-loopback IPv4 of this machine: what to put in a url when we bound 0.0.0.0. */
 function anyAddress(): string | undefined {
   for (const addrs of Object.values(networkInterfaces())) {
@@ -112,8 +130,26 @@ function anyAddress(): string | undefined {
 /** What a phone opens. Undefined while the listener is down. */
 export function phoneUrl(): string | undefined {
   if (!listening) return undefined;
+  // With TLS the url must be the name on the certificate, not the address it resolves to: an
+  // IP would be a name mismatch, and the warning page is exactly what the certificate is for.
+  if (listening.secure) return listening.certName ? `https://${listening.certName}:${listening.port}/` : undefined;
   const host = listening.address === "0.0.0.0" ? anyAddress() : listening.address;
   return host ? `http://${host}:${listening.port}/` : undefined;
+}
+
+/**
+ * The common name on a PEM certificate, without parsing X.509: the tailnet name is in the
+ * filename `tailscale cert` writes, but the file itself is what we have, so read the subject
+ * out of the DER through Bun's own crypto rather than shelling out to openssl.
+ */
+function certName(pem: string): string | undefined {
+  try {
+    const cert = new X509Certificate(pem);
+    const alt = cert.subjectAltName?.match(/DNS:([^,\s]+)/)?.[1];
+    return alt ?? cert.subject.match(/CN=([^\n,]+)/)?.[1];
+  } catch {
+    return undefined;
+  }
 }
 
 function startListener(): void {
@@ -122,10 +158,13 @@ function startListener(): void {
   listenError = error;
   if (!address || !open) return;
   const port = config.phone.port;
+  const tls = tlsMaterial();
   try {
-    listener = open(address, port);
-    listening = { address, port };
-    console.log(`[phone] listening on http://${address}:${port} (${store.devices.length} device${store.devices.length === 1 ? "" : "s"} granted access)`);
+    listener = open(address, port, tls);
+    listening = { address, port, secure: !!tls, certName: tls ? certName(tls.cert) : undefined };
+    const shown = phoneUrl() ?? `${tls ? "https" : "http"}://${address}:${port}`;
+    console.log(`[phone] listening on ${shown} (${store.devices.length} device${store.devices.length === 1 ? "" : "s"} granted access)`);
+    if (!tls) console.log("[phone] no phone.tls: the phone UI is an insecure origin, so it has no microphone");
   } catch (e) {
     listenError = `cannot listen on ${address}:${port}: ${(e as Error).message}`;
     console.error(`[phone] ${listenError}`);
@@ -142,12 +181,16 @@ function stopListener(): void {
  * socket stays bound to something nobody can reach. Same poll federation does. */
 function rebindIfMoved(): void {
   const want = resolveListen();
-  if (want.address !== listening?.address || (want.address && config.phone.port !== listening?.port)) startListener();
+  if (want.address !== listening?.address || (want.address && config.phone.port !== listening?.port)) return startListener();
+  // Turning TLS on or off does not move the listener, but it does change what the listener is:
+  // an http phone has no microphone at all. Without this, adding `phone.tls` looked like it had
+  // done nothing until the daemon happened to restart.
+  if (!!tlsMaterial() !== !!listening?.secure) startListener();
 }
 
 // ---- lifecycle ----
 
-export function start(openListener: (hostname: string, port: number) => Server): void {
+export function start(openListener: (hostname: string, port: number, tls?: { cert: string; key: string }) => Server): void {
   store = loadStore();
   open = openListener;
   startListener();

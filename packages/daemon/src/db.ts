@@ -242,6 +242,13 @@ export function listSessions(opts: { status?: Session["status"]; limit?: number 
   return rows.map(rowToSession);
 }
 
+/** Newest event timestamp per session. "Running" only says a PTY is alive; on a machine with
+ * dozens of open sessions this is what says which ones are actually being worked in. */
+export function lastEventTimes(): Map<string, number> {
+  const rows = db.prepare("SELECT session_id, MAX(ts) AS ts FROM events GROUP BY session_id").all() as { session_id: string; ts: number }[];
+  return new Map(rows.map((r) => [r.session_id, r.ts]));
+}
+
 export function dismissSession(id: string): void {
   db.prepare("UPDATE sessions SET dismissed_at = ? WHERE id = ?").run(Date.now(), id);
 }

@@ -68,6 +68,26 @@ export function spawnSpec(command: string, args: string[]): { command: string; a
   return { command: process.env.COMSPEC || "cmd.exe", args: ["/d", "/c", command, ...args] };
 }
 
+/**
+ * How to make the OS read `text` into the WAV file at `out`, with no install. macOS has `say`,
+ * which needs an explicit data format to write a WAV rather than its default AIFF. Windows has
+ * System.Speech through PowerShell, whose `SetOutputToWaveFile` already writes a WAV. The text
+ * goes in as an argument rather than on stdin because `say` reading stdin ignores `-o`; callers
+ * pass what an LLM wrote, so the PowerShell literal escapes its quotes.
+ */
+export function speakSpec(text: string, out: string, voice?: string): { command: string; args: string[] } {
+  if (!isWindows) {
+    const args = ["-o", out, "--data-format=LEI16@22050"];
+    if (voice) args.push("-v", voice);
+    return { command: "say", args: [...args, text] };
+  }
+  const literal = `'${text.replace(/'/g, "''")}'`;
+  const pick = voice ? `$s.SelectVoice('${voice.replace(/'/g, "''")}');` : "";
+  const script = `Add-Type -AssemblyName System.Speech; $s = New-Object System.Speech.Synthesis.SpeechSynthesizer; ${pick} $s.SetOutputToWaveFile('${out.replace(/'/g, "''")}'); $s.Speak(${literal}); $s.Dispose()`;
+  const ps = Bun.which("pwsh") ?? Bun.which("powershell") ?? "powershell";
+  return { command: ps, args: ["-NoProfile", "-NonInteractive", "-Command", script] };
+}
+
 /** Prepend `dir` to the PATH in `env`, whatever the variable is called there (Windows: `Path`). */
 export function prependPath(env: Record<string, string>, dir: string): void {
   const key = Object.keys(env).find((k) => k.toUpperCase() === "PATH") ?? "PATH";

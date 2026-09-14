@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- macOS kills a process that reaches for the microphone without a usage description, so the
+     Voice panel's push-to-talk needs this key to work inside the desktop shell at all. Tauri
+     merges this file into the bundle's Info.plist on macOS. -->
+<plist version="1.0">
+<dict>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Henry listens while you hold the talk key in the Voice panel, so you can ask it about your sessions.</string>
+</dict>
+</plist>

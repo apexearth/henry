@@ -1,5 +1,6 @@
 // Topbar "keys" modal: every shortcut Henry binds, in one place. The bindings live in
-// App.tsx, Rail.tsx, Terminal.tsx, the pickers and the shell menu; keep this list in step.
+// App.tsx, Rail.tsx, Terminal.tsx, panels/Voice.tsx, the pickers and the shell menu; keep this
+// list in step. The voice holds are bound by the Voice panel, so they work while it is open.
 import { useEffect } from "react";
 import { ARROW_MOD, MOD, isMac } from "./platform";
 import { inShell } from "./shell";
@@ -35,6 +36,10 @@ const SECTIONS: [string, Key[]][] = [
     [["↑", "↓"], "move down the tree; ↩ opens a folder, a file, or a search hit"],
     [["→", "←"], "open / close the folder under the cursor"],
     [["esc"], "back to the terminal"],
+  ]],
+  ["voice", [
+    [[isMac ? "hold right ⌥" : "hold right Alt"], "speak into the session you are in; the words are typed, not sent"],
+    [[isMac ? "hold ⇧ right ⌥" : "hold Shift+right Alt"], "ask Henry about your sessions, out loud"],
   ]],
   ["pickers", [
     [["↑", "↓"], "move the selection"],

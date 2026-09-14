@@ -129,6 +129,7 @@ function load(): HenryConfig {
     federation: { ...DEFAULT_CONFIG.federation, ...(user.federation ?? {}) },
     phone: { ...DEFAULT_CONFIG.phone, ...(user.phone ?? {}) },
     files: { ...DEFAULT_CONFIG.files, ...(user.files ?? {}) },
+    voice: { ...DEFAULT_CONFIG.voice, ...(user.voice ?? {}) },
     rules: { ...DEFAULT_CONFIG.rules, ...(user.rules ?? {}) },
   };
   if (process.env.HENRY_PORT) merged.port = Number(process.env.HENRY_PORT);

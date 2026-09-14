@@ -472,6 +472,75 @@ config. The user is the only router, and the rail stays a truthful record of who
   the server to the user's own config: that would put Henry's tools in every Claude on the
   machine, Henry's or not.
 
+## Talking to Henry
+
+The first slice of "Henry as an interlocutor" below, done by voice: hold a key in the Voice
+panel, ask a question, hear an answer. `daemon/src/voice.ts` owns the round trip; the panel
+records and plays.
+
+- **Push-to-talk, not a wake word.** The key release ends the utterance, so there is no voice
+  activity detection to tune, and the microphone is live only while a key is down. A tool that
+  already watches every repo you touch does not get a permanently open mic by default.
+- **Its own system prompt, not the overseer's.** The overseer writes to be *read*: backticks
+  around every name, `HEADLINE:`/`CHANGED:` labels, bullets. All of that is unspeakable. Voice
+  shares the overseer's *context assembly* (`globalContext`) and its backend (`askBackend`) and
+  brings its own output contract: a few sentences, no markup, no file paths spoken aloud, answer
+  first. One picture of the world, two ways of saying it.
+- **The transcript is treated as lossy.** The prompt tells the model its input is speech-to-text
+  and to match near-misses against the session and repo names in the context rather than repeat
+  a garbled name back. Henry also feeds those names to whisper as its initial prompt, and
+  fuzzy-matches whatever still comes back wrong (`matchSession`: "dune versus squid" finds
+  "dune vs squid"). Measured 2026-09-14: the bias prompt helps sometimes and not always; the
+  fuzzy match is what makes it reliable.
+- **The UI resamples, so the daemon needs no ffmpeg.** MediaRecorder gives webm/opus and
+  whisper.cpp wants 16 kHz mono PCM; the browser already has an AudioContext, so the conversion
+  happens there rather than adding a media dependency on two platforms.
+- **Speech is the nice-to-have.** A failed voice still answers in the panel. The platform voice
+  (`say`, SAPI) is the zero-install default; `voice.tts` points at any command that reads text
+  on stdin and writes a WAV on stdout, which is how a better local model gets wired in.
+- **Henry may type into a session; only you may send.** Dictation (hold right ⌥) and a relayed
+  message ("tell the indexer session to stop the backfill", which the model answers with a
+  `TELL:` directive) both put text in a session's prompt and stop there. Nothing is submitted:
+  the Enter is yours. This is not the cross-session write ruled out below — the words originate
+  with the user and reach the agent only when a person presses a key — but it is the closest
+  Henry comes to that line, and it holds precisely because the keystroke is never automated.
+  **That is enforced, not trusted** (`relaySafe`): `pty:input` is a raw write, so one CR or LF
+  in a relayed message *is* the Enter. Newlines become spaces, every C0 control is dropped
+  (escape sequences with them) and the message is capped. The enforcement matters because voice
+  now reads the live transcript, and a transcript carries tool results — file contents, command
+  output, fetched pages — so anything Henry can read can try to say "TELL:". Sanitised and
+  unsent, the worst case is a strange sentence sitting in your prompt where you can see it.
+- **Voice sees the conversation; the overseer still does not.** Decided 2026-09-14, deliberately
+  and not by accident: the tail of the live session's actual transcript rides in the voice
+  context, word for word, because "what did it just tell me" and "read me the end of that
+  answer" are the questions a voice is for, and an event summary cannot answer either — a
+  summary of a turn is not the turn. That text carries code, paths and diffs, so voice is no
+  longer blindfolded and its prompt says so, with the standing instruction to *describe* code
+  rather than read symbols and paths aloud, which is useless in speech. The overseer's own
+  blindfold is untouched: it writes a durable log for later, where the temptation to guess at
+  implementation detail is the thing that rule protects against. Only the session at the top of
+  the activity order gets a tail — it is the most expensive thing in the context by an order of
+  magnitude, and "the last response" almost always means the one in front of you.
+- **Off by default** (`voice.enabled`), like the overseer: it costs an LLM call per question.
+
+- **A phone records too, and that is what `phone.tls` is for.** A browser gives no microphone to
+  an insecure origin — `navigator.mediaDevices` is not merely blocked, it is undefined — so the
+  phone listener serving plain HTTP made voice on a phone unwritable rather than unwired. On a
+  tailnet the certificate is free and real: `tailscale cert <machine>.<tailnet>.ts.net`, the two
+  files in `phone.tls`, and Bun.serve does the rest. The QR then carries the certificate's name
+  rather than an address, because an address is exactly the mismatch a certificate objects to.
+  Without it the listener still comes up, says so on the console, and reports `secure: false` so
+  the panel can explain the missing microphone instead of failing at a bare TypeError.
+- **On a phone the gesture is the button.** There is no modifier to hold, so the composer's mic
+  is press-and-hold, and the press doubles as the gesture iOS requires before audio will play.
+  It transcribes into the composer, never into the session: the same rule the desktop holds to,
+  for the same reason. Henry's ear is preferred over the browser's recogniser when the daemon
+  has whisper, because only Henry's knows what your sessions, repos and files are called; the
+  Web Speech button stays as the fallback when it does not.
+
+Not built yet: word-level highlighting as Henry speaks (needs per-word timings, which no
+stock Kokoro ONNX export emits), and speaking Stop-hook answers unprompted.
+
 ## Layout
 
 ```
@@ -916,13 +985,11 @@ Fable 5.1 session in this repo (hooks, usage 5h/7d, repo card, playbook entries)
 - Replay of a session's history as a timeline.
 - **Henry as an interlocutor**: the overseer given the wide tool list and a conversation thread,
   so "what did I forget", "what is most urgent" and "which session was I doing xyz in" are
-  asked rather than inferred from a panel. Needs an FTS index over event summaries, prompts and
+  asked rather than inferred from a panel. The voice slice of this is built (see *Talking to
+  Henry*); what remains is the thread, the tools and the index. Needs an FTS index over event summaries, prompts and
   playbook text (prompts are the highest-signal text), and a cheap daily digest, since a day's
   raw events answer "what did I focus on yesterday" neither in a prompt nor after the retention
   sweep. The chat runs only when asked, so unlike the playbook it can default on.
-- **Per-repo rule overrides**, so "these flags are normal in this repo" is a setting rather than
-  a habit of ignoring the badge. `config.rules` is global today, which is why a conversation
-  about muting a rule has nothing to write.
 - **Cross-session writes, deliberately not built.** A session leaving an advisory note for
   whoever comes next ("churning `packages/shared` for the next hour") is data and stays on the
   table. A session typing into another session's PTY, or steering it, is not: it would make the

@@ -38,6 +38,21 @@ const RECT_FLOATS = 8, RECT_ALPHA = 7;
 interface RectRenderer { _vertices: { attributes: Float32Array; count: number }; renderBackgrounds(): void }
 let softened = false;
 
+/**
+ * Live terminals by session, so the keyboard can be handed to one from outside its component.
+ * `showSession` only brings a tab forward; when that tab is already the active one — which is
+ * the usual case for dictating into the session you are looking at — nothing in dockview
+ * changes and xterm never takes DOM focus back from whatever stole it.
+ */
+const live = new Map<string, Terminal>();
+
+export function focusTerminal(sessionId: string): boolean {
+  const t = live.get(sessionId);
+  if (!t) return false;
+  t.focus();
+  return true;
+}
+
 /** xterm's WebGL renderer hardcodes alpha 1 on every cell background it paints, so a line an app
  * gives a background colour lands as a solid slab in front of the context wall, while the
  * terminal's own background is see-through. Re-alpha the rectangles on their way to the GPU.
@@ -275,6 +290,7 @@ export function TerminalView({ sessionId, visible, focused, fontSize }: Props) {
     ro.observe(box.current!);
     term.current = t;
     fit.current = f;
+    live.set(sessionId, t);
     (t as unknown as { _henryFit: () => void })._henryFit = doFit;
     (t as unknown as { _henryResync: () => void })._henryResync = resync;
     return () => {
@@ -287,6 +303,7 @@ export function TerminalView({ sessionId, visible, focused, fontSize }: Props) {
       screen?.removeEventListener("touchmove", onTouchMove as EventListener);
       screen?.removeEventListener("touchend", onTouchEnd);
       screen?.removeEventListener("touchcancel", onTouchEnd);
+      if (live.get(sessionId) === t) live.delete(sessionId);
       t.dispose();
       term.current = null;
     };

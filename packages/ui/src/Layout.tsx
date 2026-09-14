@@ -8,6 +8,7 @@ import { ContextSky } from "./ContextSky";
 import { FileView } from "./FileView";
 import { FilesPane } from "./FilesPane";
 import { BoundFlags, BoundHistory, BoundPlaybook, BoundUsage, useSessionFlags } from "./panels/bound";
+import { VoicePanel } from "./panels/Voice";
 import { setActive, useStore } from "./ws";
 import { buildDefaultLayout, ensureSessionPanel, henryTheme, isFilePanel, isTerminalGroup, loadLayout, migrateRestoredLayout, noteActivePanel, saveLayout, sessionTitle, setDockApi, styleTerminalGroup, TERM_PREFIX, termPanelId } from "./dock";
 
@@ -126,6 +127,7 @@ const components = {
   flags: FlagsDock,
   playbook: PlaybookDock,
   usage: UsageDock,
+  voice: VoicePanel,
 };
 
 export function Layout() {

@@ -13,7 +13,7 @@ import { chmodSync, existsSync, readFileSync, renameSync, writeFileSync } from "
 import { networkInterfaces } from "node:os";
 import { join } from "node:path";
 import type { ServerWebSocket } from "bun";
-import type { ClientMessage, FederationStatus, HostUsage, PeerStatus, ServerMessage, StateSnapshot, Usage } from "@henry/shared";
+import type { ClientMessage, FederationStatus, HostUsage, PeerStatus, ServerMessage, Session, StateSnapshot, Usage } from "@henry/shared";
 import { config, henryDir, onConfigReload } from "./config";
 import { FED_VERSION, Handshake, fingerprint, isHello, newIdentity, newPairingCode, normalizeCode, proofsEqual, signTranscript, verifyTranscript, type Derived, type IdentityKeys } from "./fed-crypto";
 import { PeerLink, type FedState, type LinkDeps } from "./fed-peer";
@@ -525,6 +525,12 @@ export function answerAttention(id: string): boolean {
  * snapshot was every machine's cap added together, most of it never scrolled to. */
 export const STATE_FLAGS = 500;
 export const STATE_PLAYBOOK = 200;
+
+/** Every connected peer's sessions, for callers that want the whole picture without building a
+ * state snapshot (voice.ts: a roster that omits half the machines is worse than none). */
+export function peerSessions(): Session[] {
+  return [...links.values()].filter((l) => l.status === "connected").flatMap((l) => [...l.sessions.values()]);
+}
 
 export function merge(local: StateSnapshot): StateSnapshot {
   const out: StateSnapshot = { ...local, host: localName(), peers: statuses() };

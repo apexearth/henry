@@ -65,7 +65,9 @@ describe("phone access", () => {
       return st.listening?.port === phonePort ? st : undefined;
     }, 15000);
     const st = await phoneStatus();
-    expect(st.listening).toEqual({ address: "127.0.0.1", port: phonePort });
+    // No phone.tls in this config, so the listener is plain http — and a phone on it has no
+    // microphone, which is what `secure: false` is there to make visible.
+    expect(st.listening).toEqual({ address: "127.0.0.1", port: phonePort, secure: false, certName: undefined });
     expect(st.url).toBe(`${phone}/`);
     expect(st.devices).toEqual([]);
     expect(st.invite).toBeUndefined();

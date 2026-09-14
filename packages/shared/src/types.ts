@@ -247,11 +247,13 @@ export interface PhoneDevice {
 
 /** GET /api/phone/status: how a phone reaches this daemon, and which ones may. */
 export interface PhoneStatus {
-  /** Where the phone listener is bound, once it is up. */
-  listening?: { address: string; port: number };
+  /** Where the phone listener is bound, once it is up. `secure` is whether it is serving TLS,
+   * which decides whether a phone on it has a microphone at all (see phone.tls). */
+  listening?: { address: string; port: number; secure: boolean; certName?: string };
   /** Why it is not up (config off, no tailnet address, bind failed). */
   listenError?: string;
-  /** What a granted phone opens: http://<address>:<port>/ */
+  /** What a granted phone opens. With TLS this is the certificate's name rather than an
+   * address, since an address would not match the certificate. */
   url?: string;
   /** An open invite: the one-time code, when it expires, and the url to put in the QR. */
   invite?: { code: string; expiresAt: number; url: string };
@@ -321,6 +323,18 @@ export interface HenryConfig {
   phone: {
     listen: "tailscale" | "off" | string;
     port: number;
+    /**
+     * Serve the phone UI over HTTPS. Without it a browser treats the page as an insecure
+     * origin, and an insecure origin has no microphone: `navigator.mediaDevices` is not
+     * defined at all, so voice on a phone is not a feature that can be written — only a
+     * certificate makes it possible.
+     *
+     * On a tailnet the certificate is free and real (no warnings, nothing to install on the
+     * phone): `tailscale cert <machine>.<tailnet>.ts.net` writes the pair, and these are the
+     * two files it wrote. Paths may use "~". The listener falls back to HTTP, loudly, if they
+     * cannot be read, because an unreachable phone is worse than an insecure one.
+     */
+    tls?: { cert: string; key: string };
   };
   /** The files pane. Its roots are the active session's repos, automatically; `roots` is what
    * the user pinned on top of those — folders worth reading that no session has touched.
@@ -328,6 +342,25 @@ export interface HenryConfig {
   files: {
     /** Absolute after load (config.ts expands "~"). */
     roots: string[];
+  };
+  /** Talking to Henry (daemon/voice.ts). Push-to-talk in the Voice panel: the browser records,
+   * the daemon transcribes, answers from the same context the overseer sees, and speaks back. */
+  voice: {
+    /** Serve `/api/voice/*` at all. Off means the panel says so and nothing listens. */
+    enabled: boolean;
+    /** whisper.cpp binary (`brew install whisper-cpp`), on PATH or absolute. */
+    stt: string;
+    /** ggml model for `stt`. Absent means voice input is off even when `enabled`. */
+    sttModel?: string;
+    /** A command that reads text on stdin and writes a WAV to stdout. Absent uses the platform
+     * voice (`say` on macOS, SAPI on Windows), which needs no install and sounds like it. */
+    tts?: string;
+    /** Voice name for the platform speaker; ignored when `tts` is set. */
+    ttsVoice?: string;
+    /** Words you say that whisper has no way to guess — product names, tools, jargon
+     * ("subsquid", "sessiond"). They go first in the bias and are never dropped, and a
+     * transcript that spells one differently ("sub-squid") is put back to this spelling. */
+    vocabulary?: string[];
   };
   rules: {
     protectedBranches: string[];
@@ -352,6 +385,7 @@ export const DEFAULT_CONFIG: HenryConfig = {
   federation: { listen: "tailscale", port: 14712 },
   phone: { listen: "tailscale", port: 14714 },
   files: { roots: [] },
+  voice: { enabled: false, stt: "whisper-cli" },
   rules: {
     protectedBranches: ["main", "master"],
     alarm: ["git push --force", "git push -f", "git reset --hard", "rm -rf", "git branch -D", "git checkout -- ."],
@@ -492,5 +526,45 @@ export interface History {
   /** False when older turns were left unread above the window. */
   complete: boolean;
   /** No transcript to read: not a Claude session, or it has not written one yet. */
+  reason?: string;
+}
+
+/** What Henry does with the window after answering. The panel performs it; the daemon only says
+ * which session, because only the UI knows what is on screen. */
+export interface VoiceAction {
+  /** "switch": bring that session forward. "type": put `text` in its prompt, unsent. */
+  kind: "switch" | "type";
+  sessionId: string;
+  /** The session's title at the time, for the panel to show without another lookup. */
+  title: string;
+  /** For "type": what to place in that session's prompt. Never submitted — the user presses
+   * Enter, which is what keeps a relayed message something a person sent. */
+  text?: string;
+}
+
+/** One word whisper is told to expect, and why it is on the list. */
+export interface VocabTerm {
+  term: string;
+  /** "you": `voice.vocabulary` in config.json. The rest are read off what is open. */
+  source: "you" | "session" | "repo" | "branch" | "file";
+}
+
+/** GET /api/voice/vocabulary: what the ear has been primed with, so it is inspectable rather
+ * than a black box. `dropped` is what did not fit in whisper's prompt budget. */
+export interface VoiceVocabulary {
+  prompt: string;
+  used: VocabTerm[];
+  dropped: VocabTerm[];
+}
+
+/** The spoken half of a push-to-talk exchange (POST /api/voice/answer). The question itself came
+ * back from /api/voice/transcribe a moment earlier, so it is not repeated here. */
+export interface VoiceReply {
+  /** What Henry says. Written to be heard: a few sentences, no markup. */
+  text: string;
+  action?: VoiceAction;
+  /** WAV bytes, base64. Absent when speech failed; the panel still shows `text`. */
+  audio?: string;
+  /** Why there is no audio, or no answer at all. */
   reason?: string;
 }

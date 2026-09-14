@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { isClaudeSession, type Session } from "@henry/shared";
 import { send } from "../ws";
 import { dictationSupported, listen, type Dictation } from "./dictation";
+import { canRecord, holdToTalk } from "../voice-audio";
 
 /** The keys a phone keyboard has no way to send, and the answers a permission prompt wants. */
 interface Key {
@@ -32,6 +33,11 @@ export function Composer({ session }: { session: Session }) {
   const [text, setText] = useState("");
   const [dictating, setDictating] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  /** Henry's own ear, when this page can record and the daemon has whisper. Preferred over the
+   * browser's recogniser because it knows what your sessions, repos and files are called. */
+  const [holdState, setHoldState] = useState<"idle" | "arming" | "recording" | "working">("idle");
+  const [whisper, setWhisper] = useState(false);
+  const hold = useRef(holdToTalk(setHoldState));
   const box = useRef<HTMLTextAreaElement>(null);
   const speech = useRef<Dictation | undefined>(undefined);
   // What was in the box when the microphone opened; recognised words are appended to it.
@@ -40,6 +46,14 @@ export function Composer({ session }: { session: Session }) {
 
   // Leaving the session (or the page) with the microphone open would keep listening.
   useEffect(() => () => speech.current?.stop(), []);
+
+  useEffect(() => {
+    if (!canRecord()) return;
+    fetch("/api/voice/status")
+      .then((r) => r.json())
+      .then((s: { ready?: boolean }) => setWhisper(!!s.ready))
+      .catch(() => setWhisper(false));
+  }, []);
   useEffect(() => {
     speech.current?.stop();
     setText("");
@@ -86,6 +100,18 @@ export function Composer({ session }: { session: Session }) {
     setDictating(true);
   };
 
+  /** Release: transcribe and put the words in the box, never straight into the session. */
+  async function finishHold() {
+    try {
+      const said = await hold.current.stop(session.id);
+      if (!said) return;
+      setText((t) => (t.trim() ? `${t.replace(/\s+$/, "")} ${said}` : said));
+      box.current?.focus();
+    } catch (e) {
+      setNote(e instanceof Error ? e.message : "could not transcribe that");
+    }
+  }
+
   return (
     <div className="m-composer">
       <div className="m-keys">
@@ -107,7 +133,7 @@ export function Composer({ session }: { session: Session }) {
           className="m-text"
           value={text}
           rows={1}
-          placeholder={dictating ? "listening…" : claude ? "tell Claude what to do" : "type a command"}
+          placeholder={holdState === "arming" ? "opening mic…" : holdState === "recording" ? "listening — release to stop" : holdState === "working" ? "writing it down…" : dictating ? "listening…" : claude ? "tell Claude what to do" : "type a command"}
           enterKeyHint="send"
           autoCapitalize="sentences"
           autoCorrect="on"
@@ -119,11 +145,30 @@ export function Composer({ session }: { session: Session }) {
             submit(e.shiftKey);
           }}
         />
-        {dictationSupported() && (
-          <button className={"m-mic" + (dictating ? " on" : "")} onClick={toggleMic}
-            title={dictating ? "stop dictating" : "dictate — hands-free, words appear as you speak"} aria-label="dictate">
-            ●
+        {whisper ? (
+          <button
+            className={"m-mic" + (holdState === "recording" ? " on" : "")}
+            // Pointer events, not click: the press and the release are the whole gesture.
+            onPointerDown={(e) => {
+              e.preventDefault();
+              void hold.current.start();
+            }}
+            onPointerUp={() => void finishHold()}
+            onPointerCancel={() => void finishHold()}
+            onContextMenu={(e) => e.preventDefault()}
+            disabled={holdState === "working"}
+            title="hold to talk — the words land here for you to read before sending"
+            aria-label="hold to talk"
+          >
+            {holdState === "working" ? "…" : "●"}
           </button>
+        ) : (
+          dictationSupported() && (
+            <button className={"m-mic" + (dictating ? " on" : "")} onClick={toggleMic}
+              title={dictating ? "stop dictating" : "dictate — hands-free, words appear as you speak"} aria-label="dictate">
+              ●
+            </button>
+          )
         )}
         <button className="m-send" onClick={() => submit(false)} disabled={!text.trim()} title="send this line to the session">
           send

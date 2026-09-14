@@ -8,7 +8,7 @@
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import type { Flag, HenryEvent, PlaybookEntry, PlaybookTrigger, RepoState, ServerMessage } from "@henry/shared";
+import type { Flag, HenryEvent, PlaybookEntry, PlaybookTrigger, RepoState, ServerMessage, Session } from "@henry/shared";
 import { config } from "./config";
 import * as db from "./db";
 import * as git from "./git";
@@ -145,6 +145,43 @@ function currentBackend(): Backend | undefined {
   if (chosen.name === "api") return apiBackend;
   if (chosen.name === "claude-cli") return claudeCliBackend;
   return undefined;
+}
+
+// ---- shared with voice.ts ----
+
+/**
+ * Running sessions, most recently active first.
+ *
+ * "Running" only says a PTY is alive: on a machine carrying dozens of them (29 here on
+ * 2026-09-14, of which three had seen an event that day) creation order fills a capped list
+ * with whatever was opened last rather than whatever is being worked in. Every caller that
+ * takes the first N must use this one, or two parts of the same prompt end up describing
+ * different sets of sessions.
+ */
+export function liveSessions(limit: number): Session[] {
+  const seen = db.lastEventTimes();
+  return db
+    .listSessions({ status: "running" })
+    .sort((a, b) => (seen.get(b.id) ?? b.createdAt) - (seen.get(a.id) ?? a.createdAt))
+    .slice(0, limit);
+}
+
+export { eventLine, oneLine, safeRepos };
+
+/**
+ * The same picture the global playbook is written from — running sessions, their summaries,
+ * flags and repos — with the user's question as the trigger. Exported rather than copied:
+ * one context assembly, two output contracts (the playbook is read, voice.ts is heard).
+ */
+export function globalContext(question: string): string {
+  return buildGlobalPrompt({ trigger: "manual", prompt: question });
+}
+
+/** One prompt through whichever backend the overseer chose. Throws when there is none. */
+export function askBackend(system: string, user: string, signal: AbortSignal): Promise<string | undefined> {
+  const backend = currentBackend();
+  if (!backend) throw new Error(lastError ?? chosen.why);
+  return backend({ system, user, model: config.overseer.model }, signal);
 }
 
 // ---- test hooks ----
@@ -331,10 +368,10 @@ const oneLine = (s: string, max: number) => {
   return t.length > max ? t.slice(0, max - 1) + "…" : t;
 };
 
-function eventLine(e: HenryEvent): string {
+function eventLine(e: HenryEvent, max = 200): string {
   const what = [e.hookEvent ?? e.kind, e.toolName].filter(Boolean).join(" ");
   const sev = e.severity !== "info" ? ` [${e.severity}${e.rule ? ": " + e.rule : ""}]` : "";
-  return `${hhmmss(e.ts)}  ${what}${sev}: ${oneLine(e.summary, 200)}`;
+  return `${hhmmss(e.ts)}  ${what}${sev}: ${oneLine(e.summary, max)}`;
 }
 
 function flagLine(f: Flag): string {
@@ -470,7 +507,7 @@ async function buildSessionPrompt(sessionId: string, req: RunRequest): Promise<s
 }
 
 function buildGlobalPrompt(req: RunRequest): string {
-  const sessions = db.listSessions({ status: "running" }).slice(0, 8);
+  const sessions = liveSessions(8);
   const blocks = sessions.map((s) => {
     const flags = db.listFlags({ sessionId: s.id, limit: 50 });
     const unread = flags.filter((f) => !f.read);
