@@ -348,7 +348,8 @@ export interface HenryConfig {
   voice: {
     /** Serve `/api/voice/*` at all. Off means the panel says so and nothing listens. */
     enabled: boolean;
-    /** whisper.cpp binary (`brew install whisper-cpp`), on PATH or absolute. */
+    /** whisper.cpp binary, on PATH or absolute: `brew install whisper-cpp` on macOS, `whisper-cli.exe`
+     * from the project's whisper-bin-x64.zip on Windows. */
     stt: string;
     /** ggml model for `stt`. Absent means voice input is off even when `enabled`. */
     sttModel?: string;

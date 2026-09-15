@@ -482,12 +482,19 @@ export function VoicePanel() {
   // anything that types — no chord to collide with an OS or 1Password binding, and plain space
   // stays Claude Code's. Option+letter still works, because this never calls preventDefault and
   // cancels the moment a second key joins the hold. Repeat events fire while held; ignore them.
+  //
+  // The one exception to "never preventDefault" is the bare Alt itself on Windows: a press and
+  // release with nothing in between is how Chrome and Edge focus the browser menu, so every
+  // dictation would end with the keyboard taken from the terminal and handed to the toolbar.
+  // Cancelling the default on the events the hold consumes stops that; an Alt+letter chord is a
+  // different keydown, with its default untouched.
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
       if (e.repeat) return;
       // ctrlKey rules out AltGr, which Windows synthesizes as ControlLeft+AltRight — otherwise
       // every accented character on an EU layout opens the microphone.
       if (e.code === "AltRight" && !e.ctrlKey && phaseRef.current === "idle") {
+        if (!isMac) e.preventDefault();
         void start(e.shiftKey ? "ask" : "dictate");
         return;
       }
@@ -507,6 +514,7 @@ export function VoicePanel() {
       if (phaseRef.current !== "recording" && phaseRef.current !== "arming") return;
       // The hold is the option key, whichever destination it ended up pointing at.
       if (e.code !== "AltRight") return;
+      if (!isMac) e.preventDefault();
       stop();
     };
     // A hold that survives the window losing focus would leave the microphone open.

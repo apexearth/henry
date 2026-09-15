@@ -132,6 +132,48 @@ A phone with access is a window, typing included, so grant it deliberately. The 
 tailnet-only by default (`phone.listen`, `"off"` to disable it), serves nothing but the UI,
 `/api` and `/ws`, and refuses every request that does not carry a granted token.
 
+## Voice
+
+Hold right Alt (right ⌥ on a Mac) to dictate into the session you are looking at; add Shift
+to ask Henry about your sessions instead and hear the answer. Both type, neither sends: the
+Enter is yours. The Voice panel shows what it heard, what it said, and what words it was
+listening for.
+
+It needs [whisper.cpp](https://github.com/ggml-org/whisper.cpp) and a ggml model, and it is
+off until `voice.enabled` is set:
+
+- macOS: `brew install whisper-cpp`, then a model such as `ggml-base.en.bin` from
+  [huggingface.co/ggerganov/whisper.cpp](https://huggingface.co/ggerganov/whisper.cpp/tree/main).
+- Windows: unzip `whisper-bin-x64.zip` from the whisper.cpp releases somewhere (say
+  `%LOCALAPPDATA%\Programs\whisper-cpp`; the `whisper-cublas-*` zips use the GPU) and put the
+  model beside it.
+
+```json
+"voice": {
+  "enabled": true,
+  "stt": "C:/Users/you/AppData/Local/Programs/whisper-cpp/whisper-cli.exe",
+  "sttModel": "C:/Users/you/AppData/Local/Programs/whisper-cpp/models/ggml-base.en.bin",
+  "vocabulary": ["sessiond", "subsquid"]
+}
+```
+
+`stt` may be a bare name on PATH (the default, `whisper-cli`). `vocabulary` is the words it
+keeps mishearing. Asking needs an answer backend, which is the overseer's: an API key, or
+`claude` on PATH.
+
+Answers are spoken by the platform voice, `say` or SAPI, with nothing to install and the
+sound to match. `voice.tts` names any command that takes text on stdin and writes a WAV to
+stdout, split on spaces, and two are known to work:
+
+- [Piper](https://github.com/rhasspy/piper): about a second an answer, plainly better than
+  the platform voice. Unzip the release for your OS, fetch a voice (`.onnx` + `.onnx.json`)
+  from [rhasspy/piper-voices](https://huggingface.co/rhasspy/piper-voices), then
+  `"tts": "C:/…/piper/piper.exe --model C:/…/voices/en_US-lessac-medium.onnx --output_file -"`.
+- [Kokoro](https://github.com/thewh1teagle/kokoro-onnx): close to a person, three or four
+  seconds an answer on a CPU. Needs [uv](https://docs.astral.sh/uv/) and the two model files
+  from the kokoro-onnx releases; `scripts/kokoro-tts.py` says where. Then
+  `"tts": "uv run C:/…/henry/scripts/kokoro-tts.py --voice af_heart"`.
+
 ## What a session can ask Henry
 
 Two MCP tools, loopback only, on sessions Henry starts:
@@ -148,15 +190,16 @@ Henry's config.
 
 `~/.henry/config.json`, edited in Settings (⌘,) or by hand, hot-reloaded either way. The
 keys worth knowing: `reposRoot`, `retentionDays` (30), `overseer` (the playbook, off by
-default since every entry is an LLM call), `mcp`, `federation`, `phone`, `rules`. `~/.henry`
-also holds the SQLite database, the sessiond details, the federation key and the phones that
-have access. `HENRY_HOME` and `HENRY_PORT` override both, which is how the tests stay off
-yours.
+default since every entry is an LLM call), `mcp`, `federation`, `phone`, `voice`, `rules`.
+`~/.henry` also holds the SQLite database, the sessiond details, the federation key and the
+phones that have access. `HENRY_HOME` and `HENRY_PORT` override both, which is how the tests
+stay off yours.
 
 ## Requirements
 
 bun ≥ 1.4.2, node ≥ 22.6 on PATH, `claude`, git. Optional: `gh` for PR counts, a Rust
-toolchain for the native window, Tailscale for pairing and for the phone.
+toolchain for the native window, Tailscale for pairing and for the phone, whisper.cpp for
+voice.
 
 Bun 1.2.x on Windows kept about a kilobyte of native memory for every hook and statusline
 request the daemon answered, which at Henry's request rate was gigabytes a day; 1.4.2 does

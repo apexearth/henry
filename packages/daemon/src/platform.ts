@@ -88,6 +88,11 @@ export function speakSpec(text: string, out: string, voice?: string): { command:
   return { command: ps, args: ["-NoProfile", "-NonInteractive", "-Command", script] };
 }
 
+/** How to get whisper.cpp here. Homebrew has it; Windows has only the project's own zips. */
+export const STT_INSTALL_HINT = isWindows
+  ? "unzip whisper-bin-x64.zip from github.com/ggml-org/whisper.cpp/releases and point voice.stt at whisper-cli.exe"
+  : "brew install whisper-cpp";
+
 /** Prepend `dir` to the PATH in `env`, whatever the variable is called there (Windows: `Path`). */
 export function prependPath(env: Record<string, string>, dir: string): void {
   const key = Object.keys(env).find((k) => k.toUpperCase() === "PATH") ?? "PATH";

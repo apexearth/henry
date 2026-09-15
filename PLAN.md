@@ -497,7 +497,11 @@ records and plays.
   happens there rather than adding a media dependency on two platforms.
 - **Speech is the nice-to-have.** A failed voice still answers in the panel. The platform voice
   (`say`, SAPI) is the zero-install default; `voice.tts` points at any command that reads text
-  on stdin and writes a WAV on stdout, which is how a better local model gets wired in.
+  on stdin and writes a WAV on stdout, which is how a better local model gets wired in. One
+  process per answer, on purpose: nothing resident, nothing to babysit. `scripts/kokoro-tts.py`
+  is that command for Kokoro; measured 2026-09-14 on a Ryzen 5800X3D, the process costs about
+  two seconds before it renders a word (interpreter, then a 326 MB model), which is the price
+  of the no-daemon rule and the reason Piper is documented beside it.
 - **Henry may type into a session; only you may send.** Dictation (hold right ⌥) and a relayed
   message ("tell the indexer session to stop the backfill", which the model answers with a
   `TELL:` directive) both put text in a session's prompt and stop there. Nothing is submitted:

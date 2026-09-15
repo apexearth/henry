@@ -21,7 +21,7 @@ import * as federation from "./federation";
 import * as git from "./git";
 import { readHistory } from "./history";
 import { askBackend, eventLine, globalContext, liveSessions, oneLine, safeRepos } from "./overseer";
-import { speakSpec } from "./platform";
+import { STT_INSTALL_HINT, speakSpec } from "./platform";
 
 /** Long enough for a held key, short enough that a stuck one cannot fill the disk. */
 export const MAX_CLIP_BYTES = 8 << 20;
@@ -478,7 +478,7 @@ export function unavailable(): string | undefined {
   if (!config.voice.sttModel) return "no speech model (set voice.sttModel to a whisper.cpp ggml file)";
   // An absolute path is not on PATH and does not need to be; `includes("/")` alone called every
   // Windows install broken and told the user to run brew.
-  if (!Bun.which(config.voice.stt) && !isAbsolute(config.voice.stt)) return `${config.voice.stt} is not on PATH (brew install whisper-cpp)`;
+  if (!Bun.which(config.voice.stt) && !isAbsolute(config.voice.stt)) return `${config.voice.stt} is not on PATH (${STT_INSTALL_HINT})`;
   return undefined;
 }
 
