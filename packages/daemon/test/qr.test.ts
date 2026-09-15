@@ -73,21 +73,24 @@ function functionModules(size: number): boolean[][] {
 }
 
 /** Format information as a scanner reads it: the copy around the top-left finder, un-XORed,
- * with its BCH remainder checked. */
+ * with its BCH remainder checked. Least significant bit at the top of column 8 and the right
+ * end of row 8 (ISO 18004 figure 25; zxing's readFormatInformation reads it the same way).
+ * This reader once agreed with the encoder on a transposed layout, and both were wrong: the
+ * golden matrix below is what stops that happening again. */
 function readFormat(m: boolean[][]): { level: number; mask: number } {
   const size = m.length;
   const bit = (r: number, c: number) => (m[r]![c] ? 1 : 0);
   let raw = 0;
   const put = (i: number, v: number) => (raw |= v << i);
-  for (let i = 0; i < 6; i++) put(i, bit(8, i));
-  put(6, bit(8, 7));
+  for (let i = 0; i < 6; i++) put(i, bit(i, 8));
+  put(6, bit(7, 8));
   put(7, bit(8, 8));
-  put(8, bit(7, 8));
-  for (let i = 9; i < 15; i++) put(i, bit(14 - i, 8));
+  put(8, bit(8, 7));
+  for (let i = 9; i < 15; i++) put(i, bit(8, 14 - i));
   // The second copy must say the same thing.
   let raw2 = 0;
-  for (let i = 0; i < 7; i++) raw2 |= bit(size - 1 - i, 8) << i;
-  for (let i = 7; i < 15; i++) raw2 |= bit(8, size - 15 + i) << i;
+  for (let i = 0; i < 8; i++) raw2 |= bit(8, size - 1 - i) << i;
+  for (let i = 8; i < 15; i++) raw2 |= bit(size - 15 + i, 8) << i;
   expect(raw2).toBe(raw);
   const value = raw ^ 0x5412;
   // BCH(15,5): the whole 15-bit word must be divisible by 0x537.
@@ -163,6 +166,37 @@ describe("qr", () => {
     // The eight level-M format strings from ISO 18004 Annex C.
     const expected = [0x5412, 0x5125, 0x5e7c, 0x5b4b, 0x45f9, 0x40ce, 0x4f97, 0x4aa0];
     for (let mask = 0; mask < 8; mask++) expect(formatBits(mask)).toBe(expected[mask]);
+  });
+
+  test("matches a reference encoder module for module", () => {
+    // python-qrcode 8.x, error correction M, mask chosen by its own penalty scoring; a
+    // spec-conformant encoder lands on the same mask, so the whole square must agree. A
+    // round trip through a reader written from the same misunderstanding proves nothing.
+    const golden = [
+      "#######..##...#######",
+      "#.....#.##....#.....#",
+      "#.###.#..#.##.#.###.#",
+      "#.###.#...##..#.###.#",
+      "#.###.#.##..#.#.###.#",
+      "#.....#.....#.#.....#",
+      "#######.#.#.#.#######",
+      "..........###........",
+      "#.#.#.#..#.#....#..#.",
+      "..#.##....#...#....##",
+      ".#.#..#.###.#...#####",
+      "##..#.........#....#.",
+      ".##.#.##..#.#.#.#....",
+      "........####.#.#..###",
+      "#######...##.###..###",
+      "#.....#...####.##....",
+      "#.###.#.#.##.###...##",
+      "#.###.#..#....##..##.",
+      "#.###.#.###.#...#.#.#",
+      "#.....#..#....#.#..#.",
+      "#######.###.#.##...##",
+    ];
+    const rows = qrMatrix("hello").map((r) => r.map((v) => (v ? "#" : ".")).join(""));
+    expect(rows).toEqual(golden);
   });
 
   test("finder, timing and dark modules are where a scanner looks for them", () => {

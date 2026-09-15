@@ -269,17 +269,26 @@ export function formatBits(mask: number): number {
   return ((value << 10) | rem) ^ 0x5412;
 }
 
+/**
+ * Both copies of the format information, bit 0 the least significant. Indices here are
+ * (row, column): the least significant bit sits at the top of column 8 and at the right end of
+ * row 8, and the most significant at the left end of row 8 and the bottom of column 8. The
+ * usual reference for this layout (Nayuki's) is written column-first, and a transcription that
+ * read it row-first put every bit on the transposed strip — a code no reader would decode.
+ */
 function placeFormat(m: Grid, mask: number): void {
   const size = m.length;
   const bits = formatBits(mask);
   const bit = (i: number) => ((bits >> i) & 1) === 1;
-  for (let i = 0; i < 6; i++) m[8]![i] = bit(i);
-  m[8]![7] = bit(6);
+  // Around the top-left finder: down column 8, then leftward along row 8.
+  for (let i = 0; i < 6; i++) m[i]![8] = bit(i);
+  m[7]![8] = bit(6);
   m[8]![8] = bit(7);
-  m[7]![8] = bit(8);
-  for (let i = 9; i < 15; i++) m[14 - i]![8] = bit(i);
-  for (let i = 0; i < 7; i++) m[size - 1 - i]![8] = bit(i);
-  for (let i = 7; i < 15; i++) m[8]![size - 15 + i] = bit(i);
+  m[8]![7] = bit(8);
+  for (let i = 9; i < 15; i++) m[8]![14 - i] = bit(i);
+  // Under the top-right finder, leftward along row 8; beside the bottom-left one, down column 8.
+  for (let i = 0; i < 8; i++) m[8]![size - 1 - i] = bit(i);
+  for (let i = 8; i < 15; i++) m[size - 15 + i]![8] = bit(i);
 }
 
 /**
