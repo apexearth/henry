@@ -176,6 +176,16 @@ describe("cross-repo and outside writes", () => {
     expect(c(tool("Write", { file_path: join(repoB, "x") }), { rules: { ...baseRules, crossRepoWrite: "info" } })).toEqual({ severity: "info" });
   });
 
+  test("per-repo override mutes the rule for sessions homed in that repo only", () => {
+    const w = tool("Write", { file_path: join(repoB, "x"), content: "" });
+    expect(c(w, { rules: { ...baseRules, repos: { [repoA + "/"]: { crossRepoWrite: "info" } } } })).toEqual({ severity: "info" });
+    expect(c(w, { rules: { ...baseRules, repos: { [repoA]: { crossRepoWrite: "alarm" } } } })).toMatchObject({ severity: "alarm", rule: "cross-repo-write" });
+    expect(c(w, { rules: { ...baseRules, repos: { [repoB]: { crossRepoWrite: "info" } } } })).toMatchObject({ severity: "notable", rule: "cross-repo-write" });
+    // the override is keyed by the session's home repo, so a session in beta writing into alpha is judged by beta's rules
+    const fromB = ev({ sessionId: "s-feature", hookEvent: "PreToolUse", toolName: "Write", cwd: repoB, payload: { tool_input: { file_path: join(repoA, "x") }, cwd: repoB } });
+    expect(c(fromB, { rules: { ...baseRules, repos: { [repoB]: { crossRepoWrite: "info" } } } })).toEqual({ severity: "info" });
+  });
+
   test("shell writes: redirects, sed -i, rm/mv/cp, cd + git", () => {
     expect(c(bash(`echo hi > ${repoB}/notes.txt`))).toMatchObject({ rule: "cross-repo-write" });
     expect(c(bash(`sed -i '' 's/a/b/' ${repoB}/README.md`))).toMatchObject({ rule: "cross-repo-write" });

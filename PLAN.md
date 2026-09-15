@@ -996,10 +996,17 @@ unbounded input is trimmed at the door.
     "alarm": ["git push --force", "git push -f", "git reset --hard", "rm -rf", "git branch -D", "git checkout -- ."],
     "notable": ["git push", "git rebase", "git merge", "git checkout", "git switch", "git worktree", "git stash", "gh pr"],
     "crossRepoWrite": "notable",
-    "commitOnProtected": "alarm"
+    "commitOnProtected": "alarm",
+    "repos": { "~/code/off-chain": { "crossRepoWrite": "info" } }
   }
 }
 ```
+
+`rules.repos` is the per-repo override: keyed by repo path, matched against the **session's home
+repo** (worktrees of it count), and laid on top of the global keys for events from that session.
+A key that is set replaces the global value outright, so `"notable": []` mutes the list. The
+off-chain repo is the reason it exists: work there routinely writes into sibling repos, and a
+flag that fires on every session teaches you to ignore the badge.
 
 ## Milestones
 

@@ -40,7 +40,7 @@ export const deps = {
   now: (): number => Date.now(),
 };
 
-type RulesConfig = Required<HenryConfig["rules"]>;
+type RulesConfig = Required<Omit<HenryConfig["rules"], "repos">>;
 
 // ---------------------------------------------------------------------------
 // Entry points
@@ -48,7 +48,7 @@ type RulesConfig = Required<HenryConfig["rules"]>;
 
 export function classify(event: HenryEvent, opts: ClassifyOptions = {}): Classification {
   try {
-    const rules = { ...defaultRules(), ...(config.rules ?? {}), ...(opts.rules ?? {}) } as RulesConfig;
+    const rules = rulesFor(String(event.sessionId ?? ""), opts.rules);
     const ctx = new Context(event, rules, opts.reposRoot ?? config.reposRoot, opts.now ?? deps.now(), opts.ignoreDirs ?? ALLOWED_OUTSIDE);
     let best: Classification = { severity: "info" };
     for (const def of RULES) {
@@ -95,6 +95,20 @@ function defaultRules(): RulesConfig {
     pushToProtected: "notable",
     maxSubagentsPer10m: 8,
   };
+}
+
+/** Global rules with the session's home-repo override (config.rules.repos) laid on top. */
+function rulesFor(sessionId: string, override?: Partial<HenryConfig["rules"]>): RulesConfig {
+  const { repos, ...base } = { ...defaultRules(), ...(config.rules ?? {}), ...(override ?? {}) };
+  if (!repos || typeof repos !== "object") return base as RulesConfig;
+  const cwd = deps.getSession(sessionId)?.cwd;
+  const home = cwd ? repoRootOf(resolveDir(cwd)) : null;
+  if (!home) return base as RulesConfig;
+  const id = repoIdentity(home);
+  for (const [path, v] of Object.entries(repos)) {
+    if (v && typeof v === "object" && repoIdentity(stripSlash(resolveDir(path))) === id) return { ...base, ...v } as RulesConfig;
+  }
+  return base as RulesConfig;
 }
 
 function rank(s: Severity): number {

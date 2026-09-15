@@ -176,6 +176,12 @@ function RulesView({ rules }: { rules: Record<string, unknown> | null }) {
             <tr><td style={S.td}>commitOnProtected</td><td style={S.td}>{String(rules.commitOnProtected ?? "alarm")}</td></tr>
             <tr><td style={S.td}>pushToProtected</td><td style={S.td}>{String(rules.pushToProtected ?? "notable")}</td></tr>
             <tr><td style={S.td}>maxSubagentsPer10m</td><td style={S.td}>{String(rules.maxSubagentsPer10m ?? 8)}</td></tr>
+            {Object.entries((rules.repos ?? {}) as Record<string, Record<string, unknown>>).map(([path, o]) => (
+              <tr key={path}>
+                <td style={S.td}>repos<div style={{ color: "var(--fg-dim)", fontSize: 10 }}>{path}</div></td>
+                <td style={S.td}>{Object.entries(o ?? {}).map(([k, v]) => <div key={k}><code>{k}: {JSON.stringify(v)}</code></div>)}</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       )}

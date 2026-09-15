@@ -373,8 +373,14 @@ export interface HenryConfig {
     pushToProtected?: Severity;
     /** SubagentStop events per session per 10 minutes before "subagent-storm" fires (milestone 4). Default 8. */
     maxSubagentsPer10m?: number;
+    /** Per-repo overrides keyed by repo path ("~/code/off-chain"), applied on top of the keys
+     * above for sessions whose home repo is that path (worktrees count). A key that is set
+     * replaces the global value, so `notable: []` mutes the list rather than appending to it. */
+    repos?: Record<string, RepoRuleOverrides>;
   };
 }
+
+export type RepoRuleOverrides = Partial<Omit<HenryConfig["rules"], "repos">>;
 
 export const DEFAULT_CONFIG: HenryConfig = {
   port: 14711,

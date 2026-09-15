@@ -95,7 +95,7 @@ const SETTABLE = {
   federation: ["listen", "port"],
   phone: ["listen", "port"],
   files: ["roots"],
-  rules: ["protectedBranches", "alarm", "notable", "crossRepoWrite", "commitOnProtected", "pushToProtected", "maxSubagentsPer10m"],
+  rules: ["protectedBranches", "alarm", "notable", "crossRepoWrite", "commitOnProtected", "pushToProtected", "maxSubagentsPer10m", "repos"],
 } as const;
 
 /** Merge a patch from the settings UI into config.json; unknown keys are dropped. Only the
