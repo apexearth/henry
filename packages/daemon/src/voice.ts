@@ -14,13 +14,13 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
-import type { Session, VocabTerm, VoiceAction, VoiceReply, VoiceVocabulary } from "@henry/shared";
+import type { RepoState, Session, VocabTerm, VoiceAction, VoiceContextSlice, VoiceReply, VoiceVocabulary } from "@henry/shared";
 import { config } from "./config";
 import * as db from "./db";
 import * as federation from "./federation";
 import * as git from "./git";
 import { readHistory } from "./history";
-import { askBackend, eventLine, globalContext, liveSessions, oneLine, safeRepos } from "./overseer";
+import { askBackend, eventLine, globalHistory, liveSessions, oneLine, safeRepos, sessionDetail, sessionHeader } from "./overseer";
 import { STT_INSTALL_HINT, speakSpec } from "./platform";
 
 /** Long enough for a held key, short enough that a stuck one cannot fill the disk. */
@@ -32,15 +32,22 @@ const ANSWER_TIMEOUT_MS = 30_000;
 const BIAS_CHARS = 700;
 /** A relayed message is a sentence, not a payload. */
 const MAX_RELAY_CHARS = 1_000;
-/** Sessions described in one answer's context. Matches what the global prompt lists, and both
- * take them in the same order, so the two halves cannot describe different sets. */
+/** Sessions described in detail in one answer's context, across every machine. Each machine
+ * offers up to this many of its own and the merge keeps the most recently active. */
 const SESSIONS_IN_CONTEXT = 8;
 /** How much of the live session's actual conversation rides along (conversationTail). */
 const TAIL_TURNS = 8;
 const TAIL_BLOCK_CHARS = 1_500;
 const TAIL_CHARS = 6_000;
+/** A paired daemon that has not answered by then is described from what this one already
+ * holds about it (the roster) rather than holding the answer up. */
+const PEER_CONTEXT_TIMEOUT_MS = 4_000;
+/** Repos named per machine as places a new session can open. */
+const REPOS_IN_CONTEXT = 60;
 
-export const SYSTEM_PROMPT = `You are Henry's voice. You speak with the person whose Claude Code sessions you watch, while they work. You are given the event stream, safeguard flags, repo-level git summaries, the current per-session summaries, and the tail of the actual conversation in the session they are working in — what was said, word for word, rather than a summary of it.
+export const SYSTEM_PROMPT = `You are Henry's voice. You speak with the person whose Claude Code sessions you watch, while they work. You are given the event stream, safeguard flags, repo-level git summaries, the current per-session summaries, and the tail of the actual conversation in the session they are working in — what was said, word for word, rather than a summary of it. The sessions may be spread over several machines; each is marked "here" or "on <machine>", and you see all of them the same way, so answer about the whole picture unless they ask about one machine.
+
+Asked for a summary, what is going on, what they should be thinking about, or what they may have forgotten: sweep every session and lead with what needs them — a session waiting on input or asking for them, an unread flag, unpushed or uncommitted work, something that has gone quiet mid-task — before anything that is simply progressing. Name the session for each point.
 
 That conversation carries code, paths and diffs. Speak the prose and describe the code: say what a change does and where it lands, never read symbols, punctuation or paths out character by character. Asked for the end of the last response, give its final point in a sentence or two in your own words, keeping any number, name or question it ended on — and if it ended by asking something, say so, because that is usually why they asked.
 
@@ -54,24 +61,22 @@ The roster at the top lists every running session and is the only thing you may 
 
 When the user asks to be taken to a session, put "GO: <session name>" on the first line by itself, copying the name from the context, then say one sentence about what is going on there. Use GO only when they asked to move; answering a question about a session is not a reason to switch them away from what they are looking at.
 
-When the user asks you to tell another session something, or to pass on, relay or send a message, put "TELL: <session name>" on the first line by itself and the message on the lines after it. Write the message in the user's own voice, as an instruction to that session, in the first person: they are talking through you, not about you. Keep their intent and their specifics, drop the speech-to-text noise, and do not add requirements they did not state. Henry types it into that session and leaves it unsent for them to read; the confirmation is spoken for you, so write nothing else. Use TELL only when they asked to pass something on.`;
+When the user asks you to tell another session something, or to pass on, relay or send a message, put "TELL: <session name>" on the first line by itself and the message on the lines after it. Write the message in the user's own voice, as an instruction to that session, in the first person: they are talking through you, not about you. Keep their intent and their specifics, drop the speech-to-text noise, and do not add requirements they did not state. Henry types it into that session and leaves it unsent for them to read; the confirmation is spoken for you, so write nothing else. Use TELL only when they asked to pass something on.
 
-/** Session titles, repo names and branches: what whisper is told to expect, and what a
- * mangled transcript is matched against. Running sessions first, since those are what a
- * question is almost always about. */
-function entities(): { sessions: Session[]; names: string[] } {
-  // The same ordering the global prompt uses, so the session list in one half of the context
-  // cannot disagree with the activity list in the other.
-  const live = liveSessions(SESSIONS_IN_CONTEXT);
-  const names = new Set<string>();
-  for (const s of live) {
-    if (s.title) names.add(s.title);
-    for (const r of safeRepos(s.id)) {
-      names.add(r.name);
-      if (r.branch) names.add(r.branch);
-    }
-  }
-  return { sessions: live, names: [...names] };
+When the user asks you to open, start or spin up a new session in a repo or project, put "OPEN: <repo name>" on the first line by itself, copying the name from the list of repos that can be opened, with " on <machine>" after it when the repo is on a paired machine rather than here. If they said what the session should do, write that on the lines after, in the user's own voice and in the first person, as an instruction to the new session, keeping their specifics and dropping the speech-to-text noise; if they gave it no task, write nothing after the first line. Henry starts the session and types the instruction into its prompt unsent; the confirmation is spoken for you, so write nothing else. Use OPEN only when they asked for a session to be opened: a question about a repo is not a reason to open one.`;
+
+/**
+ * Every running session on every machine, this machine's most recently active first. What a
+ * spoken name is matched against: the roster names all of them, so a GO or a TELL aimed at any
+ * of them has to find it, not just the few described in detail.
+ */
+function allRunning(): Session[] {
+  return [...liveSessions(Number.MAX_SAFE_INTEGER), ...federation.peerSessions().filter((s) => s.status === "running")];
+}
+
+/** A session's repos wherever it lives: git.ts for a local one, the link's mirror for a peer's. */
+function reposOf(s: Session): RepoState[] {
+  return s.peer ? federation.linkNamed(s.peer)?.repos[s.id] ?? [] : safeRepos(s.id);
 }
 
 /**
@@ -91,9 +96,9 @@ export async function vocabulary(sessionId?: string): Promise<VocabTerm[]> {
     out.push({ term, source });
   };
   for (const w of config.voice.vocabulary ?? []) add(w, "you");
-  for (const s of liveSessions(SESSIONS_IN_CONTEXT)) {
+  for (const s of allRunning()) {
     if (s.title) add(s.title, "session");
-    for (const r of safeRepos(s.id)) {
+    for (const r of reposOf(s)) {
       add(r.name, "repo");
       if (r.branch) add(r.branch, "branch");
     }
@@ -176,20 +181,19 @@ export function canonicalize(text: string, terms: VocabTerm[]): string {
  * the last hook it received: a session whose hooks are not reaching the daemon looks idle here
  * no matter what is happening inside it, and the model must not describe those as busy.
  */
-function roster(detailed: Session[]): string {
-  const seen = db.lastEventTimes();
-  const local = db.listSessions({ status: "running" });
-  const peers = federation.peerSessions().filter((s) => s.status === "running");
-  const shown = new Set(detailed.map((s) => s.id));
+function roster(seen: Map<string, number>, shown: Set<string>): string {
+  const all = allRunning();
+  const peers = all.filter((s) => s.peer).length;
   const line = (s: Session) => {
+    // A peer's times come with its context slice, which names only its recently active few;
+    // one outside that set is quiet by definition, just not measurably so from here.
     const last = seen.get(s.id);
-    const quiet = last ? `quiet ${minutes(Date.now() - last)}` : "never reported to Henry";
+    const quiet = last ? `quiet ${minutes(Date.now() - last)}` : s.peer ? "not among that machine's recently active" : "never reported to Henry";
     const where = s.peer ? `on ${s.peer}` : "here";
     return `  - "${s.title}" (${where}, ${s.cwd}) — ${quiet}${shown.has(s.id) ? ", detailed below" : ""}`;
   };
-  const all = [...local, ...peers];
   if (!all.length) return "";
-  const machines = peers.length ? `${local.length} on this machine and ${peers.length} on paired machines` : `all on this machine`;
+  const machines = peers ? `${all.length - peers} on this machine and ${peers} on paired machines` : `all on this machine`;
   return `Every running session right now — ${all.length} in total, ${machines}. This list is complete; the detail further down covers only the most recently active:\n${all.map(line).join("\n")}`;
 }
 
@@ -209,13 +213,120 @@ const minutes = (ms: number) => {
  * your sessions are there and nothing about them. Events are already in SQLite and cost
  * nothing to read, so voice gets them whether or not the playbook is switched on.
  */
-function recentActivity(live: Session[]): string {
-  const blocks: string[] = [];
-  for (const s of live) {
-    const lines = db.listEvents({ sessionId: s.id, limit: 10 }).map((e) => `    ${eventLine(e, 140)}`);
-    if (lines.length) blocks.push(`  "${s.title}" (newest first):\n${lines.join("\n")}`);
+function activityLines(sessionId: string): string {
+  return db
+    .listEvents({ sessionId, limit: 10 })
+    .map((e) => `    ${eventLine(e, 140)}`)
+    .join("\n");
+}
+
+/**
+ * What this daemon knows about its own sessions, in the shape every daemon answers
+ * `/api/voice/context` with. The same function serves a question asked here and a question
+ * asked on a paired machine, which is what makes the two machines' halves of one answer
+ * agree: nothing is described differently for being remote.
+ */
+export async function contextSlice(): Promise<VoiceContextSlice> {
+  const seen = db.lastEventTimes();
+  const live = liveSessions(SESSIONS_IN_CONTEXT);
+  const sessions = live.map((s) => ({ id: s.id, lastEventAt: seen.get(s.id) ?? s.createdAt, detail: sessionDetail(s.id), activity: activityLines(s.id) }));
+  const tail = live[0] ? conversationTail(live[0]) : "";
+  let repos: VoiceContextSlice["repos"] = [];
+  try {
+    repos = (await git.listRepos(config.reposRoot)).slice(0, REPOS_IN_CONTEXT).map((r) => ({ name: r.name, path: r.path }));
+  } catch {
+    // no repos root yet; a session can still be opened by path elsewhere
   }
+  return { sessions, tail: live[0] && tail ? { sessionId: live[0].id, text: tail } : undefined, repos };
+}
+
+/** Each connected peer's slice, or nothing for one that is slow or broken: the roster already
+ * names its sessions, and a machine that cannot answer must not stall the machine that can. */
+async function peerSlices(): Promise<{ peer: string; slice: VoiceContextSlice }[]> {
+  const asked = federation.connectedLinks().map(async (l) => {
+    const timeout = new Promise<undefined>((r) => setTimeout(() => r(undefined), PEER_CONTEXT_TIMEOUT_MS));
+    try {
+      const res = await Promise.race([l.http("GET", "/api/voice/context"), timeout]);
+      if (!res?.ok) return undefined;
+      const slice = (await res.json()) as VoiceContextSlice;
+      if (!Array.isArray(slice.sessions)) return undefined;
+      return { peer: l.rec.name, slice: { ...slice, repos: Array.isArray(slice.repos) ? slice.repos : [] } };
+    } catch {
+      return undefined;
+    }
+  });
+  return (await Promise.all(asked)).filter((x): x is { peer: string; slice: VoiceContextSlice } => !!x);
+}
+
+/** A repo a new session can open in, on whichever machine holds it. */
+export interface OpenTarget {
+  name: string;
+  path: string;
+  peer?: string;
+}
+
+interface Placed {
+  session: Session;
+  where: string;
+  lastEventAt: number;
+  detail: string;
+  activity: string;
+}
+
+/**
+ * Every machine's picture, merged: the most recently active sessions across all of them get
+ * the detail, whichever machine they are on, and the single most recent one gets its
+ * conversation tail. The roster's times are filled from the same slices, since a link keeps
+ * no event history of its own.
+ */
+async function gather(): Promise<{ placed: Placed[]; seen: Map<string, number>; tail: string; repos: OpenTarget[] }> {
+  const [local, peers] = await Promise.all([contextSlice(), peerSlices()]);
+  const seen = new Map(db.lastEventTimes());
+  const all: Placed[] = [];
+  const place = (session: Session, where: string, e: VoiceContextSlice["sessions"][number]) =>
+    all.push({ session, where, lastEventAt: e.lastEventAt, detail: e.detail, activity: e.activity });
+  for (const e of local.sessions) {
+    const session = db.getSession(e.id);
+    if (session) place(session, "here", e);
+  }
+  for (const { peer, slice } of peers) {
+    const link = federation.linkNamed(peer);
+    for (const e of slice.sessions) {
+      const session = link?.sessions.get(e.id);
+      if (!session) continue;
+      seen.set(e.id, e.lastEventAt);
+      place(session, `on ${peer}`, e);
+    }
+  }
+  all.sort((a, b) => b.lastEventAt - a.lastEventAt);
+  const placed = all.slice(0, SESSIONS_IN_CONTEXT);
+  const top = placed[0];
+  const owner = top?.session.peer ? peers.find((p) => p.peer === top.session.peer)?.slice : local;
+  const tail = top && owner?.tail?.sessionId === top.session.id ? owner.tail.text : "";
+  const repos: OpenTarget[] = [...local.repos, ...peers.flatMap((p) => p.slice.repos.map((r) => ({ ...r, peer: p.peer })))];
+  return { placed, seen, tail, repos };
+}
+
+function detailBlocks(placed: Placed[]): string {
+  if (!placed.length) return "";
+  const blocks = placed.map((p) => `${sessionHeader(p.session, p.where)}\n${p.detail}`);
+  return `Detail on the ${placed.length} most recently active sessions:\n\n${blocks.join("\n\n")}`;
+}
+
+function activityBlocks(placed: Placed[]): string {
+  const blocks = placed.filter((p) => p.activity).map((p) => `  "${p.session.title}" (${p.where}, newest first):\n${p.activity}`);
   return blocks.length ? `Recent activity per session, newest first:\n${blocks.join("\n")}` : "";
+}
+
+/** The repos a new session can be opened in, per machine, for OPEN to copy a name from. */
+function openable(repos: OpenTarget[]): string {
+  if (!repos.length) return "";
+  const byMachine = new Map<string, string[]>();
+  for (const r of repos) {
+    const key = r.peer ? `on ${r.peer}` : "here";
+    byMachine.set(key, [...(byMachine.get(key) ?? []), r.name]);
+  }
+  return `Repos a new session can be opened in — ${[...byMachine].map(([where, names]) => `${where}: ${names.join(", ")}`).join("; ")}.`;
 }
 
 /**
@@ -376,9 +487,10 @@ export function relaySafe(text: string): string {
 
 /**
  * A directive on the first line, if there is one; everything else is spoken. "GO: <name>" moves
- * the user to a session, "TELL: <name>" relays the lines beneath it into one.
+ * the user to a session, "TELL: <name>" relays the lines beneath it into one, "OPEN: <repo>"
+ * starts a session there with the lines beneath it (if any) as its first, unsent prompt.
  */
-export function parseAnswer(text: string): { spoken: string; go?: string; tell?: { name: string; message: string } } {
+export function parseAnswer(text: string): { spoken: string; go?: string; tell?: { name: string; message: string }; open?: { name: string; message: string } } {
   const lines = text.trim().split("\n");
   const first = lines[0] ?? "";
   const rest = () => lines.slice(1).join("\n").trim();
@@ -386,31 +498,50 @@ export function parseAnswer(text: string): { spoken: string; go?: string; tell?:
   if (go) return { spoken: rest(), go: go[1] };
   const tell = first.match(/^TELL:\s*(.+?)\s*$/i);
   if (tell) return { spoken: "", tell: { name: tell[1]!, message: rest() } };
+  const open = first.match(/^OPEN:\s*(.+?)\s*$/i);
+  if (open) return { spoken: "", open: { name: open[1]!, message: rest() } };
   return { spoken: text.trim() };
 }
 
 /**
- * Which session a spoken name means. Exact title first, then containment either way (whisper
- * drops and adds small words), then the best word overlap — "dune versus squid" still finds
- * "dune vs squid" when nothing matched literally.
+ * Which of several named things a spoken name means. Exact name first, then containment either
+ * way (whisper drops and adds small words), then the best word overlap — "dune versus squid"
+ * still finds "dune vs squid" when nothing matched literally.
  */
-export function matchSession(name: string, live: Session[]): Session | undefined {
+export function matchNamed<T>(name: string, items: T[], nameOf: (t: T) => string): T | undefined {
   const want = norm(name);
   if (!want) return undefined;
-  // A title of only emoji or CJK normalizes to "", and "".includes() of it is true for every
+  // A name of only emoji or CJK normalizes to "", and "".includes() of it is true for every
   // input — one such session would otherwise capture every GO and every relay.
-  const named = live.filter((s) => norm(s.title));
-  const exact = named.find((s) => norm(s.title) === want);
+  const named = items.filter((t) => norm(nameOf(t)));
+  const exact = named.find((t) => norm(nameOf(t)) === want);
   if (exact) return exact;
-  const contains = named.find((s) => norm(s.title).includes(want) || want.includes(norm(s.title)));
+  const contains = named.find((t) => norm(nameOf(t)).includes(want) || want.includes(norm(nameOf(t))));
   if (contains) return contains;
   const wanted = new Set(words(want));
-  let best: { s: Session; score: number } | undefined;
-  for (const s of named) {
-    const score = words(norm(s.title)).filter((w) => wanted.has(w)).length;
-    if (score && (!best || score > best.score)) best = { s, score };
+  let best: { t: T; score: number } | undefined;
+  for (const t of named) {
+    const score = words(norm(nameOf(t))).filter((w) => wanted.has(w)).length;
+    if (score && (!best || score > best.score)) best = { t, score };
   }
-  return best?.s;
+  return best?.t;
+}
+
+export function matchSession(name: string, live: Session[]): Session | undefined {
+  return matchNamed(name, live, (s) => s.title);
+}
+
+/**
+ * Which repo, on which machine, an OPEN names. A trailing "on <machine>" is honoured only when
+ * it names a paired machine (anything else is part of the spoken name, mangled or not); without
+ * one the same name on two machines picks this one, since `repos` lists it first.
+ */
+export function resolveOpen(name: string, repos: OpenTarget[], peers: string[]): OpenTarget | undefined {
+  const m = name.match(/^(.*\S)\s+on\s+(\S+)$/i);
+  const peer = m && peers.find((p) => p.toLowerCase() === m[2]!.toLowerCase());
+  const want = peer ? m![1]! : name;
+  const pool = peer ? repos.filter((r) => r.peer === peer) : repos;
+  return matchNamed(want, pool, (r) => r.name);
 }
 
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
@@ -426,8 +557,19 @@ const words = (s: string) => s.split(" ").filter((w) => w.length > 1 && w !== "t
  * slowest part of the turn.
  */
 export async function answer(transcript: string): Promise<VoiceReply> {
-  const { sessions: live } = entities();
-  const context = [roster(live), globalContext(transcript), recentActivity(live), live[0] ? conversationTail(live[0]) : ""].filter(Boolean).join("\n\n");
+  const { placed, seen, tail, repos } = await gather();
+  const live = allRunning();
+  const context = [
+    roster(seen, new Set(placed.map((p) => p.session.id))),
+    detailBlocks(placed),
+    globalHistory(),
+    activityBlocks(placed),
+    tail,
+    openable(repos),
+    `The user just said (speech-to-text): ${oneLine(transcript, 1000)}`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), ANSWER_TIMEOUT_MS);
@@ -439,7 +581,7 @@ export async function answer(transcript: string): Promise<VoiceReply> {
   }
   if (!answer?.trim()) return { text: "", reason: "no answer" };
 
-  const { spoken, go, tell } = parseAnswer(answer);
+  const { spoken, go, tell, open } = parseAnswer(answer);
   let action: VoiceAction | undefined;
   let confirmation: string | undefined;
   if (go) {
@@ -455,6 +597,17 @@ export async function answer(transcript: string): Promise<VoiceReply> {
       confirmation = `Put that to ${target.title}. Read it and press enter to send.`;
     } else {
       confirmation = `I could not find a session called ${tell.name}.`;
+    }
+  } else if (open) {
+    const target = resolveOpen(open.name, repos, federation.connectedLinks().map((l) => l.rec.name));
+    if (target) {
+      // The first prompt is a relay in every way that matters: typed by Henry, sent by you.
+      const text = relaySafe(open.message) || undefined;
+      action = { kind: "open", cwd: target.path, title: target.name, peer: target.peer, text };
+      const where = target.peer ? ` on ${target.peer}` : "";
+      confirmation = text ? `Opening ${target.name}${where}. Your instruction goes in once Claude is up, unsent; press enter to send it.` : `Opening a new session in ${target.name}${where}.`;
+    } else {
+      confirmation = `I could not find a repo called ${open.name}.`;
     }
   }
   // A directive that matched nothing leaves `spoken` empty; speaking `answer` there would read

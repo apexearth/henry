@@ -505,6 +505,9 @@ export async function handleApi(req: Request, url: URL, origin: ApiOrigin): Prom
         return entry ? json({ entry }) : json({ error: overseer.overseerStatus().lastError ?? "overseer wrote nothing" }, 502);
       }
       if (pathname === "/api/voice/status") return json(voice.status());
+      // What this machine knows about its own sessions, for a question asked on a paired one.
+      // Not gated on voice.enabled: the machine answering it is not the one speaking.
+      if (pathname === "/api/voice/context") return json(await voice.contextSlice());
       // What whisper has been primed with. The panel shows it so the ear is inspectable.
       if (pathname === "/api/voice/vocabulary") return json(await voice.vocabularyView(url.searchParams.get("session") ?? undefined));
       // The second half of a push-to-talk turn: the text the panel already showed you, in;

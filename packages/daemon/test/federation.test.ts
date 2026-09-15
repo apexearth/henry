@@ -411,6 +411,11 @@ describe("two daemons", () => {
     expect(Array.isArray(await repos.json())).toBe(true);
     const peek = (await (await fetch(`${alpha.base}/api/file?peer=beta&path=${encodeURIComponent(join(beta.home, "config.json"))}`)).json()) as { content: string };
     expect(peek.content).toContain('"host":"beta"');
+    // Voice on alpha asks beta for its half of the picture; beta's voice being off is no bar.
+    const slice = (await (await fetch(`${alpha.base}/api/voice/context?peer=beta`)).json()) as { sessions: { id: string; detail: string; activity: string }[]; repos: unknown[] };
+    expect(slice.sessions.map((s) => s.id)).toContain(betaSession);
+    expect(slice.sessions.find((s) => s.id === betaSession)?.detail).toContain("repos:");
+    expect(Array.isArray(slice.repos)).toBe(true);
     const nope = await fetch(`${alpha.base}/api/repos?peer=gamma`);
     expect(nope.status).toBe(502);
     const forbidden = await fetch(`${alpha.base}/api/federation/status?peer=beta`);

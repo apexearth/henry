@@ -483,9 +483,34 @@ records and plays.
   already watches every repo you touch does not get a permanently open mic by default.
 - **Its own system prompt, not the overseer's.** The overseer writes to be *read*: backticks
   around every name, `HEADLINE:`/`CHANGED:` labels, bullets. All of that is unspeakable. Voice
-  shares the overseer's *context assembly* (`globalContext`) and its backend (`askBackend`) and
-  brings its own output contract: a few sentences, no markup, no file paths spoken aloud, answer
-  first. One picture of the world, two ways of saying it.
+  shares the overseer's per-session description (`sessionDetail`: summary, latest entries,
+  flags, repos), its global history and its backend (`askBackend`), and brings its own output
+  contract: a few sentences, no markup, no file paths spoken aloud, answer first. One picture
+  of the world, two ways of saying it.
+- **Voice sees every machine, and each machine describes itself.** A link mirrors a peer's
+  sessions, repos, flags and playbook, but not its events or transcripts, so until 2026-09-15
+  voice could name a paired machine's sessions in the roster and say nothing about them. Now
+  every daemon answers `GET /api/voice/context` with a slice of its own picture — its most
+  recently active sessions with their detail and last events, the conversation tail of its top
+  one, and the repos a session could open in — built by the same `contextSlice` that serves a
+  question asked locally. `answer` asks each connected peer for its slice over the link (4 s,
+  then the roster alone stands for that machine), merges the slices by last event time, and the
+  detail cap and the single tail apply across machines rather than per machine: the most recent
+  session gets the tail whichever machine it is on. The endpoint is not gated on `voice.enabled`,
+  because the machine answering is not the one speaking. GO and TELL match against every
+  running session everywhere, not the detailed few, since the roster names them all.
+- **"Open a session in X" is the third directive.** `OPEN: <repo>` (with ` on <machine>` for a
+  paired one) names a repo from the openable list in the context; the lines under it are the
+  session's first prompt, in the user's voice. The daemon resolves the repo (`resolveOpen`:
+  this machine's copy wins a bare name, a trailing "on" is honoured only when it names a peer)
+  and answers with an `open` action; the window creates the session and, once its first hook
+  flips `claudeActive`, types the prompt — **unsent**, through `relaySafe` like a relay,
+  because it is one. The wait matters: typed before Claude's input exists the words go to
+  whatever reads the terminal first. It has an end (20 s) so hooks that never reach Henry do
+  not hold the words forever, and it cannot see a workspace-trust dialog: a repo Claude has never
+  been trusted in gets its prompt typed at the dialog, where letters do nothing and the text is
+  lost. That is the fallback's cost, accepted because the repos you open by voice are the ones
+  you already work in.
 - **The transcript is treated as lossy.** The prompt tells the model its input is speech-to-text
   and to match near-misses against the session and repo names in the context rather than repeat
   a garbled name back. Henry also feeds those names to whisper as its initial prompt, and
@@ -523,8 +548,9 @@ records and plays.
   rather than read symbols and paths aloud, which is useless in speech. The overseer's own
   blindfold is untouched: it writes a durable log for later, where the temptation to guess at
   implementation detail is the thing that rule protects against. Only the session at the top of
-  the activity order gets a tail — it is the most expensive thing in the context by an order of
-  magnitude, and "the last response" almost always means the one in front of you.
+  the activity order, across every machine, gets a tail — it is the most expensive thing in the
+  context by an order of magnitude, and "the last response" almost always means the one in
+  front of you.
 - **Off by default** (`voice.enabled`), like the overseer: it costs an LLM call per question.
 
 - **A phone records too, and that is what `phone.tls` is for.** A browser gives no microphone to

@@ -537,15 +537,31 @@ export interface History {
 
 /** What Henry does with the window after answering. The panel performs it; the daemon only says
  * which session, because only the UI knows what is on screen. */
-export interface VoiceAction {
-  /** "switch": bring that session forward. "type": put `text` in its prompt, unsent. */
-  kind: "switch" | "type";
-  sessionId: string;
-  /** The session's title at the time, for the panel to show without another lookup. */
-  title: string;
-  /** For "type": what to place in that session's prompt. Never submitted — the user presses
-   * Enter, which is what keeps a relayed message something a person sent. */
-  text?: string;
+export type VoiceAction =
+  /** Bring that session forward. */
+  | { kind: "switch"; sessionId: string; title: string }
+  /** Put `text` in that session's prompt. Never submitted — the user presses Enter, which is
+   * what keeps a relayed message something a person sent. `title` is the session's at the time,
+   * for the panel to show without another lookup. */
+  | { kind: "type"; sessionId: string; title: string; text: string }
+  /** Start a Claude session in `cwd` (on `peer` when set), titled after the repo. `text`, when
+   * present, is typed into its prompt once Claude is up, unsent, like a relay. */
+  | { kind: "open"; cwd: string; title: string; peer?: string; text?: string };
+
+/**
+ * GET /api/voice/context: what one daemon knows about its own sessions, in the shape voice.ts
+ * assembles a prompt from. A daemon answers it for itself and asks each paired daemon for
+ * theirs, so a question asked here is answered about every machine. Text rather than rows:
+ * the owner has the events, playbook and transcript, and the model reads prose anyway.
+ */
+export interface VoiceContextSlice {
+  /** Running sessions, most recently active first, capped. `detail` is the per-session block
+   * (summary, latest entries, flags, repos); `activity` the last few event lines. */
+  sessions: { id: string; lastEventAt: number; detail: string; activity: string }[];
+  /** The actual conversation tail of `sessions[0]`, if it has one. */
+  tail?: { sessionId: string; text: string };
+  /** Names of the repos (and plain folders) a new session can be opened in. */
+  repos: { name: string; path: string }[];
 }
 
 /** One word whisper is told to expect, and why it is on the list. */

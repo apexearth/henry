@@ -19,7 +19,7 @@ import { focusTerminal } from "../Terminal";
 import { isMac } from "../platform";
 import { cssVar, onTheme } from "../theme";
 import { toWav16k } from "../voice-audio";
-import { getState, send, useStore } from "../ws";
+import { createSession, getState, send, useStore, whenSession } from "../ws";
 
 const SAMPLE_RATE = 16_000;
 /** A held key that never comes back up should not record forever. */
@@ -387,12 +387,15 @@ export function VoicePanel() {
       const res = await fetch("/api/voice/answer", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: question }) });
       const body = (await res.json()) as VoiceReply & { error?: string };
       if (!res.ok) throw new Error(body.error ?? `answer failed (${res.status})`);
-      updateTurn(id, { heard: body.text, went: body.action?.title, note: body.reason, relayed: body.action?.kind === "type" ? body.action.text : undefined });
+      const relayed = body.action?.kind === "type" || body.action?.kind === "open" ? body.action.text : undefined;
+      updateTurn(id, { heard: body.text, went: body.action?.title, note: body.reason, relayed });
       // Act before speaking: the sentence describes what has already happened.
       if (body.action?.kind === "switch") showSession(body.action.sessionId);
       // Typed, never submitted. A relayed message still needs a person to send it, which is what
       // keeps Henry out of the loop between you and an agent.
       if (body.action?.kind === "type" && body.action.text) typeInto(body.action.sessionId, body.action.text);
+      // The session starts now; its first prompt lands once Claude is up, while Henry speaks.
+      if (body.action?.kind === "open") void open(body.action.cwd, body.action.peer, body.action.text);
       if (body.audio) await play(body.audio);
       else setPhase("idle");
     } catch (e) {
@@ -439,6 +442,23 @@ export function VoicePanel() {
     send({ type: "pty:input", sessionId, data });
     showSession(sessionId);
     requestAnimationFrame(() => focusTerminal(sessionId));
+  }
+
+  /**
+   * A session Henry was asked to open, with its first prompt typed in and left unsent. The
+   * words wait for Claude's first hook: typed before its prompt exists they land in whatever
+   * reads the terminal first. Hooks that never arrive would wait forever, so after a while the
+   * text goes in anyway — a Claude that is up by then takes it, and one that is not was never
+   * going to.
+   */
+  async function open(cwd: string, peer: string | undefined, text: string | undefined) {
+    const session = await Promise.race([createSession(cwd, undefined, "claude", peer), new Promise<undefined>((r) => setTimeout(() => r(undefined), 10_000))]);
+    if (!session) return setError(`could not open a session in ${cwd}${peer ? ` on ${peer}` : ""}`);
+    if (!text) return;
+    await whenSession(session.id, (s) => !!s.claudeActive, 20_000);
+    // Give the input box a beat to appear after the hook — the hook fires as Claude boots.
+    await new Promise((r) => setTimeout(r, 800));
+    if (getState().sessions.find((s) => s.id === session.id)?.status === "running") typeInto(session.id, text);
   }
 
   function fail(message: string) {

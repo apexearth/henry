@@ -168,7 +168,8 @@ export function subscribePty(sessionId: string, cb: (m: PtyMessage) => void): ()
 
 let ws: WebSocket | null = null;
 let backoff = 500;
-const pendingCreates = new Set<string>();
+/** Creates this window asked for, by requestId; the resolver gets the session:update that answers. */
+const pendingCreates = new Map<string, (s: Session) => void>();
 
 export function send(msg: ClientMessage): void {
   if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
@@ -240,8 +241,10 @@ function handle(m: ServerMessage): void {
       const sessions = state.sessions.some((s) => s.id === m.session.id)
         ? state.sessions.map((s) => (s.id === m.session.id ? m.session : s))
         : [...state.sessions, m.session].sort((a, b) => a.createdAt - b.createdAt);
-      const mine = m.requestId !== undefined && pendingCreates.delete(m.requestId);
+      const mine = m.requestId !== undefined ? pendingCreates.get(m.requestId) : undefined;
+      if (m.requestId !== undefined) pendingCreates.delete(m.requestId);
       setState({ sessions, activeSessionId: mine ? m.session.id : pickActive(sessions, state.activeSessionId) });
+      mine?.(m.session);
       return;
     }
     case "event":
@@ -496,10 +499,38 @@ export function setActive(sessionId: string | null, group?: string): void {
   if (sessionId !== state.activeSessionId || activeGroup !== state.activeGroup) setState({ activeSessionId: sessionId, activeGroup });
 }
 
-export function createSession(cwd: string, title?: string, kind: SessionKind = "claude", peer?: string): void {
+/** Resolves with the new session once the daemon reports it (never rejects: a create that goes
+ * nowhere — the peer is down, the socket dropped — simply never answers). Most callers ignore it. */
+export function createSession(cwd: string, title?: string, kind: SessionKind = "claude", peer?: string): Promise<Session> {
   const requestId = crypto.randomUUID();
-  pendingCreates.add(requestId);
-  send({ type: "session:create", cwd, title: title || undefined, kind, requestId, peer });
+  return new Promise((resolve) => {
+    pendingCreates.set(requestId, resolve);
+    send({ type: "session:create", cwd, title: title || undefined, kind, requestId, peer });
+  });
+}
+
+/**
+ * Resolves when the session satisfies `ready`, or with false at the timeout. For typing into a
+ * session Henry just opened: Claude's first hook flips `claudeActive`, which is the moment its
+ * prompt exists to type into. Hooks that never reach Henry look the same as a Claude that never
+ * started, so the wait has an end.
+ */
+export function whenSession(sessionId: string, ready: (s: Session) => boolean, timeoutMs: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const check = () => {
+      const s = state.sessions.find((x) => x.id === sessionId);
+      if (s && ready(s)) done(true);
+      else if (s && s.status !== "running") done(false);
+    };
+    const done = (ok: boolean) => {
+      listeners.delete(check);
+      clearTimeout(timer);
+      resolve(ok);
+    };
+    const timer = setTimeout(() => done(false), timeoutMs);
+    listeners.add(check);
+    check();
+  });
 }
 
 /** Another tab of the same kind in the active session's folder, on the same machine. Nothing happens with no active tab. */
@@ -519,7 +550,7 @@ export function terminalHere(): void {
 export function resumeSession(s: Session): void {
   if (!s.claudeSessionId) return;
   const requestId = crypto.randomUUID();
-  pendingCreates.add(requestId);
+  pendingCreates.set(requestId, () => {});
   send({ type: "session:create", cwd: s.cwd, title: s.title, resume: s.claudeSessionId, requestId, peer: s.peer });
   killSession(s.id);
 }

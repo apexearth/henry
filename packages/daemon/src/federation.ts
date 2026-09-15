@@ -529,7 +529,12 @@ export const STATE_PLAYBOOK = 200;
 /** Every connected peer's sessions, for callers that want the whole picture without building a
  * state snapshot (voice.ts: a roster that omits half the machines is worse than none). */
 export function peerSessions(): Session[] {
-  return [...links.values()].filter((l) => l.status === "connected").flatMap((l) => [...l.sessions.values()]);
+  return connectedLinks().flatMap((l) => [...l.sessions.values()]);
+}
+
+/** The links that are up right now, for a caller that wants to ask each machine something. */
+export function connectedLinks(): PeerLink[] {
+  return [...links.values()].filter((l) => l.status === "connected");
 }
 
 export function merge(local: StateSnapshot): StateSnapshot {

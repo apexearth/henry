@@ -168,15 +168,6 @@ export function liveSessions(limit: number): Session[] {
 
 export { eventLine, oneLine, safeRepos };
 
-/**
- * The same picture the global playbook is written from — running sessions, their summaries,
- * flags and repos — with the user's question as the trigger. Exported rather than copied:
- * one context assembly, two output contracts (the playbook is read, voice.ts is heard).
- */
-export function globalContext(question: string): string {
-  return buildGlobalPrompt({ trigger: "manual", prompt: question });
-}
-
 /** One prompt through whichever backend the overseer chose. Throws when there is none. */
 export function askBackend(system: string, user: string, signal: AbortSignal): Promise<string | undefined> {
   const backend = currentBackend();
@@ -506,24 +497,35 @@ async function buildSessionPrompt(sessionId: string, req: RunRequest): Promise<s
   return head + label + "\n" + (kept.length ? kept.join("\n") : "(no events recorded yet)");
 }
 
+/** One session as the global prompt describes it: summary, latest entries, flags, repos. No
+ * header — the caller knows where the session is (voice.ts adds the machine for a peer's). */
+export function sessionDetail(sessionId: string): string {
+  const flags = db.listFlags({ sessionId, limit: 50 });
+  const unread = flags.filter((f) => !f.read);
+  const repos = safeRepos(sessionId)
+    .map((r) => `${r.name}@${r.branch || "detached"}${r.upstream ? ` ↑${r.ahead}↓${r.behind}` : " (no upstream)"}, ${r.dirty} dirty, +${r.commitsSinceBaseline} commits`)
+    .join("; ");
+  const summary = latestSummary(sessionId);
+  const last = db.listPlaybook(sessionId, 12).filter((p) => p.kind !== "summary").slice(0, 2);
+  return [
+    `right now: ${summary ? oneLine(summary.text, 700) : "(no summary yet)"}`,
+    last.length ? `latest entries: ${last.map((p) => `[${hhmm(p.ts)} ${p.trigger}] ${oneLine(p.text, 400)}`).join(" | ")}` : "latest entries: (none)",
+    `flags: ${flags.length} total, ${unread.length} unread${unread.length ? " — " + unread.slice(0, 3).map((f) => `[${f.severity}] ${oneLine(f.summary, 120)}`).join("; ") : ""}`,
+    `repos: ${repos || "(none recorded)"}`,
+  ].join("\n");
+}
+
+export const sessionHeader = (s: Session, where?: string) => `## "${s.title}"${where ? ` — ${where}` : ""} — cwd ${s.cwd} — since ${hhmm(s.createdAt)}`;
+
+/** What the global playbook has said before: its last entries and its "right now" paragraph. */
+export function globalHistory(): string {
+  const s = latestSummary(null);
+  return ["Previous global entries (newest first):", previousEntries(null), "", `Previous global "right now" summary: ${s ? oneLine(s.text, 800) : "(none yet)"}`].join("\n");
+}
+
 function buildGlobalPrompt(req: RunRequest): string {
   const sessions = liveSessions(8);
-  const blocks = sessions.map((s) => {
-    const flags = db.listFlags({ sessionId: s.id, limit: 50 });
-    const unread = flags.filter((f) => !f.read);
-    const repos = safeRepos(s.id)
-      .map((r) => `${r.name}@${r.branch || "detached"}${r.upstream ? ` ↑${r.ahead}↓${r.behind}` : " (no upstream)"}, ${r.dirty} dirty, +${r.commitsSinceBaseline} commits`)
-      .join("; ");
-    const summary = latestSummary(s.id);
-    const last = db.listPlaybook(s.id, 12).filter((p) => p.kind !== "summary").slice(0, 2);
-    return [
-      `## "${s.title}" — cwd ${s.cwd} — since ${hhmm(s.createdAt)}`,
-      `right now: ${summary ? oneLine(summary.text, 700) : "(no summary yet)"}`,
-      last.length ? `latest entries: ${last.map((p) => `[${hhmm(p.ts)} ${p.trigger}] ${oneLine(p.text, 400)}`).join(" | ")}` : "latest entries: (none)",
-      `flags: ${flags.length} total, ${unread.length} unread${unread.length ? " — " + unread.slice(0, 3).map((f) => `[${f.severity}] ${oneLine(f.summary, 120)}`).join("; ") : ""}`,
-      `repos: ${repos || "(none recorded)"}`,
-    ].join("\n");
-  });
+  const blocks = sessions.map((s) => `${sessionHeader(s)}\n${sessionDetail(s.id)}`);
   return [
     triggerLine(req),
     `Scope: the global playbook across all running sessions — now ${hhmm(Date.now())}`,
@@ -531,10 +533,7 @@ function buildGlobalPrompt(req: RunRequest): string {
     `Running sessions (${sessions.length}):`,
     blocks.length ? blocks.join("\n\n") : "(none)",
     "",
-    "Previous global entries (newest first):",
-    previousEntries(null),
-    "",
-    `Previous global "right now" summary: ${(() => { const s = latestSummary(null); return s ? oneLine(s.text, 800) : "(none yet)"; })()}`,
+    globalHistory(),
   ].join("\n");
 }
 

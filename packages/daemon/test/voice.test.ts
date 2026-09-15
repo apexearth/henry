@@ -1,7 +1,7 @@
 // Answer parsing and session matching (src/voice.ts). Pure: no whisper, no daemon, no audio.
 import { describe, expect, test } from "bun:test";
 import type { Session } from "@henry/shared";
-import { biasFrom, canonicalize, matchSession, parseAnswer, relaySafe } from "../src/voice";
+import { biasFrom, canonicalize, matchSession, parseAnswer, relaySafe, resolveOpen } from "../src/voice";
 
 const session = (id: string, title: string) => ({ id, title }) as Session;
 
@@ -51,6 +51,55 @@ describe("parseAnswer", () => {
     const out = parseAnswer("I would tell: the indexer to slow down, but it already stopped.");
     expect(out.tell).toBeUndefined();
     expect(out.go).toBeUndefined();
+  });
+
+  test("OPEN names a repo and carries the first prompt beneath it", () => {
+    const { spoken, open } = parseAnswer("OPEN: henry on mini\nAdd a test for the retention sweep.");
+    expect(open).toEqual({ name: "henry on mini", message: "Add a test for the retention sweep." });
+    expect(spoken).toBe("");
+  });
+
+  test("OPEN with nothing after it opens a session with no prompt", () => {
+    expect(parseAnswer("OPEN: dune-vs-squid").open).toEqual({ name: "dune-vs-squid", message: "" });
+  });
+});
+
+// Which repo, on which machine, an OPEN means. `repos` lists this machine's first, so a name
+// held on two machines opens here unless the model said otherwise.
+describe("resolveOpen", () => {
+  const repos = [
+    { name: "henry", path: "/me/code/henry" },
+    { name: "dune-vs-squid", path: "/me/code/dune-vs-squid" },
+    { name: "henry", path: "/other/henry", peer: "mini" },
+    { name: "arm", path: "/other/arm", peer: "mini" },
+  ];
+  const peers = ["mini"];
+
+  test("a bare name picks this machine's copy first", () => {
+    expect(resolveOpen("henry", repos, peers)).toEqual({ name: "henry", path: "/me/code/henry" });
+  });
+
+  test("\"on <peer>\" picks that machine's copy", () => {
+    expect(resolveOpen("henry on mini", repos, peers)?.path).toBe("/other/henry");
+    expect(resolveOpen("Henry on Mini", repos, peers)?.path).toBe("/other/henry");
+  });
+
+  test("a repo that only exists on a peer is found without naming the machine", () => {
+    expect(resolveOpen("arm", repos, peers)?.peer).toBe("mini");
+  });
+
+  test("\"on\" followed by something that is not a machine stays part of the name", () => {
+    // whisper's "dune versus squid on this machine": no peer called "machine", so the whole
+    // phrase is matched, and containment still finds the repo.
+    expect(resolveOpen("dune versus squid on machine", repos, peers)?.path).toBe("/me/code/dune-vs-squid");
+  });
+
+  test("a peer that has no such repo does not fall back to another machine's", () => {
+    expect(resolveOpen("dune-vs-squid on mini", repos, peers)).toBeUndefined();
+  });
+
+  test("nothing close matches nothing", () => {
+    expect(resolveOpen("grocery list", repos, peers)).toBeUndefined();
   });
 });
 
