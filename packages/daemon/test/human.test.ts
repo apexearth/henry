@@ -7,7 +7,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { HenryEvent, Minutes } from "@henry/shared";
-import { IDLE_MS, MINUTE, mergeMinutes, minuteOf, minutesFromPrompts, packDay, presence, SRC, startOfDay, unpackDay } from "@henry/shared";
+import { BRIDGED, IDLE_MS, isSyntheticPrompt, MINUTE, mergeMinutes, minuteOf, minutesFromPrompts, packDay, presence, SRC, startOfDay, unpackDay } from "@henry/shared";
 import { rmScratch, stopSessiond } from "./sessiond-helper";
 
 const scratch = mkdtempSync(join(tmpdir(), "henry-human-"));
@@ -17,8 +17,8 @@ process.env.HENRY_PORT = "0";
 const db = await import("../src/db");
 const { humanStats, notePresence } = await import("../src/human");
 
-function prompt(sessionId: string, ts: number): void {
-  const e: HenryEvent = { id: crypto.randomUUID(), sessionId, ts, kind: "hook", hookEvent: "UserPromptSubmit", payload: {}, severity: "info", summary: "prompt" };
+function prompt(sessionId: string, ts: number, text = "do the thing"): void {
+  const e: HenryEvent = { id: crypto.randomUUID(), sessionId, ts, kind: "hook", hookEvent: "UserPromptSubmit", payload: { prompt: text }, severity: "info", summary: "prompt" };
   db.insertEvent(e);
 }
 
@@ -69,6 +69,28 @@ describe("presence", () => {
     expect(minutesFromPrompts([t], t + IDLE_MS + MINUTE).size).toBe(1);
   });
 
+  test("only the prompt's own minute is typing; the minutes between are bridged, and read as reading", () => {
+    const t = minuteOf(Date.now());
+    const m = minutesFromPrompts([t - IDLE_MS - MINUTE, t, t + 4 * MINUTE], t + 6 * MINUTE);
+    expect(m.get(t - IDLE_MS - MINUTE)).toBe(SRC.prompt); // too far back to bridge: its minute alone
+    expect(m.get(t)).toBe(SRC.prompt | BRIDGED);
+    expect(m.get(t + MINUTE)).toBe(BRIDGED);
+    expect(m.get(t + 4 * MINUTE)).toBe(SRC.prompt | BRIDGED);
+    expect(m.get(t + 6 * MINUTE)).toBe(BRIDGED);
+    const p = presence(m, [t - IDLE_MS - MINUTE, t, t + 4 * MINUTE]);
+    expect(p.activeMs).toBe(8 * MINUTE);
+    expect(p.readingMs).toBe(5 * MINUTE);
+  });
+
+  test("prompts Claude Code sends itself are not you", () => {
+    expect(isSyntheticPrompt("<task-notification>\n<task-id>abc</task-id>")).toBe(true);
+    expect(isSyntheticPrompt('<agent-message from="a1"> hand-back')).toBe(true);
+    expect(isSyntheticPrompt("  <system-reminder>x</system-reminder>")).toBe(true);
+    expect(isSyntheticPrompt("<div> is what I want you to fix")).toBe(false);
+    expect(isSyntheticPrompt("fix the tests")).toBe(false);
+    expect(isSyntheticPrompt(undefined)).toBe(false);
+  });
+
   test("a day packs to 1440 hex digits and back", () => {
     const day = startOfDay(Date.now());
     const packed = packDay(day, mergeMinutes(span(day + 60 * MINUTE, 2, SRC.reading), span(day + 60 * MINUTE, 1, SRC.prompt)));
@@ -89,6 +111,9 @@ describe("humanStats", () => {
     prompt("s2", noon + 5 * MINUTE);
     // Twenty minutes of reading before the first prompt of the day, no typing in them.
     db.markPresence([...span(noon - 20 * MINUTE, 20, 0).keys()], SRC.reading);
+    // Background tasks reporting in at 3 a.m. go through the same hook; they are not you.
+    prompt("s1", noon - 9 * 60 * MINUTE, "<task-notification>\n<task-id>a1</task-id>");
+    prompt("s3", noon - 9 * 60 * MINUTE + 8 * MINUTE, "<task-notification>\n<task-id>a2</task-id>");
 
     const h = humanStats(14, noon + 6 * MINUTE);
     expect(h.dayStart).toBe(startOfDay(noon));
@@ -96,12 +121,14 @@ describe("humanStats", () => {
     expect(h.todayMinutes).toHaveLength(1440);
 
     const today = h.days[h.days.length - 1]!;
-    // 20 read + the 6 minutes spanned by the two prompts and the live tail, one stretch.
+    // 20 read + the 6 minutes spanned by the two prompts and the live tail, one stretch. Of
+    // the 7, only the two prompts' own minutes were typing; the rest was waiting on a turn.
     expect(today.activeMs).toBe(27 * MINUTE);
-    expect(today.readingMs).toBe(20 * MINUTE);
+    expect(today.readingMs).toBe(25 * MINUTE);
     expect(today.prompts).toBe(2);
     expect(today.sessions).toBe(2);
     expect(today.stretches).toBe(1);
+    expect(today.firstAt).toBe(noon - 20 * MINUTE);
     // Yesterday has prompts only: seven minutes, since they are six minutes apart.
     expect(h.days[h.days.length - 2]!.activeMs).toBe(7 * MINUTE);
     expect(h.idleMs).toBe(IDLE_MS);

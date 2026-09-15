@@ -699,7 +699,17 @@ run: all of it is time spent, and none of it produces a prompt, so the beat is t
 can count. Prompts also *imply* minutes — every minute between two prompts less than 15 apart
 (`IDLE_MS`) — which back-fills days from before any of this existed and sessions driven from a
 terminal Henry never sees. The two sets are unioned per minute, so nothing double-counts, and
-a minute knows which kinds it had: "3h 12m here, 1h 40m of it reading."
+a minute knows which kinds it had: "3h 12m here, 1h 40m of it reading." Only the minute a
+prompt was *sent* in is typing; the minutes it implies on either side are `BRIDGED`, a
+computed bit that reads as reading — you were waiting on the turn — so an hour of prompting
+every ten minutes is six minutes of typing, not sixty.
+  **Not every `UserPromptSubmit` is you.** Claude Code sends itself prompts through the same
+hook — `<task-notification>` when a background task finishes, `<agent-message>` when a
+subagent hands back — and they land at 3 a.m. while you sleep; a third of the hook's events
+in practice. `isSyntheticPrompt` (shared/human.ts) tells them by the head of the text, and
+`listPromptTimes` (db.ts) and engagement both skip them, so they neither bridge minutes nor
+move `lastInputAt` nor answer an ask. A `/loop` re-firing its own prompt looks exactly like
+you typing it, and is not caught.
   The row in the `presence` table is `(minute, mask)` and nothing else — never the panel, the
 file, the repo or the keystroke. Beats bridge at most two minutes of silence since the last
 one, so a missed beat is not a hole but an hour away is not credited. `daemon/human.ts` groups

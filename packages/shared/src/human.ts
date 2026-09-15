@@ -14,6 +14,21 @@ export const IDLE_MS = 15 * 60_000;
 export const SRC = { prompt: 1, terminal: 2, reading: 4 } as const;
 export type PresenceSource = keyof typeof SRC;
 export const SOURCES = Object.keys(SRC) as PresenceSource[];
+/** Not a source: the minutes a prompt implies on either side of itself (minutesFromPrompts).
+ *  You were waiting on a turn or reading its answer, not typing, so it is kept apart from
+ *  `prompt`, which marks only the minute the prompt was sent in. Never stored. */
+export const BRIDGED = 8;
+
+/**
+ * Prompts Claude Code sends itself arrive through the same UserPromptSubmit hook as the ones
+ * you typed: a background task finishing, a subagent handing back, a monitor firing. They
+ * happen while you are asleep, and three of them ten minutes apart would otherwise bill you
+ * half an hour at the keyboard. (A `/loop` re-firing its own prompt is indistinguishable
+ * from you typing it, and is not caught here.)
+ */
+export function isSyntheticPrompt(prompt: string | undefined): boolean {
+  return /^\s*<(task-notification|agent-message|system-reminder)\b/.test(prompt ?? "");
+}
 
 /** Epoch ms → the minute it falls in (epoch ms, floored). */
 export const minuteOf = (ts: number): number => Math.floor(ts / MINUTE) * MINUTE;
@@ -44,23 +59,25 @@ export function mergeMinutes(a: Minutes, b: Minutes): Minutes {
 }
 
 /**
- * The minutes a list of prompt timestamps (ascending) implies. Every minute between two
- * consecutive prompts counts when they are less than IDLE_MS apart — that is the reading and
- * waiting either side of a turn. A longer hole is you having left, and only the prompt's own
- * minute counts. `now` extends the last prompt the same way, so the clock keeps moving.
+ * The minutes a list of prompt timestamps (ascending) implies. The prompt's own minute is
+ * `prompt`; every minute between two consecutive prompts less than IDLE_MS apart is
+ * `BRIDGED` — that is the reading and waiting either side of a turn. A longer hole is you
+ * having left, and only the prompt's own minute counts. `now` extends the last prompt the
+ * same way, so the clock keeps moving.
  */
 export function minutesFromPrompts(times: number[], now?: number): Minutes {
   const out: Minutes = new Map();
+  const bridge = (from: number, to: number) => {
+    for (let m = minuteOf(from); m <= minuteOf(to); m += MINUTE) out.set(m, (out.get(m) ?? 0) | BRIDGED);
+  };
   for (let i = 0; i < times.length; i++) {
     const t = times[i]!;
     const prev = i > 0 ? times[i - 1]! : undefined;
-    const from = prev !== undefined && t - prev <= IDLE_MS ? prev : t;
-    for (let m = minuteOf(from); m <= minuteOf(t); m += MINUTE) out.set(m, (out.get(m) ?? 0) | SRC.prompt);
+    if (prev !== undefined && t - prev <= IDLE_MS) bridge(prev, t);
+    out.set(minuteOf(t), (out.get(minuteOf(t)) ?? 0) | SRC.prompt);
   }
   const last = times[times.length - 1];
-  if (last !== undefined && now !== undefined && now > last && now - last <= IDLE_MS) {
-    for (let m = minuteOf(last); m <= minuteOf(now); m += MINUTE) out.set(m, (out.get(m) ?? 0) | SRC.prompt);
-  }
+  if (last !== undefined && now !== undefined && now > last && now - last <= IDLE_MS) bridge(last, now);
   return out;
 }
 

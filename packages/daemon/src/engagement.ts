@@ -3,7 +3,7 @@
 // showing up, which is what tells a parked session from a neglected one. Two signals:
 // the UserPromptSubmit hook (already in the event log, so a restart recovers it) and raw
 // keystrokes relayed to the PTY (throttled, never persisted). Nothing is polled.
-import { isClaudeSession } from "@henry/shared";
+import { isClaudeSession, isSyntheticPrompt } from "@henry/shared";
 import * as attention from "./attention";
 import * as db from "./db";
 import { notePresence } from "./human";
@@ -42,14 +42,15 @@ function prune(list: number[], now: number): number[] {
   return i ? list.slice(i) : list;
 }
 
-/** A hook arrived (hooks.ts). Only prompts and the session's end matter here. */
-export function note(sessionId: string, hookEvent: string, ts = Date.now()): void {
+/** A hook arrived (hooks.ts). Only prompts and the session's end matter here. `prompt` is
+ * the text: a prompt Claude Code sent itself (a task finishing) is not you showing up. */
+export function note(sessionId: string, hookEvent: string, ts = Date.now(), prompt?: string): void {
   if (hookEvent === "SessionEnd") {
     // Whatever it was asking you for, there is no longer anyone here to ask.
     attention.clearSession(sessionId, ts);
     return clear(sessionId);
   }
-  if (hookEvent !== "UserPromptSubmit") return;
+  if (hookEvent !== "UserPromptSubmit" || isSyntheticPrompt(prompt)) return;
   attention.answered(sessionId, ts);
   const list = prune(prompts.get(sessionId) ?? [], ts);
   list.push(ts);
@@ -84,7 +85,7 @@ export function clear(sessionId: string): void {
 export function restore(now = Date.now()): void {
   for (const s of sessions.list()) {
     if (s.status !== "running" || prompts.has(s.id)) continue;
-    const times = db.listHookTimes(s.id, "UserPromptSubmit", now - PROMPT_WINDOW_MS);
+    const times = db.listPromptTimes(now - PROMPT_WINDOW_MS, s.id).map((p) => p.ts);
     if (!times.length) continue;
     prompts.set(s.id, times);
     lastInput.set(s.id, times[times.length - 1]!);

@@ -2,7 +2,7 @@
 // later milestones only add queries here.
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
-import type { Attention, Flag, HenryEvent, PlaybookEntry, Session, SessionUsage } from "@henry/shared";
+import { isSyntheticPrompt, type Attention, type Flag, type HenryEvent, type PlaybookEntry, type Session, type SessionUsage } from "@henry/shared";
 import { henryDir } from "./config";
 
 export const dbPath = join(henryDir, "henry.db");
@@ -312,20 +312,17 @@ export function listEvents(opts: { sessionId?: string; limit?: number } = {}): H
   return rows.map(rowToEvent);
 }
 
-/** Timestamps of one hook event for a session since `since`, ascending (engagement.ts restore). */
-export function listHookTimes(sessionId: string, hookEvent: string, since: number): number[] {
+/** Every prompt *you* sent since `since`, ascending: the whole basis of human.ts. The ones
+ *  Claude Code sent itself (a task finishing, a subagent handing back) are the same hook and
+ *  stay in the log, but are not evidence of you; only the head of the text is read to tell. */
+export function listPromptTimes(since: number, sessionId?: string): { ts: number; sessionId: string }[] {
   const rows = db
-    .prepare("SELECT ts FROM events WHERE session_id = ? AND kind = 'hook' AND hook_event = ? AND ts >= ? ORDER BY ts ASC")
-    .all(sessionId, hookEvent, since) as { ts: number }[];
-  return rows.map((r) => r.ts);
-}
-
-/** Every prompt you sent since `since`, ascending: the whole basis of human.ts. */
-export function listPromptTimes(since: number): { ts: number; sessionId: string }[] {
-  const rows = db
-    .prepare("SELECT ts, session_id FROM events WHERE kind = 'hook' AND hook_event = 'UserPromptSubmit' AND ts >= ? ORDER BY ts ASC")
-    .all(since) as { ts: number; session_id: string }[];
-  return rows.map((r) => ({ ts: r.ts, sessionId: r.session_id }));
+    .prepare(
+      `SELECT ts, session_id, substr(json_extract(payload, '$.prompt'), 1, 24) AS head FROM events
+       WHERE kind = 'hook' AND hook_event = 'UserPromptSubmit' AND ts >= ? AND (?2 IS NULL OR session_id = ?2) ORDER BY ts ASC`,
+    )
+    .all(since, sessionId ?? null) as { ts: number; session_id: string; head: string | null }[];
+  return rows.filter((r) => !isSyntheticPrompt(r.head ?? undefined)).map((r) => ({ ts: r.ts, sessionId: r.session_id }));
 }
 
 /** Oldest event still in the log; how far back any history claim can honestly reach. */

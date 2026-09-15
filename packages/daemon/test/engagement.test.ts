@@ -64,6 +64,15 @@ describe("engagement", () => {
     expect(s.lastInputAt).toBe(t0 + 5 * MIN);
   });
 
+  test("a prompt Claude Code sent itself is not you showing up", () => {
+    const t0 = Date.now();
+    engagement.note(s.id, "UserPromptSubmit", t0, "fix it");
+    engagement.note(s.id, "UserPromptSubmit", t0 + 5 * MIN, "<task-notification>\n<task-id>a1</task-id>");
+    engagement.note(s.id, "UserPromptSubmit", t0 + 6 * MIN, '<agent-message from="a1"> done');
+    expect(s.prompts).toEqual([t0]);
+    expect(s.lastInputAt).toBe(t0);
+  });
+
   test("prompts older than the window are dropped on the next write", () => {
     const t0 = Date.now();
     engagement.note(s.id, "UserPromptSubmit", t0);
@@ -110,6 +119,7 @@ describe("engagement", () => {
     db.insertEvent(hook(s.id, "UserPromptSubmit", now - 30 * MIN));
     db.insertEvent(hook(s.id, "PreToolUse", now - 29 * MIN));
     db.insertEvent(hook(s.id, "UserPromptSubmit", now - 2 * MIN));
+    db.insertEvent({ ...hook(s.id, "UserPromptSubmit", now - MIN), payload: { prompt: "<task-notification>\n<task-id>a1</task-id>" } });
     engagement.stop();
     engagement.restore(now);
     expect(s.prompts).toEqual([now - 30 * MIN, now - 2 * MIN]);

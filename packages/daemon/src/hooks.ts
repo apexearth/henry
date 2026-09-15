@@ -141,7 +141,7 @@ function ingestHookInner(body: HookBody): IngestResult {
   db.insertEvent(event);
   broadcast({ type: "event", event });
   activity.note(session.id, hookEvent, payload, event.ts);
-  engagement.note(session.id, hookEvent, event.ts);
+  engagement.note(session.id, hookEvent, event.ts, str(payload.prompt));
   const result: IngestResult = { event };
 
   if (event.severity !== "info") {
