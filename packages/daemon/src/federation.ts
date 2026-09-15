@@ -8,7 +8,7 @@
 // handshake). The listener binds the Tailscale address only, by default, and serves nothing
 // but /fed. A paired machine is you: it can do to this daemon's sessions whatever a window
 // here can. Nothing here is ever offered to a peer: /api/federation/*, /hook, /statusline,
-// the UI. See PLAN.md "Federation".
+// the UI. See docs/federation.md.
 import { chmodSync, existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { networkInterfaces } from "node:os";
 import { join } from "node:path";

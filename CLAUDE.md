@@ -2,7 +2,20 @@
 
 Henry hosts the user's Claude Code sessions in a local daemon and visualizes what they do
 across repos: git state, safeguard flags, subscription usage, and an overseer "playbook".
-Read `PLAN.md` first; it is the design contract. `README.md` covers running and installing.
+`README.md` covers running and installing.
+
+## Documents
+
+- `PLAN.md` is what is ahead: open items and what is ruled out. Nothing finished lives there.
+- `docs/<area>.md` is how each part works today (index in `docs/README.md`). Read the one for
+  the area you are touching before you touch it.
+- `changelog/<YYYY-MM-DD>.md` is what shipped that day, one line per change.
+
+When work ships: delete its item from `PLAN.md` if it had one, add a line to today's
+changelog, and edit the area doc so the sentence that is now wrong says the new rule. Edit,
+never append: no "before this…", no numbers from the investigation, no function names the
+code already has. A doc that needs a new section is fine; a doc that grows on every change is
+a changelog wearing the wrong name.
 
 ## Shape
 
@@ -26,7 +39,6 @@ Read `PLAN.md` first; it is the design contract. `README.md` covers running and 
   (and `hangup` in sessiond); everywhere else use `node:path`, never `"/"` string joins, and
   never assume `/bin/sh`, `$HOME`, `$SHELL` or POSIX mode bits.
 - The overseer never reads source code or diffs, only summaries.
-- Update `PLAN.md` when a design decision changes. It is not a changelog.
 
 ## Style
 

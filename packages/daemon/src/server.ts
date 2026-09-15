@@ -350,7 +350,7 @@ async function serveStatic(pathname: string): Promise<Response> {
 
 /** Bun 1.2.19 on Windows kept ~1 KB of native memory per /hook and /statusline request the
  * daemon answered (JS heap flat, RSS in the gigabytes after a day of nine sessions); 1.4.2
- * holds flat under the same load (PLAN.md). Observe and flag: the daemon runs either way. */
+ * holds flat under the same load (docs/config.md). Observe and flag: the daemon runs either way. */
 const BUN_FLOOR = "1.4.2";
 function warnOldBun(): void {
   const at = (v: string) => v.split(".").map(Number);

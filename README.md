@@ -233,4 +233,5 @@ instead of curl, and the shortcuts shift to Ctrl and Alt.
 - `packages/ui` (Vite + React + xterm.js) is the page, `packages/shell` is a Tauri window
   on it for the macOS menu, `packages/shared` holds the types and WS protocol.
 
-`PLAN.md` is the design contract and explains everything this file leaves out.
+`docs/` explains everything this file leaves out, one area per file; `PLAN.md` is what is
+still ahead, and `changelog/` is what shipped, by day.
