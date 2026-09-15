@@ -541,6 +541,12 @@ records and plays.
   for the same reason. Henry's ear is preferred over the browser's recogniser when the daemon
   has whisper, because only Henry's knows what your sessions, repos and files are called; the
   Web Speech button stays as the fallback when it does not.
+- **Talking is a mode, not a button.** A mic wedged between the text box and send is a thumb-sized
+  target you have to hold, and a long press on a small button is how a phone decides you meant to
+  select its label. So the composer has two modes and one toggle swaps the whole bottom of the
+  screen: keys and a text box for typing, or a slab across the width you hold, with the words it
+  heard above it. The mode is remembered, because a phone used by voice is used that way twice.
+  The heard line is still a draft — tap it to fix a word, send when it says what you meant.
 
 Not built yet: word-level highlighting as Henry speaks (needs per-word timings, which no
 stock Kokoro ONNX export emits), and speaking Stop-hook answers unprompted.

@@ -591,10 +591,24 @@ html:not([data-platform="mac"]) ::-webkit-scrollbar-button { display: none; widt
 .m-text { flex: 1; min-width: 0; resize: none; overflow-y: auto; max-height: 120px; padding: 7px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--fg); font: 13px/1.35 var(--mono); }
 /* 16px stops iOS zooming the page when the field takes focus. */
 @supports (-webkit-touch-callout: none) { .m-text { font-size: 16px; } }
-.m-mic, .m-send { flex: none; height: 34px; }
-.m-mic { width: 38px; color: var(--fg-dim); font-size: 15px; }
+/* A finger held on a button is a long press, and the browser answers it by selecting the label
+   and raising the callout. Hold-to-talk is exactly that gesture, so no button down here selects. */
+.m-composer button { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: manipulation; }
+.m-mic, .m-send { flex: none; height: 44px; }
+/* Thumb-sized: this is the one control you press without looking. */
+.m-mic { width: 56px; color: var(--fg-dim); font-size: 18px; touch-action: none; }
 .m-mic.on { color: var(--alarm); border-color: var(--alarm); animation: mark-pulse 1.4s ease-in-out infinite; }
 .m-send:disabled { opacity: 0.4; }
+
+/* Talk mode: the keys and the box step aside, and what is left is a slab you can hit without
+   looking at it, over the words it heard. */
+.m-heard { display: block; width: 100%; text-align: left; margin-bottom: 5px; max-height: 84px; overflow-y: auto; background: var(--bg); color: var(--fg); font: 13px/1.35 var(--mono); padding: 7px 8px; border-radius: 6px; }
+.m-heard.hint { color: var(--fg-faint); }
+.m-hold { flex: 1; min-width: 0; height: 68px; color: var(--fg); font-size: 14px; touch-action: none; }
+.m-hold.on { color: var(--alarm); border-color: var(--alarm); background: color-mix(in srgb, var(--alarm) 16%, var(--bg-3)); animation: mark-pulse 1.4s ease-in-out infinite; }
+.m-hold:disabled { color: var(--fg-dim); }
+.m-mode { flex: none; width: 46px; height: 68px; color: var(--fg-dim); font-size: 13px; }
+.m-composer .m-hold ~ .m-send { height: 68px; }
 .m-note { color: var(--warn); font-size: 11px; padding: 2px 2px 4px; }
 
 /* Drawer (sessions) and sheet (tools): the two rails, as menus. */
