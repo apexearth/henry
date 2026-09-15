@@ -149,7 +149,7 @@ export function FileView({ path, line, active, local = false }: Props) {
   const [fd, setFd] = useState<FileDiff | null>(null);
   useEffect(() => {
     setFd(null);
-    if (!peek?.repoPath) return;
+    if (!peek?.repoPath || peek.image) return;
     let on = true;
     const q = new URLSearchParams({ path: peek.path });
     const sid = local ? null : getState().activeSessionId;
@@ -172,10 +172,18 @@ export function FileView({ path, line, active, local = false }: Props) {
   }, [active, local, peek, line]);
 
   const lines = useMemo(() => {
-    const ls = peek?.content ? peek.content.split("\n") : [];
+    const ls = peek?.content && !peek.image ? peek.content.split("\n") : [];
     if (ls.length && ls[ls.length - 1] === "") ls.pop();
     return ls;
   }, [peek]);
+
+  // A picture: drawn from the bytes the peek carried, at its own size until that is wider than
+  // the pane. The header says how big it really is once the browser has decoded it. The size is
+  // kept with the src it was measured from, so a decode that lands before a reset is not lost.
+  const imgSrc = useMemo(() => (peek?.image && peek.content ? `data:${peek.image};base64,${peek.content}` : null), [peek]);
+  const [measured, setMeasured] = useState<{ src: string; w: number; h: number } | null>(null);
+  const dims = measured && measured.src === imgSrc ? measured : null;
+  const [fit, setFit] = useState(true);
 
   // Find within the file: the bar lives only on the peek in view, so leaving it closes the bar.
   const [find, setFind] = useState<{ q: string; n: number } | null>(null);
@@ -228,8 +236,13 @@ export function FileView({ path, line, active, local = false }: Props) {
           </span>
         )}
         <span className="peek-meta">
-          {peek ? `${lines.length} lines · ${fmtSize(peek.size)}${peek.truncated ? " · truncated" : ""}` : peek === null ? "not found" : "loading…"}
+          {peek?.image
+            ? `${peek.image.slice(6).replace("+xml", "").replace("x-icon", "ico")}${dims ? ` · ${dims.w}×${dims.h}` : ""} · ${fmtSize(peek.size)}`
+            : peek ? `${lines.length} lines · ${fmtSize(peek.size)}${peek.truncated ? " · truncated" : ""}` : peek === null ? "not found" : "loading…"}
         </span>
+        {imgSrc && dims && (
+          <button className="peek-back" onClick={() => setFit((f) => !f)} title={fit ? "show at actual size" : "fit to the pane"}>{fit ? "1:1" : "fit"}</button>
+        )}
         {!local && <button className="peek-close" onClick={() => closePeek(filePanelId(path))} title="close (Esc)">×</button>}
       </div>
       {find && (
@@ -245,8 +258,14 @@ export function FileView({ path, line, active, local = false }: Props) {
       )}
       <div className="peek-body" ref={body} tabIndex={0}>
         {peek === null && <div className="peek-note">This file no longer exists.</div>}
-        {peek?.binary && <div className="peek-note">Binary file, nothing to show.</div>}
-        {peek && !peek.binary && (
+        {imgSrc && (
+          <div className={"peek-img" + (fit ? " fit" : "")}>
+            <img src={imgSrc} alt={name} onLoad={(e) => setMeasured({ src: imgSrc, w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })} />
+          </div>
+        )}
+        {peek?.image && !imgSrc && <div className="peek-note">{peek.truncated ? `Image is ${fmtSize(peek.size)}, over what a peek carries.` : "Empty image file."}</div>}
+        {peek?.binary && !peek.image && <div className="peek-note">Binary file, nothing to show.</div>}
+        {peek && !peek.binary && !peek.image && (
           <pre>
             {lines.map((t, i) => (
               <Line key={i} no={i + 1} text={t} html={html && i < html.length ? html[i] : undefined} hit={i + 1 === line}

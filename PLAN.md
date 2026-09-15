@@ -850,6 +850,9 @@ henry/
       src/history.ts           # GET /api/history + the hook that refetches a session's turns
       src/DiffView.tsx
       src/GitTree.tsx          # repo modals: shell, commit graph (tree), one commit + patch
+      src/demo/                # `?demo`: WebSocket + fetch swapped for a scripted daemon (world.ts, screens.ts)
+  scripts/screenshots.ts       # docs/screenshots from ?demo, via the installed Chrome
+  docs/screenshots/            # what the README shows
 ```
 
 ## Data flow

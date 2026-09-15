@@ -425,6 +425,11 @@ export interface FilePeek {
   size: number;
   truncated: boolean;
   binary: boolean;
+  /** Set when the bytes are a picture (by signature, or `.svg`): its MIME type, and `content`
+   * is the whole file base64-encoded rather than text. Empty with `truncated` when it is over
+   * the image cap. Base64 in the JSON, not a bytes endpoint, so a relayed session's images
+   * travel the same path as its text. */
+  image?: string;
   content: string;
 }
 

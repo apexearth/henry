@@ -33,22 +33,39 @@ calls if you turn it on (off by default), and machines you paired on your own ta
 
 ## What it looks like
 
-```
-┌──────────┬──────────────────────────────────────┬──────────────────────┐
-│ sessions │                                      │ Files│Flags│Playbook │
-│ ▣ Rail fi│                                      │ ▾ henry main ↑2 ±5 ⑂↗│
-│ ▣ Stealth│         xterm.js (WebGL)             │   ▸ packages         │
-│ >_ henry │         one per session              │   M PLAN.md          │
-│ ▢ arm ⚑2 │                                      │ ▸ arm feat/x ↑∅ ±0 ⑂ │
-│ + new    │                                      ├──────────────────────┤
-│ 3 running│                                      │ Usage  5h ▇▇▁ 7d ▇▁▁ │
-└──────────┴──────────────────────────────────────┴──────────────────────┘
-```
+![Henry: the session rail, a Claude Code session mid-turn, and the files tree of the repo it is working in](docs/screenshots/overview.webp)
 
-The rail is one row per session, titled by the terminal and coloured by what that session
-is doing. It is the only session selector: one terminal shows at a time. Every panel is a
-dockable tab, so drag to split, stack or float, and "reset layout" puts back the picture
-above.
+Rail | terminal | tools. The rail is one row per session, titled by the terminal and coloured
+by what that session is doing, with a sparkline of your prompts behind it; a second machine's
+sessions sit under their own header. The top bar says who is working, who needs you, what is
+uncommitted, and how long you have been here. The bottom bar is the session's model, context
+and spend, then the 5h/7d windows per machine.
+
+The rail is the only session selector: one terminal shows at a time. Every panel is a dockable
+tab, so drag to split, stack or float, and "reset layout" puts back the picture above.
+
+<table>
+  <tr>
+    <td><a href="docs/screenshots/needs.webp"><img src="docs/screenshots/needs.webp" alt="A session blocked on a permission prompt, amber in the rail and counted in the top bar"></a></td>
+    <td><a href="docs/screenshots/flags.webp"><img src="docs/screenshots/flags.webp" alt="The Flags tab: a commit on main flagged as an alarm, with the rule and the command behind it"></a></td>
+  </tr>
+  <tr>
+    <td>Blocked on a permission prompt: amber in the rail, counted in the top bar.</td>
+    <td>Flags: a commit straight onto <code>main</code>, with the rule and the command behind it. The red chip is a session asking for you by name.</td>
+  </tr>
+  <tr>
+    <td><a href="docs/screenshots/playbook.webp"><img src="docs/screenshots/playbook.webp" alt="The Playbook tab: the overseer's summary of a session, doing, changed, careful, next"></a></td>
+    <td><a href="docs/screenshots/diff.webp"><img src="docs/screenshots/diff.webp" alt="A repo's diff against the session's baseline, opened from the files tree"></a></td>
+  </tr>
+  <tr>
+    <td>Playbook: the overseer's running summary of a session, from hook and git summaries only.</td>
+    <td>The diff of everything a session did to a repo since it started, from the files tree.</td>
+  </tr>
+</table>
+
+The pictures are the UI on scripted data: open `/?demo` on any Henry window (or the Vite dev
+server) to see the same thing with no daemon behind it. `bun scripts/screenshots.ts` regenerates
+them.
 
 ⌘1..9 and ⌘↑/↓ walk the rail, ⌘D duplicates a session, ⌘` opens a terminal in the folder of
 the session you are looking at (⌃` in a browser tab), ⌃N opens the new-session picker,

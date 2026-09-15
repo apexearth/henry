@@ -8,9 +8,41 @@ import { expandHome } from "./config";
 import * as git from "./git";
 
 const CAP_BYTES = 1024 * 1024;
+/** Pictures go out whole or not at all (a cut PNG is nothing), so they get a larger cap. A
+ * peek relayed to a paired machine travels as base64 inside one federation frame, so it gets
+ * the smaller one (server.ts passes it). */
+export const IMAGE_CAP_BYTES = 8 * 1024 * 1024;
+export const RELAYED_IMAGE_CAP_BYTES = 2 * 1024 * 1024;
+
+/** The picture formats a browser draws, told apart by their first bytes rather than their
+ * names, so a screenshot saved as `.dat` still shows. SVG is text and goes by extension. */
+function imageType(head: Buffer, size: number, path: string): string | undefined {
+  const at = (i: number, s: string) => head.length >= i + s.length && head.toString("latin1", i, i + s.length) === s;
+  if (at(0, "\x89PNG\r\n\x1a\n")) return "image/png";
+  if (head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) return "image/jpeg";
+  if (at(0, "GIF87a") || at(0, "GIF89a")) return "image/gif";
+  if (at(0, "RIFF") && at(8, "WEBP")) return "image/webp";
+  // "BM" is two letters a README can open with; the header's own size field settles it.
+  if (at(0, "BM") && head.length >= 6 && head.readUInt32LE(2) === size) return "image/bmp";
+  if (head[0] === 0 && head[1] === 0 && head[2] === 1 && head[3] === 0) return "image/x-icon";
+  if (at(4, "ftypavif")) return "image/avif";
+  if (/\.svg$/i.test(path) && !head.includes(0)) return "image/svg+xml";
+  return undefined;
+}
+
+function readHead(path: string, size: number, cap: number): Buffer {
+  const buf = Buffer.alloc(Math.min(size, cap));
+  const fd = openSync(path, "r");
+  try {
+    const n = readSync(fd, buf, 0, buf.length, 0);
+    return buf.subarray(0, n);
+  } finally {
+    closeSync(fd);
+  }
+}
 
 /** `raw` may be `~/x`, absolute, or relative to `cwd` (the session's). Undefined: no such file. */
-export function readPeek(raw: string, cwd?: string): FilePeek | undefined {
+export function readPeek(raw: string, cwd?: string, imageCap = IMAGE_CAP_BYTES): FilePeek | undefined {
   const expanded = expandHome(raw.trim());
   if (!expanded) return undefined;
   const abs = isAbsolute(expanded) ? expanded : cwd ? resolve(expandHome(cwd), expanded) : undefined;
@@ -25,26 +57,17 @@ export function readPeek(raw: string, cwd?: string): FilePeek | undefined {
   } catch {
     return undefined;
   }
-  const buf = Buffer.alloc(Math.min(size, CAP_BYTES));
-  const fd = openSync(path, "r");
-  let n = 0;
-  try {
-    n = readSync(fd, buf, 0, buf.length, 0);
-  } finally {
-    closeSync(fd);
-  }
-  const head = buf.subarray(0, Math.min(n, 8192));
-  const binary = head.includes(0);
+  let bytes = readHead(path, size, CAP_BYTES);
+  const image = imageType(bytes.subarray(0, 16), size, path);
   const repo = git.resolveRepo(path);
-  return {
-    path,
-    repoPath: repo?.path,
-    rel: repo ? git.relIn(repo.path, path) : undefined,
-    size,
-    truncated: size > n,
-    binary,
-    content: binary ? "" : buf.subarray(0, n).toString("utf8"),
-  };
+  const base = { path, repoPath: repo?.path, rel: repo ? git.relIn(repo.path, path) : undefined, size };
+  if (image) {
+    if (size > imageCap) return { ...base, truncated: true, binary: true, image, content: "" };
+    if (bytes.length < size) bytes = readHead(path, size, imageCap);
+    return { ...base, truncated: false, binary: true, image, content: bytes.toString("base64") };
+  }
+  const binary = bytes.subarray(0, 8192).includes(0);
+  return { ...base, truncated: size > bytes.length, binary, content: binary ? "" : bytes.toString("utf8") };
 }
 
 // ---- the files pane's tree, for roots that are not git repos ----

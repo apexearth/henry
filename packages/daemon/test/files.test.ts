@@ -10,8 +10,10 @@ process.env.HENRY_HOME = join(tmp, "home");
 const files = await import("../src/files");
 
 const root = join(tmp, "plain");
+const pics = join(tmp, "pics");
 
 beforeAll(() => {
+  mkdirSync(pics, { recursive: true });
   mkdirSync(join(root, "src", "deep"), { recursive: true });
   mkdirSync(join(root, "node_modules", "pkg"), { recursive: true });
   mkdirSync(join(root, "target"), { recursive: true });
@@ -20,7 +22,14 @@ beforeAll(() => {
   writeFileSync(join(root, "src", "deep", "b.ts"), "b\n");
   writeFileSync(join(root, "node_modules", "pkg", "index.js"), "nope\n");
   writeFileSync(join(root, "target", "out.bin"), "nope\n");
+  // A 1×1 PNG, and a PNG hiding under the wrong name: the signature decides, not the extension.
+  writeFileSync(join(pics, "dot.png"), PNG);
+  writeFileSync(join(pics, "dot.dat"), PNG);
+  writeFileSync(join(pics, "mark.svg"), '<svg xmlns="http://www.w3.org/2000/svg"/>\n');
+  writeFileSync(join(pics, "blob.bin"), Buffer.from([1, 2, 0, 3]));
 });
+
+const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64");
 
 afterAll(() => {
   try {
@@ -45,6 +54,28 @@ describe("readDirIndex", () => {
     expect(files.readDirIndex(join(root, "README.md"))).toBeUndefined();
     expect(files.readDirIndex("")).toBeUndefined();
     expect(files.readDirIndex("relative/path")).toBeUndefined();
+  });
+
+  test("a picture comes back whole as base64 with its type, whatever it is called", () => {
+    for (const name of ["dot.png", "dot.dat"]) {
+      const p = files.readPeek(join(pics, name))!;
+      expect(p.image).toBe("image/png");
+      expect(p.binary).toBe(true);
+      expect(p.truncated).toBe(false);
+      expect(Buffer.from(p.content, "base64").equals(PNG)).toBe(true);
+    }
+    expect(files.readPeek(join(pics, "mark.svg"))!.image).toBe("image/svg+xml");
+  });
+
+  test("text and other binaries are what they were", () => {
+    const text = files.readPeek(join(root, "README.md"))!;
+    expect(text.image).toBeUndefined();
+    expect(text.binary).toBe(false);
+    expect(text.content).toBe("hi\n");
+    const blob = files.readPeek(join(pics, "blob.bin"))!;
+    expect(blob.image).toBeUndefined();
+    expect(blob.binary).toBe(true);
+    expect(blob.content).toBe("");
   });
 
   test("the cache is reported to /api/debug/memory", () => {

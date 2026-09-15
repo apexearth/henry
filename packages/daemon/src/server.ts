@@ -632,7 +632,7 @@ export async function handleApi(req: Request, url: URL, origin: ApiOrigin): Prom
         return d ? json(d) : json({ error: "not in a repo" }, 404);
       }
       if (pathname === "/api/file") {
-        const peek = files.readPeek(url.searchParams.get("path") ?? "", url.searchParams.get("cwd") ?? undefined);
+        const peek = files.readPeek(url.searchParams.get("path") ?? "", url.searchParams.get("cwd") ?? undefined, fromPeer ? files.RELAYED_IMAGE_CAP_BYTES : files.IMAGE_CAP_BYTES);
         return peek ? json(peek) : json({ error: "not found" }, 404);
       }
   return json({ error: "not found" }, 404);

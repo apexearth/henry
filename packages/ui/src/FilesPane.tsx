@@ -77,6 +77,11 @@ function save(key: string, value: unknown): void {
 const nodeKey = (rootPath: string, rel: string) => `${rootPath}\u0000${rel}`;
 const hitsKey = (rootPath: string, rel: string) => nodeKey(rootPath, `hits:${rel}`);
 
+/** Same paths in the same order: a re-read that found nothing new should not re-render the tree. */
+function sameList(a: string[] | undefined, b: string[]): boolean {
+  return !!a && a.length === b.length && a.every((p, i) => p === b[i]);
+}
+
 async function fetchChanges(repoPath: string, peer?: string): Promise<ChangedFile[]> {
   const r = await fetch(`/api/repo/changes?repo=${encodeURIComponent(repoPath)}${peer ? `&peer=${encodeURIComponent(peer)}` : ""}`);
   return r.ok ? ((await r.json()) as ChangedFile[]) : [];
@@ -220,13 +225,27 @@ export function FilesPane() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rootsKey]);
 
+  // Re-read every root's index on the same signal as the change marks (`sf` follows the daemon's
+  // repo broadcasts), or a file or folder made after the pane mounted never appears in the tree.
+  // The index is cached for 10 s on both sides, so a broadcast costs one cheap call per root.
+  useEffect(() => {
+    let on = true;
+    for (const r of roots) {
+      rootIndex(r.path, peer).then((idx) => on && setIndexes((prev) => (sameList(prev[r.path], idx.files) ? prev : { ...prev, [r.path]: idx.files })));
+    }
+    return () => {
+      on = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rootsKey, peer, sf]);
+
+  // Status for pinned folders, which the session's answer does not cover. Not on `sf`: a pinned
+  // folder is by definition not one of the session's repos, so its broadcasts say nothing about it,
+  // and this is an uncached `git status` on the daemon.
   useEffect(() => {
     let on = true;
     const known = new Set((sf?.repos ?? []).map((r) => r.path));
     for (const r of roots) {
-      if (indexes[r.path]) continue;
-      rootIndex(r.path, peer).then((idx) => on && setIndexes((prev) => (prev[r.path] ? prev : { ...prev, [r.path]: idx.files })));
-      // Only for roots the session's own answer does not already cover.
       if (!known.has(r.path)) fetchChanges(r.path, peer).then((c) => on && setChanges((prev) => ({ ...prev, [r.path]: c })));
     }
     return () => {

@@ -1,3 +1,6 @@
+// First, before any module reads storage or connects: `?demo` swaps the daemon and the browser's
+// storage for scripted ones (screenshots, a look at the UI with no sessions). A no-op otherwise.
+import "./demo/install";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { ErrorBoundary } from "./ErrorBoundary";
