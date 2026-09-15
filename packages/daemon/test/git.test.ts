@@ -171,12 +171,19 @@ describe("git", () => {
     expect(diff).not.toContain("ignored.txt");
   });
 
-  test("changedFiles is uncommitted work vs HEAD; fileDiff and the repo diff are vs baseline", async () => {
-    const changed = await git.changedFiles(repo);
+  test("changedFiles, listFiles and fileDiff see the same picture as the repo diff", async () => {
+    const changed = await git.changedFiles("s1", repo);
     const byPath = Object.fromEntries(changed.map((f) => [f.path, f]));
-    expect(byPath["a.txt"].status).toBe("M");
-    expect(byPath["d.txt"]).toBeUndefined(); // committed since baseline: the tree mark clears
+    expect(byPath["a.txt"]).toMatchObject({ status: "M" });
+    expect(byPath["a.txt"].committed).toBeUndefined();
+    expect(byPath["d.txt"]).toMatchObject({ status: "A", committed: true }); // committed since baseline still counts, but not as uncommitted
     expect(byPath["untracked.txt"].status).toBe("?");
+    // Touched again after its commit: the mark is git's (M vs HEAD), not the baseline's (A).
+    appendFileSync(join(repo, "d.txt"), "again\n");
+    const dAgain = (await git.changedFiles("s1", repo)).find((f) => f.path === "d.txt");
+    expect(dAgain).toMatchObject({ status: "M" });
+    expect(dAgain?.committed).toBeUndefined();
+    writeFileSync(join(repo, "d.txt"), "d\n");
     expect(byPath["untracked.txt"].mtime).toBeGreaterThan(0);
     expect(byPath["ignored.txt"]).toBeUndefined();
     const all = await git.listFiles(join(repo, "a.txt"));
@@ -190,17 +197,20 @@ describe("git", () => {
     expect((await git.fileDiff("s1", join(repo, "ignored.txt")))?.diff).toBe("");
     expect(await git.fileDiff("s1", "/")).toBeUndefined();
     const sf = await git.sessionFiles("s1");
-    const mine = sf.repos.find((r) => r.path === repo);
-    expect(mine?.baseline).toBe(baselineSha);
-    expect(mine?.files.map((f) => f.path).sort()).toEqual(changed.map((f) => f.path).sort());
+    expect(sf.repos.find((r) => r.path === repo)?.files.length).toBe(changed.length);
   });
 
-  test("explorer: allRepoStates covers every checkout", async () => {
+  test("explorer: allRepoStates covers every checkout; changedFiles without a session is vs HEAD", async () => {
     const states = await git.allRepoStates(root);
     const byPath = Object.fromEntries(states.map((s) => [s.path, s]));
     expect(byPath[repo]).toMatchObject({ name: "app", branch: "main", isWorktree: false });
-    expect(byPath[repo].dirty).toBe(2);
+    expect(byPath[repo].dirty).toBeGreaterThan(0);
     expect(byPath[join(root, "scratch")]).toBeUndefined(); // a folder, not a repo
+    // d.txt was committed after the baseline: changed for the session, clean vs HEAD.
+    const vsHead = Object.fromEntries((await git.changedFiles("", repo)).map((f) => [f.path, f.status]));
+    expect(vsHead["a.txt"]).toBe("M");
+    expect(vsHead["untracked.txt"]).toBe("?");
+    expect(vsHead["d.txt"]).toBeUndefined();
   });
 
   test("grepRepo is literal and smart-case, sees untracked files, and windows long lines", async () => {

@@ -16,6 +16,7 @@ interface Row {
   /** 0 changed · 1 recent · 2 this session's repos · 3 other repos */
   tier: number;
   status?: string;
+  committed?: true;
   mtime?: number;
   score: number;
 }
@@ -76,7 +77,7 @@ export function FilePicker({ onClose }: { onClose: () => void }) {
       out.push({ ...row, score: sc });
     };
     for (const r of sf?.repos ?? []) {
-      for (const f of r.files) if (f.status !== "D") push({ abs: joinPath(r.path, f.path), rel: f.path, repoName: r.name, tier: 0, status: f.status, mtime: f.mtime });
+      for (const f of r.files) if (f.status !== "D") push({ abs: joinPath(r.path, f.path), rel: f.path, repoName: r.name, tier: 0, status: f.status, committed: f.committed, mtime: f.mtime });
     }
     for (const abs of recentFiles()) {
       const repo = scope.find((r) => abs !== r.path && under(abs, r.path));
@@ -129,7 +130,7 @@ export function FilePicker({ onClose }: { onClose: () => void }) {
             return (
               <div key={r.abs} className={"row" + (i === sel ? " sel" : "")} onMouseEnter={() => setIndex(i)} onClick={() => open(r)} title={r.abs}>
                 <span className="file-cell">
-                  <span className={"fstat" + (r.status ? " s-" + r.status : "")}>{r.status ?? TIER_GLYPH[r.tier]}</span>
+                  <span className={"fstat" + (r.status ? " s-" + r.status : "") + (r.committed ? " committed" : "")}>{r.status ?? TIER_GLYPH[r.tier]}</span>
                   <span>{name}</span>
                   <span className="kind-word">{dir}</span>
                 </span>

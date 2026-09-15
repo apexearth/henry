@@ -443,8 +443,11 @@ export interface FilePeek {
 export interface ChangedFile {
   /** Relative to the repo root. */
   path: string;
+  /** Vs HEAD when the file is uncommitted, so it reads like `git status`; vs the baseline otherwise. */
   status: "M" | "A" | "D" | "R" | "?";
   from?: string;
+  /** Clean vs HEAD: the session changed it and committed it. */
+  committed?: true;
   /** Working-tree mtime, ms; absent for deleted files. */
   mtime?: number;
 }

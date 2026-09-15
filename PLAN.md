@@ -636,6 +636,14 @@ unified diff (untracked files against /dev/null); the peek tints added lines and
 deleted lines as struck-through ghosts where they were. A session with no baseline (a plain
 terminal) diffs against HEAD, so "changed" means "uncommitted" there.
 
+The tree's marks are the exception: they are `git status`, against HEAD, so every session in
+a folder sees the same marks and a clean repo shows none. Before this they were vs baseline
+too, and a commit never cleared them: the tree said "uncommitted" next to a root card saying
+`±0`, and each session in a shared repo showed a different wall of marks, because "changed
+since my baseline" in a repo several sessions work in is everyone's commits since this one
+began, not what this one did. The files answer still carries those (flagged `committed`) so
+⌘K can list them first, with a muted mark; the tree ignores them.
+
 **Files is the first tool tab, and it is the repo view.** The tree follows the session you are
 in, so it belongs with the other per-session tools on the right rather than in the rail: it
 took the Repos tab's slot, and each repo's root row carries what that tab's card said (branch,
@@ -660,10 +668,7 @@ Under each root, `GET /api/repo/files` (`git ls-files`, .gitignore for free) is 
 tree client-side (`ui/tree.ts`), with single-child directory chains collapsed onto one row —
 `packages/ui/src` as one line is the difference between a readable tree and eight rows of
 scaffolding in a 360px column. Uncommitted files carry their status letter in place; a `●`
-toggle prunes to them, which is what the old changed-files list became. The marks are **vs
-HEAD**, not the session baseline the peek diff uses: a mark is a promise that something is
-still dirty, so a commit must clear it, and the root row's dirty count is vs HEAD already.
-"What did this session do" is the peek's and the diff view's question. Only expanded
+toggle prunes to them, which is what the old changed-files list became. Only expanded
 directories render, so no virtualization is needed. Local repos and a peer's alike: every
 request carries the machine of the session you are looking at.
 

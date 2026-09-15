@@ -421,6 +421,8 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 .fstat.s-A, .fstat.s-\? { color: var(--ok); }
 .fstat.s-D { color: var(--alarm); }
 .fstat.s-R { color: var(--accent); }
+/* Changed by the session, since committed: the mark stays, but it is not a git-status mark. */
+.fstat.committed { color: var(--fg-dim); font-weight: 400; opacity: 0.6; }
 
 /* ⌘K file picker rows. */
 .picker-files { width: 640px; }

@@ -765,39 +765,52 @@ export async function diffSinceBaseline(sessionId: string, repoPath: string): Pr
   return { diff: parts.join(""), baseline };
 }
 
-// ---- files: uncommitted paths, repo index, one-file diff ----
+// ---- files: changed since baseline, repo index, one-file diff ----
 
 const FILES_CAP = 2000;
 const INDEX_TTL_MS = 10_000;
 const INDEX_CAP_BYTES = 8 * 1024 * 1024;
 
+/** Tracked paths whose working tree differs from `ref`, as `git diff --name-status` reports them. */
+async function diffNames(info: RepoInfo, ref: string): Promise<ChangedFile[]> {
+  const out: ChangedFile[] = [];
+  const r = await run(info.path, ["diff", "--name-status", "-z", "-M", ref, "--", "."]);
+  if (r.code !== 0 && r.code !== 1) return out;
+  const parts = r.out.split("\0");
+  for (let i = 0; i < parts.length && out.length < FILES_CAP; ) {
+    const code = parts[i++];
+    if (!code) continue;
+    const c = code[0];
+    if (c === "R" || c === "C") {
+      const from = parts[i++];
+      const path = parts[i++];
+      if (path) out.push({ path, status: "R", from });
+    } else {
+      const path = parts[i++];
+      if (path) out.push({ path, status: c === "A" || c === "D" ? c : "M" });
+    }
+  }
+  return out;
+}
+
 /**
- * Working tree vs HEAD, one row per path, untracked files as `?`: the marks in the files tree.
- * Vs HEAD, not the session baseline the one-file peek diffs against: a mark that survived the
- * commit read as "still dirty" next to a root row whose dirty count said otherwise. `diff HEAD`
- * rather than `status --porcelain` so an untracked directory is listed file by file, which is
- * what a tree needs; on an unborn branch the diff fails and only untracked files are listed.
+ * Working tree vs the session baseline, one row per path, untracked files as `?`. A path the
+ * session changed and then committed is still listed (that is what the session did), but marked
+ * `committed` and, when it is uncommitted again, with its status vs HEAD: the tree's marks read
+ * like `git status`, and a clean repo shows no live marks at all.
  */
-export async function changedFiles(repoPath: string): Promise<ChangedFile[]> {
+export async function changedFiles(sessionId: string, repoPath: string): Promise<ChangedFile[]> {
   const info = resolveRepo(repoPath);
   if (!info) return [];
+  const baseline = await baselineFor(sessionId, info);
   const out: ChangedFile[] = [];
-  const r = await run(info.path, ["diff", "--name-status", "-z", "-M", "HEAD", "--", "."]);
-  if (r.code === 0 || r.code === 1) {
-    const parts = r.out.split("\0");
-    for (let i = 0; i < parts.length && out.length < FILES_CAP; ) {
-      const code = parts[i++];
-      if (!code) continue;
-      const c = code[0];
-      if (c === "R" || c === "C") {
-        const from = parts[i++];
-        const path = parts[i++];
-        if (path) out.push({ path, status: "R", from });
-      } else {
-        const path = parts[i++];
-        if (path) out.push({ path, status: c === "A" || c === "D" ? c : "M" });
-      }
-    }
+  if (baseline) {
+    const head = (await run(info.path, ["rev-parse", "HEAD"])).out.trim();
+    const vsHead = head && head !== baseline ? await diffNames(info, head) : undefined;
+    const uncommitted = new Set(vsHead?.map((f) => f.path));
+    for (const f of await diffNames(info, baseline)) if (!uncommitted.has(f.path)) out.push(vsHead ? { ...f, committed: true } : f);
+    if (vsHead) out.push(...vsHead);
+    out.splice(FILES_CAP);
   }
   const u = await run(info.path, ["ls-files", "--others", "--exclude-standard", "-z"]);
   if (u.code === 0) {
@@ -818,10 +831,10 @@ export async function changedFiles(repoPath: string): Promise<ChangedFile[]> {
 }
 
 /**
- * Uncommitted paths in the working tree (vs HEAD), untracked included: "what would I collide
- * with", the question one session asks about another (mcp.ts). The same picture as
- * `changedFiles`, cheaper: untracked mode is git's default `normal`, so a new directory
- * collapses to one row rather than costing a walk of the whole tree.
+ * Uncommitted paths in the working tree (vs HEAD), untracked included. `changedFiles` answers
+ * "what has this session done"; this answers "what would I collide with", which is the question
+ * one session asks about another (mcp.ts). Untracked mode is git's default `normal`, so a new
+ * directory collapses to one row rather than costing a walk of the whole tree.
  */
 export async function dirtyPaths(repoPath: string): Promise<ChangedFile[]> {
   const info = resolveRepo(repoPath);
@@ -868,7 +881,7 @@ export async function recentCommits(repoPath: string, limit = 3): Promise<LogEnt
   return commits;
 }
 
-/** Uncommitted files for every repo the session touched, plus the repo its cwd sits in. */
+/** Changed files for every repo the session touched, plus the repo its cwd sits in. */
 export async function sessionFiles(sessionId: string): Promise<SessionFiles> {
   const paths = new Set<string>(sessionRepos.get(sessionId) ?? []);
   const cwdRepo = resolveRepo(db.getSession(sessionId)?.cwd ?? "");
@@ -877,7 +890,7 @@ export async function sessionFiles(sessionId: string): Promise<SessionFiles> {
   for (const path of paths) {
     const info = resolveRepo(path);
     if (!info) continue;
-    repos.push({ path: info.path, name: info.name, baseline: await baselineFor(sessionId, info), files: await changedFiles(info.path) });
+    repos.push({ path: info.path, name: info.name, baseline: await baselineFor(sessionId, info), files: await changedFiles(sessionId, info.path) });
   }
   return { sessionId, repos };
 }
