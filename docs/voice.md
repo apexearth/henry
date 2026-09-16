@@ -43,6 +43,12 @@ records and plays.
   fuzzy-matches whatever still comes back wrong (`matchSession`: "dune versus squid" finds
   "dune vs squid"). Measured 2026-09-14: the bias prompt helps sometimes and not always; the
   fuzzy match is what makes it reliable.
+- **Silence never reaches whisper.** Given nothing to hear, whisper does not say so: it invents
+  a sentence, and with a bias prompt it invents one out of the prompt, so a key held and released
+  without a word came back as a string of session names. `transcribe` gates on the clip's own
+  energy first (`hasSpeech`: 120 ms of frames above -40 dBFS RMS) and returns nothing when the
+  gate fails, which the panel and the phone already show as "nothing heard". The browser's noise
+  suppression puts a silent room well under the line; a quiet word still clears it.
 - **The UI resamples, so the daemon needs no ffmpeg.** MediaRecorder gives webm/opus and
   whisper.cpp wants 16 kHz mono PCM; the browser already has an AudioContext, so the conversion
   happens there rather than adding a media dependency on two platforms.

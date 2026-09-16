@@ -1,7 +1,7 @@
 // Answer parsing and session matching (src/voice.ts). Pure: no whisper, no daemon, no audio.
 import { describe, expect, test } from "bun:test";
 import type { Session } from "@henry/shared";
-import { biasFrom, canonicalize, matchSession, parseAnswer, relaySafe, resolveOpen } from "../src/voice";
+import { biasFrom, canonicalize, hasSpeech, matchSession, parseAnswer, relaySafe, resolveOpen } from "../src/voice";
 
 const session = (id: string, title: string) => ({ id, title }) as Session;
 
@@ -219,5 +219,41 @@ describe("matchSession", () => {
     const withJunk = [session("s9", "→ ···"), ...live];
     expect(matchSession("dune vs squid", withJunk)?.id).toBe("s1");
     expect(matchSession("something unrelated entirely", withJunk)).toBeUndefined();
+  });
+});
+
+describe("hasSpeech", () => {
+  /** A 16 kHz mono clip of `seconds`, with `tone(t)` giving the amplitude at each sample. */
+  const clip = (seconds: number, tone: (t: number) => number, offset = 0) => {
+    const n = Math.round(seconds * 16_000);
+    const buf = new ArrayBuffer(offset + 44 + n * 2);
+    const view = new DataView(buf, offset);
+    for (let i = 0; i < n; i++) view.setInt16(44 + i * 2, Math.round(Math.max(-1, Math.min(1, tone(i / 16_000))) * 0x7fff), true);
+    return new Uint8Array(buf, offset, 44 + n * 2);
+  };
+  const noise = (level: number) => () => (Math.random() * 2 - 1) * level;
+  const tone = (level: number) => (t: number) => Math.sin(2 * Math.PI * 200 * t) * level;
+
+  test("a held-but-silent mic is not speech", () => {
+    expect(hasSpeech(clip(2, () => 0))).toBe(false);
+    expect(hasSpeech(clip(2, noise(0.003)))).toBe(false);
+  });
+
+  test("a short quiet word is", () => {
+    // 150 ms at -30 dBFS in the middle of a second of near-silence.
+    expect(hasSpeech(clip(1, (t) => (t > 0.4 && t < 0.55 ? tone(0.03)(t) : noise(0.002)(t))))).toBe(true);
+  });
+
+  test("a single click is not", () => {
+    expect(hasSpeech(clip(1, (t) => (t > 0.5 && t < 0.52 ? 0.9 : 0)))).toBe(false);
+  });
+
+  test("a clip shorter than a frame, or with no data, is not", () => {
+    expect(hasSpeech(clip(0.01, tone(0.5)))).toBe(false);
+    expect(hasSpeech(new Uint8Array(10))).toBe(false);
+  });
+
+  test("an unaligned body is read the same", () => {
+    expect(hasSpeech(clip(1, tone(0.1), 1))).toBe(true);
   });
 });

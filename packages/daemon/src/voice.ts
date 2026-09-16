@@ -25,6 +25,13 @@ import { STT_INSTALL_HINT, speakSpec } from "./platform";
 
 /** Long enough for a held key, short enough that a stuck one cannot fill the disk. */
 export const MAX_CLIP_BYTES = 8 << 20;
+/** Speech gate: a 20 ms frame counts as voiced above -40 dBFS RMS, and a clip needs 120 ms of
+ * voiced frames before whisper hears it. The browser's noise suppression puts a held-but-silent
+ * mic well under that; a quiet word still clears it. */
+const WAV_HEADER_BYTES = 44;
+const FRAME_SAMPLES = 320;
+const VOICED_RMS = 0.01;
+const VOICED_FRAMES = 6;
 const STT_TIMEOUT_MS = 30_000;
 const TTS_TIMEOUT_MS = 30_000;
 const ANSWER_TIMEOUT_MS = 30_000;
@@ -404,6 +411,28 @@ async function sessionWords(sessionId: string): Promise<string[]> {
   }
 }
 
+/**
+ * Whether a 16-bit mono WAV has anyone speaking in it. Whisper given silence does not say so:
+ * it invents a sentence, and with a bias prompt it tends to invent one out of the prompt, so
+ * a key held and released without a word came back as session names. Cheaper than whisper by
+ * three orders of magnitude, and the reason an empty hold now returns nothing.
+ */
+export function hasSpeech(wav: Uint8Array): boolean {
+  // A DataView rather than an Int16Array: the body's byteOffset need not be even.
+  const view = new DataView(wav.buffer, wav.byteOffset, wav.byteLength);
+  const count = Math.max(0, (wav.byteLength - WAV_HEADER_BYTES) >> 1);
+  let voiced = 0;
+  for (let at = 0; at + FRAME_SAMPLES <= count; at += FRAME_SAMPLES) {
+    let sum = 0;
+    for (let i = at; i < at + FRAME_SAMPLES; i++) {
+      const s = view.getInt16(WAV_HEADER_BYTES + i * 2, true) / 0x8000;
+      sum += s * s;
+    }
+    if (Math.sqrt(sum / FRAME_SAMPLES) > VOICED_RMS && ++voiced >= VOICED_FRAMES) return true;
+  }
+  return false;
+}
+
 /** 16 kHz mono WAV in, text out. The panel does the resampling, because the browser already
  * has an AudioContext and the daemon would otherwise need ffmpeg on two platforms.
  * `sessionId` (dictation) adds that session's own vocabulary to the bias. */
@@ -412,6 +441,7 @@ export async function transcribe(wav: Uint8Array, sessionId?: string): Promise<s
   if (!model) throw new Error("voice.sttModel is not set");
   // Enforced here rather than at the route, so every path into whisper is capped.
   if (wav.byteLength > MAX_CLIP_BYTES) throw new Error("clip too long");
+  if (!hasSpeech(wav)) return "";
   const dir = mkdtempSync(join(tmpdir(), "henry-voice-"));
   const clip = join(dir, "clip.wav");
   try {
