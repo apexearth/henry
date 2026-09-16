@@ -7,7 +7,8 @@ One line per session on the left: titles, order, grouping, hiding.
   in Claude Code (which retitles the terminal) renames the rail entry; the transcript's
   `custom-title` line does the same for external sessions. A leading status glyph is
   dropped. The repo name shows dimmed beside the title when they differ; cwd, host and
-  shortcut live in the tooltip. Running sessions come first (oldest first); exited ones
+  shortcut live in the tooltip. Running sessions come first, alphabetical by title (case-insensitive, numbers in
+  order, start time breaking ties); exited ones
   are hidden until the footer's "N closed" is opened, then listed below, newest exit
   first. The exited session you are looking at stays listed. Closing an exited session
   (×) sets `dismissed_at` in the DB: it never returns after a daemon restart, but its
@@ -22,8 +23,8 @@ One line per session on the left: titles, order, grouping, hiding.
   none falls into a last "no repo" bucket). Machines are split before any of that: this
   machine's sessions first, then each paired peer's under a delimiter bearing its name, with
   the chosen grouping applied inside each (no delimiters at all while every session is
-  local). Order within a group, and the keyboard order,
-  stay the running-then-exited rail order. The active *row* is the one you picked (session
+  local). Groups are alphabetical by name ("no repo" last); order within a group, and the keyboard
+  order, stay the running-then-exited rail order. The active *row* is the one you picked (session
   plus group): it alone gets the full highlight, the same session's rows under other repos
   get a half-strength bar, and `⌘↑/↓` step from the picked row, not its first echo.
   A repo name is coloured by a hash of the name wherever it appears (group headers, row

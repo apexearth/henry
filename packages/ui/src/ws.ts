@@ -285,9 +285,15 @@ function handle(m: ServerMessage): void {
 
 /** The rail's order: running sessions oldest first, then (when shown) exited ones newest first.
  * The exited session you are looking at stays listed until you move on. ⌘1..9 and ⌘↑/↓ follow it. */
+const byTitle = new Intl.Collator(undefined, { sensitivity: "base", numeric: true }).compare;
+
 function baseOrder(s: UiState): Session[] {
   const shown = (x: Session) => !s.hiddenSessions.includes(x.id);
-  const running = s.sessions.filter((x) => x.status === "running" && shown(x));
+  // Alphabetical by title so a session is found by name; started-at breaks ties so two
+  // untitled sessions in the same repo keep a fixed order.
+  const running = s.sessions
+    .filter((x) => x.status === "running" && shown(x))
+    .sort((a, b) => byTitle(a.title, b.title) || a.createdAt - b.createdAt);
   const closed = s.sessions
     .filter((x) => x.status !== "running" && (s.showClosed || x.id === s.activeSessionId) && shown(x))
     .sort((a, b) => (b.endedAt ?? b.createdAt) - (a.endedAt ?? a.createdAt));
@@ -354,8 +360,8 @@ function machineGroups(order: Session[], s: UiState): RailGroup[] {
     if (!repos.length) add(NO_REPO, "no repo", "no repo activity seen yet", session);
     else for (const r of repos) add(r.path, r.name, r.path, session);
   }
-  // First-appearance order (running sessions first), except the catch-all which goes last.
-  return [...groups.values()].sort((a, b) => Number(a.key === NO_REPO) - Number(b.key === NO_REPO));
+  // Alphabetical like the rows, except the catch-all which goes last.
+  return [...groups.values()].sort((a, b) => Number(a.key === NO_REPO) - Number(b.key === NO_REPO) || byTitle(a.label, b.label));
 }
 
 /** Running Claude sessions split into "asking for you" (a session that raised an ask, which
