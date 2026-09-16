@@ -104,7 +104,7 @@ function PrList() {
               <span className="dim">{relTime(p.updatedAt)}</span>
             </a>
           ))}
-          {(!r.prs.length || r.note) && <div className="dim empty">{r.note ?? "no open PRs"}</div>}
+          {(!r.prs.length || r.note) && <div className="dim prs-note">{r.note ?? "no open PRs"}</div>}
         </div>
       ))}
     </>
