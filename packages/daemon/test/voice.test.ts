@@ -231,7 +231,7 @@ describe("hasSpeech", () => {
     for (let i = 0; i < n; i++) view.setInt16(44 + i * 2, Math.round(Math.max(-1, Math.min(1, tone(i / 16_000))) * 0x7fff), true);
     return new Uint8Array(buf, offset, 44 + n * 2);
   };
-  const noise = (level: number) => () => (Math.random() * 2 - 1) * level;
+  const noise = (level: number) => (_t: number) => (Math.random() * 2 - 1) * level;
   const tone = (level: number) => (t: number) => Math.sin(2 * Math.PI * 200 * t) * level;
 
   test("a held-but-silent mic is not speech", () => {
