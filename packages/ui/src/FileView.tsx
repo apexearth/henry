@@ -1,12 +1,13 @@
 // A file peek: read-only view of one file, shown over the session in the stage group.
 // Opened by ⌘-clicking a path (terminal output, diff headers); Esc or × closes it. ⌘F over
 // the peek in view opens a find bar (App.tsx routes it here as a `henry:find` event).
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FileDiff, FilePeek } from "@henry/shared";
 import { parseDiff } from "./DiffView";
 import { closePeek, filePanelId, peekFile } from "./dock";
 import { noteRecent } from "./files";
-import { highlightLines } from "./highlight";
+import { highlightLines, languageFor } from "./highlight";
+import { Markdown } from "./Markdown";
 import { baseName } from "./platform";
 import { getState } from "./ws";
 
@@ -82,6 +83,20 @@ export function sendFind(action: FindAction): void {
 
 const FIND_CAP = 5000;
 type Span = [start: number, end: number];
+
+/** Whether markdown opens as a page, as source, or both side by side; one choice for every
+ *  peek, per browser. */
+const MD_VIEW_KEY = "henry.mdView";
+const MD_VIEWS = ["page", "split", "source"] as const;
+type MdView = (typeof MD_VIEWS)[number];
+function loadMdView(): MdView {
+  try {
+    const v = localStorage.getItem(MD_VIEW_KEY);
+    return (MD_VIEWS as readonly string[]).includes(v ?? "") ? (v as MdView) : "page";
+  } catch {
+    return "page";
+  }
+}
 
 /** Every occurrence of `q` (smart case), in file order, keyed by 1-based line. */
 function findAll(lines: string[], q: string): { at: { line: number; i: number }[]; byLine: Map<number, Span[]> } {
@@ -221,6 +236,26 @@ export function FileView({ path, line, active, local = false }: Props) {
   const name = path.slice(dir.length);
   const shown = peek?.rel ? { dir: peek.rel.slice(0, peek.rel.lastIndexOf("/") + 1), name } : { dir, name };
 
+  // Markdown is a page unless you asked for a line, or you are finding in it: both are about
+  // the source, so the page alone gives way to it (a split already shows it). The choice is
+  // remembered for the next markdown peek.
+  const isMd = languageFor(path) === "markdown" && !!peek && !peek.binary && !peek.image;
+  const [mdView, setMdView] = useState<MdView>(() => (line ? "source" : loadMdView()));
+  const chooseMdView = (next: MdView) => {
+    setMdView(next);
+    try {
+      localStorage.setItem(MD_VIEW_KEY, next);
+    } catch {}
+  };
+  const showPage = isMd && (mdView === "split" || (mdView === "page" && !find));
+  const showSource = !showPage || mdView === "split";
+  // Images and links in the page resolve against the file's folder, on the machine it was read from.
+  const loadImage = useCallback(
+    (src: string) => fetchPeek(src, dir, local).then((p) => (p?.image && p.content ? `data:${p.image};base64,${p.content}` : null)),
+    [dir, local],
+  );
+  const openLink = useCallback((href: string) => void openPeek(href.replace(/[#?].*$/, ""), dir), [dir]);
+
   return (
     <div className="peek">
       <div className="peek-head">
@@ -243,6 +278,13 @@ export function FileView({ path, line, active, local = false }: Props) {
         {imgSrc && dims && (
           <button className="peek-back" onClick={() => setFit((f) => !f)} title={fit ? "show at actual size" : "fit to the pane"}>{fit ? "1:1" : "fit"}</button>
         )}
+        {isMd && (
+          <span className="peek-seg" title="how to show the markdown">
+            {MD_VIEWS.map((v) => (
+              <button key={v} className={v === mdView ? "on" : undefined} onClick={() => chooseMdView(v)}>{v}</button>
+            ))}
+          </span>
+        )}
         {!local && <button className="peek-close" onClick={() => closePeek(filePanelId(path))} title="close (Esc)">×</button>}
       </div>
       {find && (
@@ -256,7 +298,7 @@ export function FileView({ path, line, active, local = false }: Props) {
           <span className="hint">↩ next · ⇧↩ previous · Esc closes</span>
         </div>
       )}
-      <div className="peek-body" ref={body} tabIndex={0}>
+      <div className={"peek-body" + (showPage && showSource ? " split" : "")} ref={body} tabIndex={0}>
         {peek === null && <div className="peek-note">This file no longer exists.</div>}
         {imgSrc && (
           <div className={"peek-img" + (fit ? " fit" : "")}>
@@ -265,8 +307,8 @@ export function FileView({ path, line, active, local = false }: Props) {
         )}
         {peek?.image && !imgSrc && <div className="peek-note">{peek.truncated ? `Image is ${fmtSize(peek.size)}, over what a peek carries.` : "Empty image file."}</div>}
         {peek?.binary && !peek.image && <div className="peek-note">Binary file, nothing to show.</div>}
-        {peek && !peek.binary && !peek.image && (
-          <pre>
+        {peek && !peek.binary && !peek.image && showSource && (
+          <pre className="peek-pane">
             {lines.map((t, i) => (
               <Line key={i} no={i + 1} text={t} html={html && i < html.length ? html[i] : undefined} hit={i + 1 === line}
                 add={tint?.adds.has(i + 1) ?? false} dels={tint?.dels.get(i + 1)} hitRef={hit}
@@ -276,6 +318,11 @@ export function FileView({ path, line, active, local = false }: Props) {
               <div key={"tail" + i} className="peek-line del"><span className="peek-no" />{t}</div>
             ))}
           </pre>
+        )}
+        {showPage && peek && (
+          <div className="peek-pane">
+            <Markdown text={peek.content} loadImage={loadImage} openLink={openLink} />
+          </div>
         )}
       </div>
     </div>

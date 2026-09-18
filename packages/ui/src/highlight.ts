@@ -132,6 +132,19 @@ export function splitHighlighted(html: string): string[] {
   return out;
 }
 
+/** Highlighted HTML for one fenced block, by the fence's own language name or an extension
+ *  (```ts and ```typescript both work); null when the language is unknown. */
+export async function highlightBlock(lang: string, code: string): Promise<string | null> {
+  const name = lang.toLowerCase();
+  const resolved = loaders[name] ? name : byExt[name];
+  if (!resolved || code.length > HIGHLIGHT_CAP || !(await ensure(resolved))) return null;
+  try {
+    return hljs.highlight(code, { language: resolved, ignoreIllegals: true }).value;
+  } catch {
+    return null;
+  }
+}
+
 /** Per-line HTML for `content`, or null when the file is plain text, too big, or the language is missing. */
 export async function highlightLines(path: string, content: string): Promise<string[] | null> {
   const lang = languageFor(path);

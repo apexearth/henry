@@ -316,7 +316,16 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 .peek-find { display: flex; align-items: center; gap: 10px; padding: 4px 10px; border-bottom: 1px solid var(--border); background: var(--bg-2); font-size: 12px; flex: none; }
 .peek-find input { width: 260px; padding: 2px 6px; }
 .peek-find .hint { color: var(--fg-dim); font-size: 11px; white-space: nowrap; }
+.peek-seg { flex: none; display: inline-flex; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.peek-seg button { background: none; border: none; border-radius: 0; padding: 0 7px; font-size: 11px; line-height: 18px; color: var(--fg-dim); }
+.peek-seg button + button { border-left: 1px solid var(--border); }
+.peek-seg button:hover { color: var(--fg); }
+.peek-seg button.on { background: var(--bg-3); color: var(--fg); }
 .peek-body { flex: 1; overflow: auto; outline: none; font-size: 12px; line-height: 1.5; }
+/* Source and page side by side, each scrolling on its own. */
+.peek-body.split { display: flex; overflow: hidden; }
+.peek-body.split > .peek-pane { flex: 1 1 0; min-width: 0; overflow: auto; }
+.peek-body.split > .peek-pane + .peek-pane { border-left: 1px solid var(--border); }
 .peek-body pre { margin: 0; font: inherit; }
 .peek-line { display: flex; white-space: pre; }
 .peek-line.hit { background: var(--accent-soft); }
@@ -331,24 +340,55 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 }
 .peek-img.fit img { max-width: 100%; height: auto; }
 
+/* Markdown as a page (Markdown.tsx): prose in a reading face, code in the app's mono. */
+.md { max-width: 860px; padding: 16px 24px 48px; font: 14px/1.55 -apple-system, "Segoe UI", system-ui, sans-serif; color: var(--fg); overflow-wrap: anywhere; }
+.md > :first-child { margin-top: 0; }
+.md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { margin: 1.4em 0 .5em; line-height: 1.25; font-weight: 600; }
+.md h1 { font-size: 1.7em; padding-bottom: .25em; border-bottom: 1px solid var(--border); }
+.md h2 { font-size: 1.35em; padding-bottom: .2em; border-bottom: 1px solid var(--border); }
+.md h3 { font-size: 1.15em; }
+.md h4, .md h5, .md h6 { font-size: 1em; }
+.md p, .md ul, .md ol, .md blockquote, .md table, .md pre { margin: 0 0 .9em; }
+.md ul, .md ol { padding-left: 1.6em; }
+.md li + li { margin-top: .15em; }
+.md li > p { margin-bottom: .4em; }
+.md li input[type="checkbox"] { margin: 0 .4em 0 0; vertical-align: middle; }
+.md a { color: var(--accent); text-decoration: none; }
+.md a:hover { text-decoration: underline; }
+.md code { font-family: var(--mono); font-size: .9em; background: var(--bg-3); border-radius: 3px; padding: .1em .35em; }
+.md pre { background: var(--bg-2); border: 1px solid var(--border); border-radius: 5px; padding: 10px 12px; overflow-x: auto; font: 12px/1.5 var(--mono); }
+.md pre code { background: none; padding: 0; font: inherit; }
+.md blockquote { border-left: 3px solid var(--border); padding: 0 0 0 12px; color: var(--fg-dim); }
+.md hr { border: none; border-top: 1px solid var(--border); margin: 1.4em 0; }
+.md table { border-collapse: collapse; display: block; max-width: 100%; overflow-x: auto; font-size: .95em; }
+.md th, .md td { border: 1px solid var(--border); padding: 4px 10px; text-align: left; vertical-align: top; }
+.md th { background: var(--bg-2); font-weight: 600; }
+.md img { max-width: 100%; height: auto; }
+.md .md-mermaid { color: var(--fg-dim); }
+.md .md-diagram { margin: 0 0 .9em; padding: 12px; background: var(--bg-2); border: 1px solid var(--border); border-radius: 5px; overflow-x: auto; }
+.md .md-diagram svg { display: block; max-width: 100%; height: auto; }
+.md .md-diagram.err { border-color: var(--alarm); }
+.md .md-diagram-err { color: var(--alarm); font: 12px/1.5 var(--mono); margin-bottom: 8px; }
+.md .md-diagram.err pre { margin: 0; }
+
 /* highlight.js tokens, GitHub-dark-ish so they sit with the rest of the palette. */
-.peek-line .hljs-keyword, .peek-line .hljs-selector-tag, .peek-line .hljs-doctag, .peek-line .hljs-template-tag,
-.peek-line .hljs-type, .peek-line .hljs-variable.language_, .peek-line .hljs-meta .hljs-keyword { color: #ff7b72; }
-.peek-line .hljs-title, .peek-line .hljs-title.class_, .peek-line .hljs-title.function_ { color: #d2a8ff; }
-.peek-line .hljs-attr, .peek-line .hljs-attribute, .peek-line .hljs-literal, .peek-line .hljs-meta, .peek-line .hljs-number,
-.peek-line .hljs-operator, .peek-line .hljs-variable, .peek-line .hljs-selector-attr, .peek-line .hljs-selector-class,
-.peek-line .hljs-selector-id, .peek-line .hljs-property { color: #79c0ff; }
-.peek-line .hljs-regexp, .peek-line .hljs-string, .peek-line .hljs-meta .hljs-string { color: #a5d6ff; }
-.peek-line .hljs-built_in, .peek-line .hljs-symbol { color: #ffa657; }
-.peek-line .hljs-comment, .peek-line .hljs-code, .peek-line .hljs-formula { color: #8b949e; }
-.peek-line .hljs-name, .peek-line .hljs-quote, .peek-line .hljs-selector-pseudo, .peek-line .hljs-tag { color: #7ee787; }
-.peek-line .hljs-subst { color: var(--fg); }
-.peek-line .hljs-section { color: #79c0ff; font-weight: bold; }
-.peek-line .hljs-bullet { color: #f2cc60; }
-.peek-line .hljs-emphasis { font-style: italic; }
-.peek-line .hljs-strong { font-weight: bold; }
-.peek-line .hljs-addition { color: #aff5b4; background: rgba(63,185,80,.18); }
-.peek-line .hljs-deletion { color: #ffdcd7; background: rgba(248,81,73,.18); }
+.peek-body .hljs-keyword, .peek-body .hljs-selector-tag, .peek-body .hljs-doctag, .peek-body .hljs-template-tag,
+.peek-body .hljs-type, .peek-body .hljs-variable.language_, .peek-body .hljs-meta .hljs-keyword { color: #ff7b72; }
+.peek-body .hljs-title, .peek-body .hljs-title.class_, .peek-body .hljs-title.function_ { color: #d2a8ff; }
+.peek-body .hljs-attr, .peek-body .hljs-attribute, .peek-body .hljs-literal, .peek-body .hljs-meta, .peek-body .hljs-number,
+.peek-body .hljs-operator, .peek-body .hljs-variable, .peek-body .hljs-selector-attr, .peek-body .hljs-selector-class,
+.peek-body .hljs-selector-id, .peek-body .hljs-property { color: #79c0ff; }
+.peek-body .hljs-regexp, .peek-body .hljs-string, .peek-body .hljs-meta .hljs-string { color: #a5d6ff; }
+.peek-body .hljs-built_in, .peek-body .hljs-symbol { color: #ffa657; }
+.peek-body .hljs-comment, .peek-body .hljs-code, .peek-body .hljs-formula { color: #8b949e; }
+.peek-body .hljs-name, .peek-body .hljs-quote, .peek-body .hljs-selector-pseudo, .peek-body .hljs-tag { color: #7ee787; }
+.peek-body .hljs-subst { color: var(--fg); }
+.peek-body .hljs-section { color: #79c0ff; font-weight: bold; }
+.peek-body .hljs-bullet { color: #f2cc60; }
+.peek-body .hljs-emphasis { font-style: italic; }
+.peek-body .hljs-strong { font-weight: bold; }
+.peek-body .hljs-addition { color: #aff5b4; background: rgba(63,185,80,.18); }
+.peek-body .hljs-deletion { color: #ffdcd7; background: rgba(248,81,73,.18); }
 
 /* Files pane: a folder tree of the session's repos, its filter, and the search's toggles. */
 .files-pane { display: flex; flex-direction: column; height: 100%; min-height: 0; }

@@ -17,6 +17,17 @@ unified diff (untracked files against /dev/null); the peek tints added lines and
 deleted lines as struck-through ghosts where they were. A session with no baseline (a plain
 terminal) diffs against HEAD, so "changed" means "uncommitted" there.
 
+**Markdown opens as a page.** A `.md` peek renders (`ui/Markdown.tsx`: marked, sanitized by
+DOMPurify, code fences coloured by the same highlighter as the source view) with
+```` ```mermaid ```` fences drawn as diagrams in the app's own colours; mermaid is loaded only
+when a file has one. A diagram that will not parse shows mermaid's message over its source. A
+relative link opens that file as another peek, a `#heading` link scrolls, anything else opens
+in the browser, and a relative image is fetched through `/api/file` like the file itself, so a
+relayed session's README shows its screenshots. A `page | split | source` switch in the header
+picks the page, the line view, or both side by side scrolling on their own, remembered per
+browser; a `path:line` reference opens as source, and ⌘F (find works on lines) shows the
+source when the page was showing alone.
+
 The tree's marks are the exception: they are `git status`, against HEAD, so every session in
 a folder sees the same marks and a clean repo shows none. Before this they were vs baseline
 too, and a commit never cleared them: the tree said "uncommitted" next to a root card saying
