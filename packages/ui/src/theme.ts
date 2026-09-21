@@ -14,7 +14,10 @@ export const TONES = {
   plum: { h: 320, c: 0.016 },
 } as const;
 export const HIGHLIGHTS = { blue: 255, teal: 195, green: 145, amber: 75, coral: 30, violet: 300, rose: 350 } as const;
-export const SHADES = { black: 0.11, dark: 0.18, dim: 0.24 } as const;
+/** Background lightness. Past 0.5 the palette flips: surfaces step darker, text and colours
+ * drop to read on paper. `light` is a room; `white` is a phone in the sun. */
+export const SHADES = { black: 0.11, dark: 0.18, dim: 0.24, light: 0.93, white: 0.985 } as const;
+export const isLight = (shade: keyof typeof SHADES = current.shade): boolean => SHADES[shade] > 0.5;
 /** How strongly the context wall paints behind the terminal (ContextSky); off hides it. */
 export const SKIES = { off: 0, faint: 0.3, soft: 0.55, bold: 0.85 } as const;
 
@@ -59,21 +62,25 @@ const ANSI_HUES = { red: 25, green: 145, yellow: 85, blue: 255, magenta: 320, cy
 
 export function palette(t: ThemeChoice): Record<string, string> {
   const tone = TONES[t.tone], L0 = SHADES[t.shade], hh = HIGHLIGHTS[t.highlight];
-  const bg = (dl: number) => oklch(L0 + dl, tone.c, tone.h);
+  const light = isLight(t.shade);
+  // Surfaces step away from the background: up on a dark theme, down on a light one.
+  const bg = (dl: number) => oklch(L0 + (light ? -dl : dl), tone.c, tone.h);
   const grey = (L: number, k = 1) => oklch(L, tone.c * k, tone.h);
-  const accent = oklch(0.76, 0.13, hh);
+  // Second lightness is the light theme's: less bright, since it has to hold its own on paper.
+  const L = (dark: number, onPaper: number) => (light ? onPaper : dark);
+  const accent = oklch(L(0.76, 0.5), L(0.13, 0.16), hh);
   const v: Record<string, string> = {
     "--bg": bg(0), "--bg-2": bg(0.035), "--bg-3": bg(0.075), "--border": bg(0.13),
-    "--fg": grey(0.88, 0.6), "--fg-dim": grey(0.64), "--fg-faint": grey(0.48),
+    "--fg": grey(L(0.88, 0.2), 0.6), "--fg-dim": grey(L(0.64, 0.42)), "--fg-faint": grey(L(0.48, 0.56)),
     "--accent": accent, "--accent-soft": accent + "2e", "--accent-glow": accent + "e6", "--sel": accent + "55",
-    "--ok": oklch(0.72, 0.17, 145), "--warn": oklch(0.77, 0.15, 80), "--alarm": oklch(0.68, 0.19, 25),
+    "--ok": oklch(L(0.72, 0.55), 0.17, 145), "--warn": oklch(L(0.77, 0.6), 0.15, 80), "--alarm": oklch(L(0.68, 0.55), 0.19, 25),
     "--claude": "#d97757",
-    "--ansi-0": bg(0.075), "--ansi-8": grey(0.48), "--ansi-7": grey(0.82, 0.6), "--ansi-15": grey(0.96, 0.6),
+    "--ansi-0": light ? grey(0.25) : bg(0.075), "--ansi-8": grey(L(0.48, 0.55)), "--ansi-7": grey(L(0.82, 0.7), 0.6), "--ansi-15": grey(L(0.96, 0.85), 0.6),
   };
   let i = 1;
   for (const h of Object.values(ANSI_HUES)) {
-    v[`--ansi-${i}`] = oklch(0.7, 0.15, h);
-    v[`--ansi-${i + 8}`] = oklch(0.8, 0.14, h);
+    v[`--ansi-${i}`] = oklch(L(0.7, 0.52), 0.15, h);
+    v[`--ansi-${i + 8}`] = oklch(L(0.8, 0.45), 0.14, h);
     i++;
   }
   return v;
@@ -101,6 +108,9 @@ const listeners = new Set<() => void>();
 export function applyTheme() {
   const root = document.documentElement.style;
   for (const [k, val] of Object.entries(palette(current))) root.setProperty(k, val);
+  // Native widgets (popups, scrollbars) and the hand-coloured bits of styles.css follow.
+  root.colorScheme = isLight() ? "light" : "dark";
+  document.documentElement.classList.toggle("light", isLight());
 }
 export function setTheme(patch: Partial<ThemeChoice>) {
   current = { ...current, ...patch };
@@ -123,9 +133,10 @@ export function nameHue(name: string): number {
   for (let i = 0; i < name.length; i++) h = Math.imul(h ^ name.charCodeAt(i), 0x01000193);
   return (h >>> 0) % 360;
 }
-/** Text colour for a hue, light enough to read on the dark shades at header sizes. */
+/** Text colour for a hue, light enough to read on the dark shades at header sizes, and dark
+ * enough on the light ones. Read at render: every caller re-renders on a theme change. */
 export function hueText(hue: number): string {
-  return oklch(0.78, 0.12, hue);
+  return oklch(isLight() ? 0.5 : 0.78, 0.12, hue);
 }
 
 export function cssVar(name: string): string {
@@ -147,9 +158,30 @@ export function xtermTheme(): ITheme {
   return th as ITheme;
 }
 
+/** What xterm pulls text contrast up to. Apps draw for a dark terminal — Claude Code's greens
+ * and greys are picked against one — so on paper they wash out and its dim text (drawn at half
+ * opacity) all but vanishes; a floor of 4.5 (WCAG AA) darkens only what falls short. On a dark
+ * shade the floor is off, so nothing an app chose is second-guessed there. */
+export function minContrast(): number {
+  return isLight() ? 7 : 1;
+}
+
 /** How opaque a cell's own background colour is painted. The terminal's background is fully
  * transparent so the context wall shows through it, and a highlighted line would otherwise be a
  * solid slab in front of the wall. The bolder the wall, the more of it comes through the slab. */
 export function cellBgAlpha(): number {
   return 1 - SKIES[current.sky] / 2;
+}
+
+/** The theme background as 0–1 channels, for telling a cell painted in it apart from one an
+ * app coloured. Cached: the renderer asks every frame. */
+let bgRgbFor: ThemeChoice | undefined;
+let bgRgb: [number, number, number] = [0, 0, 0];
+export function themeBgRgb(): [number, number, number] {
+  if (bgRgbFor !== current) {
+    bgRgbFor = current;
+    const hex = palette(current)["--bg"]!;
+    bgRgb = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255) as [number, number, number];
+  }
+  return bgRgb;
 }

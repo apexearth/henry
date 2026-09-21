@@ -293,6 +293,9 @@ export class PeerLink {
         this.playbook = [m.entry, ...this.playbook.filter((p) => p.id !== m.entry.id)].slice(0, KEEP_PLAYBOOK);
         this.deps.toWindows(m);
         return;
+      case "notify":
+        this.deps.toWindows({ type: "notify", notice: { ...m.notice, peer: this.rec.name } });
+        return;
       case "event":
       case "repo:diff":
         this.deps.toWindows(m);

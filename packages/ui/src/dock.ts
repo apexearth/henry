@@ -237,9 +237,19 @@ function stageStrip(g: DockviewGroupPanel): IDockviewPanel[] {
   return [...(term ? [term] : []), ...g.panels.filter((p) => isFilePanel(p.id))];
 }
 
+/** Where a peek goes when there is no dock: the phone layout shows it as a sheet. `null` closes. */
+let peekSink: ((peek: { path: string; line?: number } | null) => void) | null = null;
+export function setPeekSink(fn: typeof peekSink): () => void {
+  peekSink = fn;
+  return () => {
+    if (peekSink === fn) peekSink = null;
+  };
+}
+
 export function peekFile(path: string, line?: number) {
+  if (!api) return void peekSink?.({ path, line });
   const g = stageGroup();
-  if (!api || !g) return;
+  if (!g) return;
   const id = filePanelId(path);
   const existing = api.getPanel(id);
   if (existing) {
@@ -251,7 +261,7 @@ export function peekFile(path: string, line?: number) {
 }
 
 export function closePeek(id?: string) {
-  if (!api) return;
+  if (!api) return void peekSink?.(null);
   const p = id ? api.getPanel(id) : api.activePanel;
   if (!p || !isFilePanel(p.id)) return;
   const g = p.group;

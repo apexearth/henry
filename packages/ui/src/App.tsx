@@ -13,6 +13,7 @@ import { sendFind } from "./FileView";
 import { openFiles } from "./FilesPane";
 import { Layout } from "./Layout";
 import { Setup } from "./Setup";
+import { onNotice } from "./notify";
 import { Settings } from "./Settings";
 import { Keys } from "./Keys";
 import { TopActivity } from "./TopActivity";
@@ -20,7 +21,7 @@ import { StatusBar } from "./StatusBar";
 import { closePeek, getDockApi, isFilePanel, resetLayout, showSession, stageStep } from "./dock";
 import { MOD, arrowMod, isMac, mod } from "./platform";
 import { inShell, onMenu } from "./shell";
-import { activeRowIndex, railRows, setActive, useStore, type RailRow } from "./ws";
+import { activeRowIndex, railRows, setActive, subscribeNotices, useStore, type RailRow } from "./ws";
 
 /**
  * One bundle, two shapes. A narrow touch screen gets the phone layout (mobile/Mobile.tsx);
@@ -29,6 +30,8 @@ import { activeRowIndex, railRows, setActive, useStore, type RailRow } from "./w
  */
 export function App({ access, onRetry }: { access: Access; onRetry: () => void }) {
   const mobile = useMobile();
+  // Both shapes: a phone with a Henry tab open in the background is told the same way.
+  useEffect(() => subscribeNotices(onNotice), []);
   if (!access.ok) return <Gate error={access.error} onRetry={onRetry} />;
   return mobile ? <MobileApp /> : <DesktopApp />;
 }

@@ -11,7 +11,11 @@ import { isClaudeSession, type Session } from "@henry/shared";
 import { LeftPane } from "../Rail";
 import { TerminalView } from "../Terminal";
 import { ContextSky } from "../ContextSky";
+import { setPeekSink } from "../dock";
 import { FilesPane } from "../FilesPane";
+import { FileView } from "../FileView";
+import { NotifyToggle } from "../NotifyToggle";
+import { ThemeRows } from "../ThemeMenu";
 import { BoundFlags, BoundHistory, BoundPlaybook, BoundUsage, useSessionFlags } from "../panels/bound";
 import { useAskTitle } from "../title";
 import { answerAttention, useStore } from "../ws";
@@ -25,6 +29,8 @@ const TABS = [
   { id: "flags", title: "flags", body: BoundFlags },
   { id: "playbook", title: "playbook", body: BoundPlaybook },
   { id: "usage", title: "usage", body: BoundUsage },
+  // Settings is a modal on a desk; here it is the last tab, so it opens where the sheet is.
+  { id: "settings", title: "⚙", body: MobileSettings },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
@@ -37,6 +43,11 @@ export function Mobile() {
   const attention = useStore((s) => s.attention);
   const [drawer, setDrawer] = useState(false);
   const [tab, setTab] = useState<TabId | null>(null);
+  // A file peek. There is no dock to open it in, so it is a sheet over whatever asked for it:
+  // closing one tapped in the files sheet lands back in the tree, one tapped in the terminal
+  // lands back on the session.
+  const [peek, setPeek] = useState<{ path: string; line?: number } | null>(null);
+  useEffect(() => setPeekSink(setPeek), []);
   const { fontSize, zoom } = useFontSize();
   const { unread } = useSessionFlags();
   useViewportHeight();
@@ -68,7 +79,7 @@ export function Mobile() {
         <button className="m-icon" onClick={() => zoom(-1)} title="smaller text, more columns" aria-label="zoom out">−</button>
         <span className="m-zoom" title="terminal text size">{fontSize}</span>
         <button className="m-icon" onClick={() => zoom(1)} title="bigger text, fewer columns" aria-label="zoom in">+</button>
-        <button className="m-icon" onClick={() => setTab((t) => (t ? null : "files"))} title="files, history, flags, playbook, usage" aria-label="panels">
+        <button className="m-icon" onClick={() => setTab((t) => (t ? null : "files"))} title="files, history, flags, playbook, usage, settings" aria-label="panels">
           ⋮{unread > 0 && <span className="m-badge alarm">{unread}</span>}
         </button>
       </header>
@@ -85,7 +96,7 @@ export function Mobile() {
         {session ? (
           <>
             <ContextSky sessionId={session.id} />
-            <TerminalView key={session.id} sessionId={session.id} visible={!drawer && !tab} focused={false} fontSize={fontSize} />
+            <TerminalView key={session.id} sessionId={session.id} visible={!drawer && !tab && !peek} focused={false} fontSize={fontSize} />
           </>
         ) : (
           <div className="empty">{sessions.length ? "pick a session from ☰" : "no sessions — open ☰ and start one"}</div>
@@ -112,6 +123,25 @@ export function Mobile() {
       )}
 
       {tab && <PanelSheet tab={tab} setTab={setTab} onClose={() => setTab(null)} session={session} />}
+
+      {peek && (
+        <div className="m-peek">
+          <FileView key={peek.path} path={peek.path} line={peek.line} active />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** What the desk keeps in the topbar and Settings: notifications, and the theme — outdoors the
+ * shade row is the one you came for. The daemon's settings stay on the desk. */
+function MobileSettings() {
+  return (
+    <div className="m-settings">
+      <h4>notifications</h4>
+      <NotifyToggle id="notify-phone" />
+      <h4>theme</h4>
+      <div className="m-theme"><ThemeRows /></div>
     </div>
   );
 }

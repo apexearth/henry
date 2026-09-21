@@ -3,9 +3,10 @@
 Looking at files without opening an editor.
 
 **File peeks.** Files are things you glance at, not documents you keep open. ⌘-click a
-path in terminal output (relative paths resolve against the session's cwd) or a file header
-in a diff and the file opens read-only over the session, in the same stage group, with its
-own slim header (path, repo, +added −deleted vs baseline, size, ×). A `path:line` reference
+path in terminal output (relative paths resolve against the session's cwd; on a phone a tap
+does it) or a file header in a diff and the file opens read-only over the session, in the
+same stage group (on a phone, as a full-screen sheet), with its own slim header (path, repo,
++added −deleted vs baseline, size, ×). A `path:line` reference
 scrolls to and tints that line. The stage is a strip: the session at position 0, its peeks
 to the right; ⌘←/→ walk it, Esc (or ×) closes the peek in view, and closing the last one
 lands on the session that was showing. Peeks are per window, never restored with the

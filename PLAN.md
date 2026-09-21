@@ -22,6 +22,11 @@ area's doc is edited to say the new rule — edited, not appended to.
   it can default on.
 - **Voice, still to do**: word-level highlighting as Henry speaks (needs per-word timings,
   which no stock Kokoro ONNX export emits), and speaking Stop-hook answers unprompted.
+- **Web Push for the phone in a pocket.** Notices reach a phone only while a Henry tab is open;
+  iOS shows nothing from a page at all. Background delivery is a manifest (Add to Home Screen),
+  a service worker, VAPID keys and subscriptions in `~/.henry`, and the daemon POSTing to the
+  push services itself — the first time it talks to the internet on its own. `notify.ts`
+  already decides what to say; this is only another delivery.
 - Git actions from the UI (commit, push, new worktree).
 - Blocking rules (PreToolUse deny) once the observe-only picture is trusted.
 - Replay of a session's history as a timeline.

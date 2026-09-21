@@ -134,7 +134,9 @@ function route(url: URL, method: string): Response {
     case "/api/federation/status": return json(world.federation);
     case "/api/phone/status": return json(world.phone);
     case "/api/file": {
-      const path = q.get("path") ?? "";
+      // A ⌘-click in the terminal sends the path as printed, relative to the session's cwd.
+      const raw = q.get("path") ?? "";
+      const path = raw.startsWith("/") ? raw : `${q.get("cwd") ?? world.ATLAS}/${raw}`;
       const base = { path, repoPath: world.ATLAS, rel: path.slice(world.ATLAS.length + 1), truncated: false };
       if (path === `${world.ATLAS}/docs/bucket.svg`) {
         return json({ ...base, size: world.BUCKET_SVG.length, binary: true, image: "image/svg+xml", content: btoa(world.BUCKET_SVG) });

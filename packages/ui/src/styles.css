@@ -15,7 +15,8 @@
   --claude: #d97757;
   --border: #2a303b;
   --mono: ui-monospace, "JetBrains Mono", Menlo, Monaco, Consolas, monospace;
-  /* Every theme is dark: native widgets (the group-by popup, Windows scrollbars) must be too. */
+  /* The dark default; theme.ts flips it (and adds html.light) on a light shade, so native
+     widgets (the group-by popup, Windows scrollbars) follow. */
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
@@ -389,6 +390,20 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 .peek-body .hljs-strong { font-weight: bold; }
 .peek-body .hljs-addition { color: #aff5b4; background: rgba(63,185,80,.18); }
 .peek-body .hljs-deletion { color: #ffdcd7; background: rgba(248,81,73,.18); }
+/* The same tokens on a light shade (theme.ts sets html.light): GitHub-light-ish. */
+html.light .peek-body .hljs-keyword, html.light .peek-body .hljs-selector-tag, html.light .peek-body .hljs-doctag, html.light .peek-body .hljs-template-tag,
+html.light .peek-body .hljs-type, html.light .peek-body .hljs-variable.language_, html.light .peek-body .hljs-meta .hljs-keyword { color: #cf222e; }
+html.light .peek-body .hljs-title, html.light .peek-body .hljs-title.class_, html.light .peek-body .hljs-title.function_ { color: #8250df; }
+html.light .peek-body .hljs-attr, html.light .peek-body .hljs-attribute, html.light .peek-body .hljs-literal, html.light .peek-body .hljs-meta, html.light .peek-body .hljs-number,
+html.light .peek-body .hljs-operator, html.light .peek-body .hljs-variable, html.light .peek-body .hljs-selector-attr, html.light .peek-body .hljs-selector-class,
+html.light .peek-body .hljs-selector-id, html.light .peek-body .hljs-property, html.light .peek-body .hljs-section { color: #0550ae; }
+html.light .peek-body .hljs-regexp, html.light .peek-body .hljs-string, html.light .peek-body .hljs-meta .hljs-string { color: #0a3069; }
+html.light .peek-body .hljs-built_in, html.light .peek-body .hljs-symbol { color: #953800; }
+html.light .peek-body .hljs-comment, html.light .peek-body .hljs-code, html.light .peek-body .hljs-formula { color: #6e7781; }
+html.light .peek-body .hljs-name, html.light .peek-body .hljs-quote, html.light .peek-body .hljs-selector-pseudo, html.light .peek-body .hljs-tag { color: #116329; }
+html.light .peek-body .hljs-bullet { color: #953800; }
+html.light .peek-body .hljs-addition { color: #116329; }
+html.light .peek-body .hljs-deletion { color: #82071e; }
 
 /* Files pane: a folder tree of the session's repos, its filter, and the search's toggles. */
 .files-pane { display: flex; flex-direction: column; height: 100%; min-height: 0; }
@@ -666,11 +681,24 @@ html:not([data-platform="mac"]) ::-webkit-scrollbar-button { display: none; widt
 .m-tab { flex: 1; background: none; border: 1px solid transparent; color: var(--fg-dim); height: 30px; }
 .m-tab.on { background: var(--bg-3); border-color: var(--border); color: var(--fg); }
 .m-sheet-body { flex: 1; overflow: auto; -webkit-overflow-scrolling: touch; }
+/* A file peek fills the screen, above the sheet that may have opened it; its own ← and × close it. */
+.m-peek { position: fixed; inset: 0; z-index: 22; background: var(--bg); padding-top: env(safe-area-inset-top); }
 /* Rows in the drawer are finger-sized, and their hover-only buttons are always there. */
 .m-drawer .rail-item { height: 38px; }
 .m-drawer .rail-item .close { opacity: 1; padding: 0 6px; }
 .m-drawer .rail-new { height: 34px; }
 .m-drawer .modal-bg { padding-top: 6vh; }
+/* The settings tab: the desk's toggles at a size a thumb can use. */
+.m-settings { padding: 8px 14px 16px; font-size: 13px; }
+.m-settings h4 { margin: 12px 0 6px; font-size: 11px; font-weight: normal; letter-spacing: .06em; text-transform: uppercase; color: var(--fg-dim); }
+.m-settings h4:first-child { margin-top: 2px; }
+.m-settings input[type="checkbox"] { width: 20px; height: 20px; }
+/* Swatches a finger can hit; the rows are the desktop popover's. */
+.m-theme .swatch { width: 26px; height: 26px; }
+.m-theme .theme-row { padding: 5px 0; }
+.m-theme .theme-label { font-size: 12px; color: var(--fg); }
+/* iOS zooms into any smaller field on focus. */
+.m-theme .theme-num { font-size: 16px; width: 7.5ch; }
 
 /* Not granted access: the only screen the daemon will let an unknown device draw. */
 .m-gate { height: 100dvh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 24px; text-align: center; }

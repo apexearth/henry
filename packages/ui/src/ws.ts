@@ -3,7 +3,7 @@
 import { useSyncExternalStore } from "react";
 import { baseName } from "./platform";
 import { nameHue } from "./theme";
-import { isClaudeSession, type Attention, type ClientMessage, type Flag, type HenryConfig, type HenryEvent, type PeerStatus, type PlaybookEntry, type RepoState, type ServerMessage, type Session, type SessionKind, type Usage } from "@henry/shared";
+import { isClaudeSession, type Attention, type ClientMessage, type Flag, type HenryConfig, type HenryEvent, type Notice, type PeerStatus, type PlaybookEntry, type RepoState, type ServerMessage, type Session, type SessionKind, type Usage } from "@henry/shared";
 
 export type PtyMessage = Extract<ServerMessage, { type: "pty:data" | "pty:scrollback" | "pty:exit" }>;
 
@@ -155,6 +155,13 @@ export function useStore<T>(selector: (s: UiState) => T): T {
   return useSyncExternalStore((l) => (listeners.add(l), () => listeners.delete(l)), () => selector(state));
 }
 
+/** `notify` frames go to whoever shows them (notify.ts), not into state: a notice is a moment, not a fact. */
+const noticeListeners = new Set<(n: Notice) => void>();
+export function subscribeNotices(cb: (n: Notice) => void): () => void {
+  noticeListeners.add(cb);
+  return () => void noticeListeners.delete(cb);
+}
+
 const ptyListeners = new Map<string, Set<(m: PtyMessage) => void>>();
 export function subscribePty(sessionId: string, cb: (m: PtyMessage) => void): () => void {
   let set = ptyListeners.get(sessionId);
@@ -252,6 +259,9 @@ function handle(m: ServerMessage): void {
       return;
     case "flag":
       setState({ flags: [m.flag, ...state.flags.filter((f) => f.id !== m.flag.id)] });
+      return;
+    case "notify":
+      noticeListeners.forEach((cb) => cb(m.notice));
       return;
     case "attention:update": {
       const rest = state.attention.filter((a) => a.id !== m.attention.id);

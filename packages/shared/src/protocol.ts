@@ -1,5 +1,5 @@
 // WebSocket protocol (/ws) and REST shapes. Every frame is one JSON object with a `type`.
-import type { Attention, Flag, HenryConfig, HenryEvent, PeerStatus, PlaybookEntry, RepoState, Session, SessionKind, SessionUsage, Usage } from "./types";
+import type { Attention, Flag, HenryConfig, HenryEvent, Notice, PeerStatus, PlaybookEntry, RepoState, Session, SessionKind, SessionUsage, Usage } from "./types";
 
 export type ClientMessage =
   /** `reqId` is echoed on the pty:scrollback reply; a daemon relaying for several windows needs it, the UI does not. */
@@ -74,6 +74,8 @@ export type ServerMessage =
   | { type: "flag"; flag: Flag }
   /** A session raised an ask, or one ended (`done` set): windows add or drop the row. */
   | { type: "attention:update"; attention: Attention }
+  /** A session needs the user (daemon/notify.ts); a window with permission raises an OS notification. */
+  | { type: "notify"; notice: Notice }
   | { type: "repos:update"; sessionId: string; repos: RepoState[] }
   /** The whole table: on connect and when the 5h/7d windows move. */
   | { type: "usage:update"; usage: Usage }
