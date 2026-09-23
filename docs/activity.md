@@ -38,3 +38,18 @@ What Claude is doing in a session, and whether you have been showing up to it.
   "by attention" grouping: sessions that asked for me by name first, then my move, longest
   since I typed at the top, then working, then terminals and closed rows. Looking at a session
   without typing is not engagement — answering an ask is the single exception.
+- **A notice is a session stopping and needing me, said outside the window.** `daemon/notify.ts`
+  reads it off the activity transitions and asks the daemon already has, once, so every delivery
+  says the same things: a permission prompt opening, always; a turn ending after at least 10 s
+  of work (a quicker turn was an answer, not work I walked away from); an ask, in its own words.
+  Reaching `waiting` any other way — startup, `/clear`, a resume, an approved prompt — says
+  nothing, and nor does a daemon restart: the replayed activity is the baseline, not a
+  transition. It goes out as a `notify` frame to every window, and peers relay it like a flag,
+  tagged with the machine. The daemon shows nothing itself. **Delivery is the window's**
+  (`ui/notify.ts`): an OS notification from the browser, off until ticked in Settings (the ⚙
+  tab of the phone's ⋮ sheet), since asking for permission unbidden is how a site gets
+  blocked, and per browser, since the permission is. A window that is focused on that session
+  stays quiet, because you are looking; one notification per session, replaced rather than
+  stacked; clicking it brings the window and the session forward. A phone gets them while a
+  Henry tab is open, even in the background. iOS shows nothing from a page at all: true
+  background delivery there is Web Push, which is in `PLAN.md`.

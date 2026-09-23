@@ -20,6 +20,7 @@ import { readHistory } from "./history";
 import { backfillPresence, humanStats, notePresence } from "./human";
 import * as hooks from "./hooks";
 import * as mcp from "./mcp";
+import * as notify from "./notify";
 import * as overseer from "./overseer";
 import * as phone from "./phone";
 import { sessions } from "./sessions";
@@ -365,8 +366,15 @@ export async function startServer(): Promise<void> {
   await sessions.start();
   // Re-derives each running session's activity from its last hook, then ages it on a tick.
   activity.start();
+  // After it: the replay walks each session through its old transitions, and none of those
+  // are news.
+  notify.setBroadcast(broadcast);
+  notify.start();
   engagement.start();
-  attention.setBroadcast(broadcast);
+  attention.setBroadcast((m) => {
+    broadcast(m);
+    if (m.type === "attention:update") notify.onAsk(m.attention);
+  });
   attention.setWindowCount(windowCount);
   attention.start();
   // Held apart from the port so the alias listeners can reuse them verbatim.
@@ -734,6 +742,7 @@ export function stopServer(): void {
   activity.stop();
   engagement.stop();
   attention.stop();
+  notify.stop();
   git.stop();
   sessions.shutdown();
   server?.stop(true);

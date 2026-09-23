@@ -56,6 +56,14 @@ through that machine's peers, so one phone reaches every Henry the desk reaches.
   here — reported to an app that asked for it, arrow keys on an alt screen, the viewport otherwise
   — rather than being a second scrolling story to keep true. A tap that never crosses six pixels
   is still a tap, and still reaches the app as a click.
+- **A file peek is a sheet, and a tap opens it.** There is no dock on a phone, so `peekFile`
+  hands the peek to whatever layout registered for it (`setPeekSink`) and the phone draws it
+  full-screen over whatever asked: closing one tapped in the files sheet lands back in the
+  tree, one tapped in the terminal lands back on the session. The terminal's path links need
+  ⌘ on a desk; on a phone the click the browser synthesises right after a tap counts instead.
+- **⚙ is the last tab of the ⋮ sheet**: the notification toggle and the theme rows, at a size a
+  thumb can use — outdoors, the `white` shade is the one you came for (see
+  [layout.md](layout.md)). The daemon's own settings stay on the desk.
 - **Typing is a composer, not the on-screen keyboard against xterm.** A phone keyboard has no Esc,
   no Tab and no ⌃C, and autocorrect fights xterm's hidden textarea, so the terminal on a phone is
   a screen you read: xterm never takes focus there. Under it sits a row of the keys Claude Code

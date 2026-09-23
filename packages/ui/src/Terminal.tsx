@@ -7,7 +7,7 @@ import { isClaudeSession } from "@henry/shared";
 import { getState, send, subscribePty, useStore } from "./ws";
 import { openPeek, splitLineRef } from "./FileView";
 import { arrowMod, isMac, mod } from "./platform";
-import { cellBgAlpha, cssVar, onTheme, xtermTheme } from "./theme";
+import { cellBgAlpha, cssVar, isLight, minContrast, onTheme, themeBgRgb, xtermTheme } from "./theme";
 
 interface Props {
   sessionId: string;
@@ -56,8 +56,11 @@ export function focusTerminal(sessionId: string): boolean {
 /** xterm's WebGL renderer hardcodes alpha 1 on every cell background it paints, so a line an app
  * gives a background colour lands as a solid slab in front of the context wall, while the
  * terminal's own background is see-through. Re-alpha the rectangles on their way to the GPU.
- * Patched on the prototype, once: the renderer is rebuilt on a WebGL context restore. Rectangle 0
- * is the viewport, which already carries the theme background's own alpha. */
+ * A rectangle in the theme's own background is not an app's colour at all: dim is a background
+ * flag to xterm, so every dim run gets one, which cut holes in the wall and, on a light shade,
+ * showed as white bars. Those go fully clear. Patched on the prototype, once: the renderer is
+ * rebuilt on a WebGL context restore. Rectangle 0 is the viewport, which already carries the
+ * theme background's own alpha. */
 function softenCellBackgrounds(webgl: WebglAddon) {
   if (softened) return;
   const inner = webgl as unknown as { _renderer?: { _rectangleRenderer?: { value?: RectRenderer } } };
@@ -67,9 +70,43 @@ function softenCellBackgrounds(webgl: WebglAddon) {
   softened = true;
   proto.renderBackgrounds = function (this: RectRenderer) {
     const a = cellBgAlpha();
-    for (let i = 1; i < this._vertices.count; i++) this._vertices.attributes[i * RECT_FLOATS + RECT_ALPHA] = a;
+    const [r, g, b] = themeBgRgb();
+    const v = this._vertices.attributes;
+    for (let i = 1; i < this._vertices.count; i++) {
+      const o = i * RECT_FLOATS;
+      const own = Math.abs(v[o + 4]! - r) < 0.003 && Math.abs(v[o + 5]! - g) < 0.003 && Math.abs(v[o + 6]! - b) < 0.003;
+      v[o + RECT_ALPHA] = own ? 0 : a;
+    }
     orig.call(this);
   };
+}
+
+/** xterm draws dim text at half opacity, which on a dark shade is a quieter grey and on paper is
+ * next to nothing — and Claude Code says most of what it says in dim. On a light shade a dim
+ * cell is coloured as if it were not (so the contrast floor applies in full) and then pulled
+ * partway toward the background, opaque: a step down from the text around it, still legible.
+ * Dark shades keep xterm's own dim. Patched on the atlas's prototype, once; a theme change
+ * rebuilds the atlas, so the flip takes on the next paint. */
+const DIM_TOWARD_BG = 0.3;
+let dimmed = false;
+type Atlas = { _getForegroundColor(...a: unknown[]): { css: string; rgba: number } };
+function softenDim(webgl: WebglAddon): boolean {
+  if (dimmed) return true;
+  const inner = webgl as unknown as { _renderer?: { _charAtlas?: Atlas } };
+  const proto = inner._renderer?._charAtlas && Object.getPrototypeOf(inner._renderer._charAtlas);
+  const orig = proto?._getForegroundColor as Atlas["_getForegroundColor"] | undefined;
+  if (typeof orig !== "function") return false; // no atlas yet, or xterm changed shape
+  dimmed = true;
+  proto._getForegroundColor = function (this: Atlas, ...a: unknown[]) {
+    if (!a[7] || !isLight()) return orig.apply(this, a);
+    a[7] = false;
+    const full = orig.apply(this, a);
+    const [br, bg, bb] = themeBgRgb().map((x) => Math.round(x * 255));
+    const ch = (shift: number, toward: number) => Math.round(((full.rgba >>> shift) & 0xff) * (1 - DIM_TOWARD_BG) + toward * DIM_TOWARD_BG);
+    const r = ch(24, br!), g = ch(16, bg!), b = ch(8, bb!);
+    return { css: "#" + [r, g, b].map((x) => x.toString(16).padStart(2, "0")).join(""), rgba: ((r << 24) | (g << 16) | (b << 8) | 0xff) >>> 0 };
+  };
+  return true;
 }
 
 export function TerminalView({ sessionId, visible, focused, fontSize }: Props) {
@@ -103,6 +140,7 @@ export function TerminalView({ sessionId, visible, focused, fontSize }: Props) {
       // Always on, so toggling the context wall is a theme change and not a terminal rebuild.
       allowTransparency: true,
       theme: xtermTheme(),
+      minimumContrastRatio: minContrast(),
       ...(winRef.current ? { windowsPty: { backend: "conpty" as const, buildNumber: winRef.current } } : {}),
     });
     const f = new FitAddon();
@@ -113,6 +151,12 @@ export function TerminalView({ sessionId, visible, focused, fontSize }: Props) {
       webgl.onContextLoss(() => webgl.dispose());
       t.loadAddon(webgl);
       softenCellBackgrounds(webgl);
+      // The atlas is built on the first paint, not on load.
+      if (!softenDim(webgl)) {
+        const once = t.onRender(() => {
+          if (softenDim(webgl)) once.dispose();
+        });
+      }
     } catch (e) {
       console.warn("[henry] WebGL renderer unavailable, using DOM renderer", e);
     }
@@ -184,6 +228,10 @@ export function TerminalView({ sessionId, visible, focused, fontSize }: Props) {
     const SLOP = 6; // px of travel before a tap becomes a drag
     const FRICTION = 0.94, FLICK_MIN = 2, COAST_MIN = 0.5; // px/frame
     let dragging = false, dragged = false, startY = 0, lastY = 0, lastT = 0, velocity = 0, carry = 0, coast = 0;
+    // When the last tap lifted. A phone has no ⌘ to hold, so the click the browser synthesises
+    // right after a tap is the one click that opens a path with no modifier.
+    let tapAt = -Infinity;
+    const TAP_CLICK_MS = 700;
     const notch = (px: number) => screen?.dispatchEvent(new WheelEvent("wheel", { deltaY: px, deltaMode: 0, bubbles: true, cancelable: true }));
     const scrollPx = (px: number) => {
       // .xterm-screen is exactly rows tall, which is the cell height without reaching into xterm.
@@ -222,6 +270,7 @@ export function TerminalView({ sessionId, visible, focused, fontSize }: Props) {
     const onTouchEnd = () => {
       if (!dragging) return;
       dragging = false;
+      if (!dragged) tapAt = performance.now();
       if (!dragged || Math.abs(velocity) < FLICK_MIN) return;
       // A flick coasts and settles, the way every other scroller on the phone does.
       const step = () => {
@@ -237,7 +286,8 @@ export function TerminalView({ sessionId, visible, focused, fontSize }: Props) {
     screen?.addEventListener("touchend", onTouchEnd);
     screen?.addEventListener("touchcancel", onTouchEnd);
 
-    // ⌘-click a path in the output to peek at it. Relative paths resolve against the session's cwd.
+    // ⌘-click a path in the output to peek at it (a tap on a phone). Relative paths resolve
+    // against the session's cwd.
     t.registerLinkProvider({
       provideLinks(y, cb) {
         const text = t.buffer.active.getLine(y - 1)?.translateToString(true) ?? "";
@@ -250,7 +300,7 @@ export function TerminalView({ sessionId, visible, focused, fontSize }: Props) {
             text: raw,
             decorations: { underline: true, pointerCursor: true },
             activate: (ev: MouseEvent, ref: string) => {
-              if (!ev.metaKey && !ev.ctrlKey) return;
+              if (!ev.metaKey && !ev.ctrlKey && performance.now() - tapAt > TAP_CLICK_MS) return;
               const { path, line } = splitLineRef(ref);
               openPeek(path, getState().sessions.find((x) => x.id === sessionId)?.cwd, line);
             },
@@ -285,7 +335,10 @@ export function TerminalView({ sessionId, visible, focused, fontSize }: Props) {
       send({ type: "pty:resize", sessionId, cols: t.cols, rows: t.rows, redraw: true });
     };
     doFit();
-    const offTheme = onTheme(() => { t.options.theme = xtermTheme(); });
+    const offTheme = onTheme(() => {
+      t.options.theme = xtermTheme();
+      t.options.minimumContrastRatio = minContrast();
+    });
     const ro = new ResizeObserver(() => doFit());
     ro.observe(box.current!);
     term.current = t;

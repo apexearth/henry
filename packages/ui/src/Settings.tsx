@@ -6,6 +6,7 @@
 // sections. Long lists (rules.alarm / rules.notable) stay in the JSON file — see the footnote.
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import type { HenryConfig, RepoPickerEntry } from "@henry/shared";
+import { NotifyToggle } from "./NotifyToggle";
 import { useStore } from "./ws";
 
 const st = {
@@ -136,6 +137,13 @@ export function Settings({ onClose }: { onClose: () => void }) {
               <input type="number" min={0} step={1} style={{ width: 90 }} value={c.retentionDays}
                 onChange={(e) => set({ retentionDays: Math.max(0, Math.floor(Number(e.target.value) || 0)) })} />
             </Row>
+          </Section>
+
+          <Section title="notifications">
+            <NotifyToggle id="notify-settings" />
+            <div style={{ ...st.note, marginLeft: 0, paddingTop: 4 }}>
+              An OS notification from this browser when a session opens a permission prompt, ends a turn after real work, or asks for you by name — never for the session you are looking at. Sessions on paired machines included. Per browser, and on as soon as you tick it.
+            </div>
           </Section>
 
           <Section title="playbook (overseer)">

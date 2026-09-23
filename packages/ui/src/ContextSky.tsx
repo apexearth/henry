@@ -115,10 +115,12 @@ function draw(ctx: CanvasRenderingContext2D, w: number, h: number, f: number, L0
   const day = clamp01(el * 2.5 + 0.15);
   const dusk = clamp01(1 - Math.abs(el) * 3.5); // the warm half hour either side of the horizon
   const crest = h * (1 - clamp01(f));
+  // The sky sits just off the background: above it on a dark theme, below it on a light one.
+  const up = L0 > 0.5 ? -1 : 1;
 
   const grad = ctx.createLinearGradient(0, 0, 0, h);
-  grad.addColorStop(0, oklch(L0 + lerp(0.02, 0.075, day), 0.03, lerp(272, 250, day)));
-  grad.addColorStop(1, oklch(L0 + lerp(0.045, 0.125, day) + 0.025 * dusk, 0.02 + 0.05 * dusk, lerp(lerp(268, 232, day), 35, dusk)));
+  grad.addColorStop(0, oklch(L0 + up * lerp(0.02, 0.075, day), 0.03, lerp(272, 250, day)));
+  grad.addColorStop(1, oklch(L0 + up * (lerp(0.045, 0.125, day) + 0.025 * dusk), 0.02 + 0.05 * dusk, lerp(lerp(268, 232, day), 35, dusk)));
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, w, h);
 
@@ -173,9 +175,9 @@ function draw(ctx: CanvasRenderingContext2D, w: number, h: number, f: number, L0
       const j = hash(i) * 0.03 - 0.015;
       const x = off + col * BRICK_W;
       ctx.globalAlpha = Math.min(1, laid - i);
-      ctx.fillStyle = oklch(L0 + 0.13 + j, 0.055, hue);
+      ctx.fillStyle = oklch(L0 + up * (0.13 + j), 0.055, hue);
       ctx.fillRect(x, y, BRICK_W - MORTAR, BRICK_H - MORTAR);
-      ctx.fillStyle = oklch(L0 + 0.19 + j, 0.05, hue);
+      ctx.fillStyle = oklch(L0 + up * (0.19 + j), 0.05, hue);
       ctx.fillRect(x, y, BRICK_W - MORTAR, 2);
     }
   }

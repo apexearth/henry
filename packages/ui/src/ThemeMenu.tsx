@@ -1,10 +1,11 @@
-// Topbar "theme" popover: pick a tone, highlight and shade; theme.ts derives the rest. The last
+// The theme controls: pick a tone, highlight, shade and sky; theme.ts derives the rest. A
+// popover under the topbar's "theme" on a desk, a fold in the ☰ drawer on a phone. The last
 // row is where on Earth the context sky is drawn from — seeded from the time zone, so it is
 // usually right already, and today's sunrise and sunset are printed underneath as the check.
 import { useState } from "react";
 import { clampLat, clampLon } from "./place";
 import { riseSet, skyState } from "./solar";
-import { HIGHLIGHTS, SHADES, SKIES, TONES, oklch, setTheme, useTheme, type ThemeChoice } from "./theme";
+import { HIGHLIGHTS, SHADES, SKIES, TONES, isLight, oklch, setTheme, useTheme, type ThemeChoice } from "./theme";
 
 const hhmm = (d: Date) => d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
@@ -61,8 +62,8 @@ function Place() {
   );
 }
 
-export function ThemeMenu() {
-  const [open, setOpen] = useState(false);
+/** The choices themselves: the topbar popover on a desk, a fold in the ☰ drawer on a phone. */
+export function ThemeRows() {
   const t = useTheme();
   const row = <K extends "tone" | "highlight" | "shade" | "sky">(key: K, names: string[], color: (n: string) => string) => (
     <div className="theme-row">
@@ -77,20 +78,29 @@ export function ThemeMenu() {
   );
   return (
     <>
+      {row("tone", Object.keys(TONES), (n) => { const c = TONES[n as keyof typeof TONES]; return oklch(0.4, c.c * 2, c.h); })}
+      {row("highlight", Object.keys(HIGHLIGHTS), (n) => oklch(0.76, 0.13, HIGHLIGHTS[n as keyof typeof HIGHLIGHTS]))}
+      {row("shade", Object.keys(SHADES), (n) => oklch(SHADES[n as keyof typeof SHADES], TONES[t.tone].c, TONES[t.tone].h))}
+      {/* The context wall (ContextSky), from off to bold; the swatches are the wall's own colour. */}
+      {row("sky", Object.keys(SKIES), (n) => {
+        const v = SKIES[n as keyof typeof SKIES];
+        return oklch(SHADES[t.shade] + (isLight(t.shade) ? -0.13 : 0.13) * v, 0.055 * v, 130);
+      })}
+      {SKIES[t.sky] > 0 && <Place />}
+    </>
+  );
+}
+
+export function ThemeMenu() {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
       <button className="topbar-btn" onClick={() => setOpen((o) => !o)} title="appearance">theme</button>
       {open && (
         <>
           <div className="pop-bg" onClick={() => setOpen(false)} />
           <div className="pop theme-pop">
-            {row("tone", Object.keys(TONES), (n) => { const c = TONES[n as keyof typeof TONES]; return oklch(0.4, c.c * 2, c.h); })}
-            {row("highlight", Object.keys(HIGHLIGHTS), (n) => oklch(0.76, 0.13, HIGHLIGHTS[n as keyof typeof HIGHLIGHTS]))}
-            {row("shade", Object.keys(SHADES), (n) => oklch(SHADES[n as keyof typeof SHADES], TONES[t.tone].c, TONES[t.tone].h))}
-            {/* The context wall (ContextSky), from off to bold; the swatches are the wall's own colour. */}
-            {row("sky", Object.keys(SKIES), (n) => {
-              const v = SKIES[n as keyof typeof SKIES];
-              return oklch(SHADES[t.shade] + 0.13 * v, 0.055 * v, 130);
-            })}
-            {SKIES[t.sky] > 0 && <Place />}
+            <ThemeRows />
           </div>
         </>
       )}

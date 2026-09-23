@@ -53,7 +53,18 @@ the whole palette in OKLCH; `theme.ts` writes it as CSS variables on `<html>` an
 terminal (background, foreground, cursor, selection, the 16 ANSI colors) reads the same
 variables, so the stage and the chrome always match. Nothing else hard-codes a color.
 Saved as `henry.theme`. Semantic colors (ok/warn/alarm) and the Claude orange stay fixed
-across themes; no light mode yet.
+across themes. Two of the shades, `light` and `white`, are light: past a background
+lightness of 0.5 the palette flips — surfaces step darker instead of lighter, text and the
+accent drop to read on paper, the ANSI colours with them — and `theme.ts` sets
+`color-scheme: light` and `html.light` so native widgets and the hand-coloured syntax
+tokens follow. What an app draws in the terminal is its own: Claude Code picks its colours
+for a dark terminal, so on a light shade xterm is given a minimum contrast ratio of 7, which
+darkens only what falls short, and its dim text — half of what Claude Code says, drawn by
+xterm at half opacity — is instead coloured at full strength and pulled 30% toward the
+background, opaque: a step down, still legible. On dark shades the floor is off and dim is
+xterm's own. A cell painted in the theme background — every dim run, since dim is a background flag
+to xterm — is drawn fully clear over the context wall rather than as a slab of it. On a phone
+the same rows sit in the ⚙ tab of the ⋮ sheet.
 
 **The context wall.** Behind every session pane is a brick wall that rises from the bottom as
 the session's context window fills, in front of the sky that is actually outside: the sun and

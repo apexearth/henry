@@ -162,6 +162,24 @@ export interface Attention {
   peer?: string;
 }
 
+/**
+ * Something worth saying from outside the window (daemon/notify.ts): a session stopped and
+ * needs the user. Decided once in the daemon so every delivery — a window's OS notification,
+ * a push to a phone — says the same things. Never stored.
+ */
+export interface Notice {
+  id: string;
+  sessionId: string;
+  /** A permission prompt opened, a turn ended after real work, or the session asked by name. */
+  kind: "needsInput" | "waiting" | "ask";
+  /** The session's title, as the rail shows it. */
+  title: string;
+  body: string;
+  ts: number;
+  /** Set by the daemon on notices relayed from a paired machine, like Session.peer. */
+  peer?: string;
+}
+
 export type PlaybookTrigger = "stop" | "flag" | "manual";
 
 export interface PlaybookEntry {

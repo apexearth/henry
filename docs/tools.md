@@ -58,10 +58,9 @@ config. The user is the only router, and the rail stays a truthful record of who
   answering one from here answers it there.
 - **In the UI an ask is the loudest thing Henry says**: an alarm-coloured chip in the topbar
   carrying the sentence itself (the only chip that carries one), a lit edge and a ❗ on the rail
-  row, its own "asking for you" group at the top of "by attention", and the window title, which is
-  the one thing readable from another app. Henry does not raise an OS notification: that is a
-  permission prompt and a new failure mode, and it can come later if the title turns out not to be
-  enough.
+  row, its own "asking for you" group at the top of "by attention", the window title, which is
+  the one thing readable from another app, and — once you have turned them on — an OS
+  notification (see [activity.md](activity.md)).
 - **Attribution comes from the hook stream, not from git.** `git.changedFiles` diffs the repo,
   so in a shared checkout it hands every dirty path to every session there. `mcp.ts` reads the
   `file_path` of each `Write`/`Edit`/`NotebookEdit` event instead. A Bash `sed -i` or `>` names
