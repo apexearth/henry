@@ -1,7 +1,7 @@
 // Answer parsing and session matching (src/voice.ts). Pure: no whisper, no daemon, no audio.
 import { describe, expect, test } from "bun:test";
 import type { Session } from "@henry/shared";
-import { biasFrom, canonicalize, hasSpeech, matchSession, parseAnswer, relaySafe, resolveOpen } from "../src/voice";
+import { biasFrom, canonicalize, hasSpeech, matchSession, parseAnswer, recentThread, relaySafe, remember, resetThreadForTests, resolveOpen, threadBlock } from "../src/voice";
 
 const session = (id: string, title: string) => ({ id, title }) as Session;
 
@@ -255,5 +255,37 @@ describe("hasSpeech", () => {
 
   test("an unaligned body is read the same", () => {
     expect(hasSpeech(clip(1, tone(0.1), 1))).toBe(true);
+  });
+});
+
+describe("thread", () => {
+  const t0 = 1_000_000;
+  const minutes = (n: number) => n * 60_000;
+
+  test("is empty until something is said, and then reads oldest first", () => {
+    resetThreadForTests();
+    expect(threadBlock(t0)).toBe("");
+    remember("what is the indexer doing", "Backfilling blocks, about halfway.", t0);
+    remember("and the other one", "Dune vs squid is waiting on you.", t0 + minutes(1));
+    const block = threadBlock(t0 + minutes(2));
+    expect(block).toContain("User: what is the indexer doing\nYou: Backfilling blocks, about halfway.");
+    expect(block.indexOf("indexer")).toBeLessThan(block.indexOf("other one"));
+  });
+
+  test("a long silence starts a new conversation", () => {
+    resetThreadForTests();
+    remember("hello", "Hi.", t0);
+    expect(recentThread(t0 + minutes(29))).toHaveLength(1);
+    expect(recentThread(t0 + minutes(31))).toHaveLength(0);
+    expect(threadBlock(t0 + minutes(31))).toBe("");
+  });
+
+  test("keeps the newest exchanges when it is full, and flattens each to a line", () => {
+    resetThreadForTests();
+    for (let i = 0; i < 15; i++) remember(`q${i}`, `a${i}\nsecond line`, t0 + i);
+    const turns = recentThread(t0 + 15);
+    expect(turns).toHaveLength(10);
+    expect(turns[0].user).toBe("q5");
+    expect(turns[9].henry).not.toContain("\n");
   });
 });
