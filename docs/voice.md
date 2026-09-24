@@ -52,6 +52,11 @@ records and plays.
 - **The UI resamples, so the daemon needs no ffmpeg.** MediaRecorder gives webm/opus and
   whisper.cpp wants 16 kHz mono PCM; the browser already has an AudioContext, so the conversion
   happens there rather than adding a media dependency on two platforms.
+- **The panel's AudioContext does not outlive the speakers.** One context serves the waveform,
+  the mic and playback, but a context binds its output device when it is made and Chrome can
+  keep rendering to one that has since been unplugged — a dock's speakers — so an answer played
+  into nothing. Any `devicechange` throws the context away (once it is idle) and the next hold
+  or answer makes a new one on the current default output.
 - **Speech is the nice-to-have.** A failed voice still answers in the panel. The platform voice
   (`say`, SAPI) is the zero-install default; `voice.tts` points at any command that reads text
   on stdin and writes a WAV on stdout, which is how a better local model gets wired in. One
@@ -83,6 +88,17 @@ records and plays.
   the activity order, across every machine, gets a tail — it is the most expensive thing in the
   context by an order of magnitude, and "the last response" almost always means the one in
   front of you.
+- **It is a conversation, and Henry remembers his side of it.** Both backends are single-turn
+  (`claude -p`, one API message), so the thread rides in the context text: the last ten
+  exchanges, each side flattened to a line, pasted just above the new utterance and named for
+  what it is, with the prompt told to read "why", "and the other one" and a thought being
+  bounced around against it. What is recorded is what was *spoken* — the confirmation for a
+  relay, not the `TELL:` the model wrote — because that is what the user heard and will refer
+  to. It lives in memory on the daemon that answered, and thirty minutes of silence empties it:
+  a conversation that outlives a restart or a lunch break is a stale answer waiting to be given.
+  Dictation never lands in it; that is the user talking to a session, not to Henry. The rest of
+  the context is fetched fresh for every question, and the prompt says which wins when the two
+  disagree.
 - **Off by default** (`voice.enabled`), like the overseer: it costs an LLM call per question.
 
 - **A phone records too, and that is what `phone.tls` is for.** A browser gives no microphone to

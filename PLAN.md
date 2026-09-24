@@ -14,8 +14,8 @@ area's doc is edited to say the new rule — edited, not appended to.
 
 - **Henry as an interlocutor**: the overseer given the wide tool list and a conversation thread,
   so "what did I forget", "what is most urgent" and "which session was I doing xyz in" are
-  asked rather than inferred from a panel. The voice slice of this is built (`docs/voice.md`);
-  what remains is the thread, the tools and the index. Needs an FTS index over event
+  asked rather than inferred from a panel. The voice slice of this is built, thread included
+  (`docs/voice.md`); what remains is the tools and the index. Needs an FTS index over event
   summaries, prompts and playbook text (prompts are the highest-signal text), and a cheap
   daily digest, since a day's raw events answer "what did I focus on yesterday" neither in a
   prompt nor after the retention sweep. The chat runs only when asked, so unlike the playbook

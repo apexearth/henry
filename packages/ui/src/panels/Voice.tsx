@@ -123,8 +123,33 @@ export function VoicePanel() {
       .catch(() => setReady({ ready: false, reason: "daemon unreachable" }));
   }, []);
 
-
   const context = () => (audioCtx.current ??= new AudioContext());
+
+  // A context binds its output device when it is made, and Chrome can keep rendering to one
+  // that has since gone — a dock's speakers after the unplug — so an answer plays into nothing.
+  // Any change in the device set throws the context away; the next hold or answer builds one
+  // on whatever the system now calls its output. A busy context waits for idle, because the
+  // analyser and the nodes feeding it are its own.
+  const staleCtx = useRef(false);
+  const dropContext = useCallback(() => {
+    if (phaseRef.current !== "idle") {
+      staleCtx.current = true;
+      return;
+    }
+    staleCtx.current = false;
+    void audioCtx.current?.close();
+    audioCtx.current = null;
+    analyser.current = null;
+  }, []);
+  useEffect(() => {
+    const devices = navigator.mediaDevices;
+    if (!devices) return;
+    devices.addEventListener("devicechange", dropContext);
+    return () => devices.removeEventListener("devicechange", dropContext);
+  }, [dropContext]);
+  useEffect(() => {
+    if (phase === "idle" && staleCtx.current) dropContext();
+  }, [phase, dropContext]);
 
   /**
    * The popover is in a portal, so moving the pointer towards it leaves the icon's element and

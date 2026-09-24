@@ -19,6 +19,7 @@ export default defineConfig({
     proxy: {
       "/ws": { target: `ws://127.0.0.1:${daemon}`, ws: true },
       "/api": { target: `http://127.0.0.1:${daemon}` },
+      "/raw": { target: `http://127.0.0.1:${daemon}` },
     },
   },
 });

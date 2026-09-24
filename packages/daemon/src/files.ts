@@ -3,6 +3,7 @@
 // game; size is capped so a stray click on a log never ships megabytes.
 import { openSync, readSync, closeSync, existsSync, mkdirSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { DirIndex, FilePeek } from "@henry/shared";
 import { expandHome } from "./config";
 import * as git from "./git";
@@ -176,4 +177,37 @@ export function stats(): Record<string, number> {
   let cached = 0;
   for (const v of dirCache.values()) cached += v.index.files.length;
   return { fsDirCache: dirCache.size, fsDirCachePaths: cached };
+}
+
+// ---- raw files: an HTML peek's preview, loaded the way file:// would load it ----
+// The page's relative links (its CSS, scripts, pictures) resolve under the same prefix, so a
+// page and the files beside it load as they would from disk. Every answer carries a CSP
+// sandbox, which gives the page an opaque origin: it runs its scripts but is never Henry's
+// origin, so it cannot read Henry's API, and server.ts refuses the `Origin: null` it sends.
+
+export const RAW_PREFIX = "/raw/";
+
+/** `/raw/<absolute path as a file URL path>` → that path on this machine. */
+export function rawPath(pathname: string): string | undefined {
+  try {
+    return fileURLToPath(new URL("file:///" + pathname.slice(RAW_PREFIX.length)));
+  } catch {
+    return undefined;
+  }
+}
+
+export function serveRaw(pathname: string): Response {
+  let path = rawPath(pathname);
+  try {
+    if (path && statSync(path).isDirectory()) path = join(path, "index.html");
+    if (!path || !statSync(path).isFile()) throw new Error();
+  } catch {
+    return new Response("not found", { status: 404 });
+  }
+  return new Response(Bun.file(path), {
+    headers: {
+      "content-security-policy": "sandbox allow-scripts allow-forms allow-modals allow-popups allow-downloads",
+      "cache-control": "no-store",
+    },
+  });
 }

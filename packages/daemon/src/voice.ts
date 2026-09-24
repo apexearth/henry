@@ -51,6 +51,11 @@ const TAIL_CHARS = 6_000;
 const PEER_CONTEXT_TIMEOUT_MS = 4_000;
 /** Repos named per machine as places a new session can open. */
 const REPOS_IN_CONTEXT = 60;
+/** The spoken thread: how many exchanges ride along, how long each side of one may be, and
+ * how long a silence turns the next question into a new conversation. */
+const THREAD_TURNS = 10;
+const THREAD_TURN_CHARS = 600;
+const THREAD_IDLE_MS = 30 * 60_000;
 
 export const SYSTEM_PROMPT = `You are Henry's voice. You speak with the person whose Claude Code sessions you watch, while they work. You are given the event stream, safeguard flags, repo-level git summaries, the current per-session summaries, and the tail of the actual conversation in the session they are working in — what was said, word for word, rather than a summary of it. The sessions may be spread over several machines; each is marked "here" or "on <machine>", and you see all of them the same way, so answer about the whole picture unless they ask about one machine.
 
@@ -63,6 +68,8 @@ Everything you say is spoken aloud, so write to be heard, not read. One to three
 The user's words reach you as speech-to-text, so expect transcription errors, especially in names, identifiers and technical terms. The context lists the live sessions, repos and branches by name. When a transcribed word is close to one of those, assume the known name and carry on; do not repeat the garbled version back. Ask a short clarifying question only when two names are equally plausible.
 
 Answer first, context second. If they ask what is happening somewhere, lead with the one thing that matters, then at most two sentences of detail. If little has changed, say so and stop. Never invent activity that is not in the context.
+
+This is a conversation, not a series of one-off questions. When the context includes what has been said so far, read the new utterance against it: "why", "and the other one", "go back to that", "what do you think" refer to the thread, and an idea they are bouncing off you deserves a reply that builds on what you both already said rather than a fresh summary. The rest of the context is fetched anew for every question, so where the thread and the context disagree about a session, the context is current and your earlier answer is what you knew then.
 
 The roster at the top lists every running session and is the only thing you may count from; the detailed blocks below it cover just the most recently active few, so never say how many sessions there are by counting those, and never say a session does not exist because it has no detail. Asked about one that is only on the roster, use what the roster says — where it is and how long it has been quiet — and say plainly that you have no detail on it. "Quiet" there means Henry has not heard from it, which is not the same as nothing happening: a session whose hooks are not reaching Henry looks identical to an idle one, so say it has gone quiet rather than that it is doing nothing.
 
@@ -578,6 +585,46 @@ const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace
 /** "vs" and "versus" are the same word to a listener, and whisper picks whichever it likes. */
 const words = (s: string) => s.split(" ").filter((w) => w.length > 1 && w !== "the").map((w) => (w === "versus" ? "vs" : w));
 
+// ---- the thread ----
+//
+// What has been said between the user and Henry, so "and the one before that?" has a referent.
+// In memory only and on this daemon only: a conversation is a thing you are having now, and one
+// that outlives a restart or a long silence is a stale answer waiting to be given. Dictation
+// never lands here; it is the user talking to a session, not to Henry.
+
+interface Exchange {
+  at: number;
+  user: string;
+  henry: string;
+}
+
+let thread: Exchange[] = [];
+
+/** The exchanges that still count as this conversation, oldest first. */
+export function recentThread(now = Date.now()): Exchange[] {
+  const last = thread[thread.length - 1];
+  if (last && now - last.at > THREAD_IDLE_MS) thread = [];
+  return thread;
+}
+
+/** Records what was said and what was spoken back, as the user heard it. */
+export function remember(user: string, henry: string, now = Date.now()): void {
+  recentThread(now);
+  thread.push({ at: now, user: oneLine(user, THREAD_TURN_CHARS), henry: oneLine(henry, THREAD_TURN_CHARS) });
+  if (thread.length > THREAD_TURNS) thread = thread.slice(-THREAD_TURNS);
+}
+
+export function threadBlock(now = Date.now()): string {
+  const turns = recentThread(now);
+  if (!turns.length) return "";
+  const lines = turns.map((t) => `User: ${t.user}\nYou: ${t.henry}`);
+  return `The conversation so far, oldest first. The user's lines are speech-to-text; yours are what was spoken back:\n${lines.join("\n")}`;
+}
+
+export function resetThreadForTests(): void {
+  thread = [];
+}
+
 /**
  * Answer a question that has already been transcribed.
  *
@@ -596,6 +643,7 @@ export async function answer(transcript: string): Promise<VoiceReply> {
     activityBlocks(placed),
     tail,
     openable(repos),
+    threadBlock(),
     `The user just said (speech-to-text): ${oneLine(transcript, 1000)}`,
   ]
     .filter(Boolean)
@@ -643,6 +691,7 @@ export async function answer(transcript: string): Promise<VoiceReply> {
   // A directive that matched nothing leaves `spoken` empty; speaking `answer` there would read
   // the directive itself out loud ("GO colon the indexer").
   const text = confirmation || spoken || (action ? `Switching you to ${action.title}.` : go || tell ? `I could not find a session called ${go ?? tell?.name}.` : answer.trim());
+  remember(transcript, text);
 
   // Speech is the nice-to-have: a voice that failed still answers in the panel.
   let audio: string | undefined;
