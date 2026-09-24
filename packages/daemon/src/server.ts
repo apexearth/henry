@@ -334,6 +334,13 @@ async function readJson(req: Request): Promise<unknown> {
   }
 }
 
+/** A page shown by an HTML peek (files.serveRaw) has an opaque origin, so everything it sends
+ * says `Origin: null`. It may load the files beside it and nothing else: a plain POST or a
+ * WebSocket from it would otherwise drive sessions. No window, hook or CLI sends that origin. */
+function fromSandbox(req: Request, pathname: string): boolean {
+  return req.headers.get("origin") === "null" && !pathname.startsWith(files.RAW_PREFIX);
+}
+
 async function serveStatic(pathname: string): Promise<Response> {
   if (!existsSync(join(uiDist, "index.html"))) {
     return new Response(
@@ -383,6 +390,8 @@ export async function startServer(): Promise<void> {
     async fetch(req: Request, srv: HenryServer) {
       const url = new URL(req.url);
       const { pathname } = url;
+      if (fromSandbox(req, pathname)) return json({ error: "forbidden" }, 403);
+      if (pathname.startsWith(files.RAW_PREFIX)) return files.serveRaw(pathname);
       if (pathname === "/ws") {
         return srv.upgrade(req, { data: { client: undefined as unknown as Client } }) ? undefined : new Response("upgrade failed", { status: 400 });
       }
@@ -438,6 +447,7 @@ export async function startServer(): Promise<void> {
     const url = new URL(req.url);
     const verdict = phone.verdict(req, url);
     if (!verdict.allow) return json({ error: verdict.error }, verdict.status);
+    if (fromSandbox(req, url.pathname)) return json({ error: "forbidden" }, 403);
     if (url.pathname === "/ws") {
       return srv.upgrade(req, { data: { client: undefined as unknown as Client } }) ? undefined : new Response("upgrade failed", { status: 400 });
     }
