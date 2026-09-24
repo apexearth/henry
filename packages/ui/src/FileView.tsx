@@ -28,6 +28,20 @@ export async function fetchPeek(path: string, cwd?: string, local = false): Prom
   return r.ok ? ((await r.json()) as FilePeek) : null;
 }
 
+/** An HTML page runs from `/raw/<path>` (daemon files.ts), so its relative links load the files
+ *  beside it as file:// would. Only this machine's files, and only through the loopback
+ *  listener: a relayed session's file is on another disk, and the phone's cookie does not ride
+ *  along with a sandboxed page's requests. */
+function rawServed(local: boolean): boolean {
+  if (!["127.0.0.1", "localhost", "[::1]"].includes(location.hostname)) return false;
+  return local || !getState().sessions.find((x) => x.id === getState().activeSessionId)?.peer;
+}
+
+function rawUrl(path: string): string {
+  const parts = path.replace(/\\/g, "/").replace(/^\/+/, "").split("/");
+  return "/raw/" + parts.map((p) => encodeURIComponent(p).replace(/%3A/g, ":")).join("/");
+}
+
 // Fetched once by openPeek so the panel paints without a second round trip.
 const primed = new Map<string, FilePeek>();
 
@@ -84,14 +98,15 @@ export function sendFind(action: FindAction): void {
 const FIND_CAP = 5000;
 type Span = [start: number, end: number];
 
-/** Whether markdown opens as a page, as source, or both side by side; one choice for every
- *  peek, per browser. */
-const MD_VIEW_KEY = "henry.mdView";
+/** Whether markdown (or HTML) opens as a page, as source, or both side by side; one choice
+ *  for every peek of that kind, per browser. */
+const VIEW_KEYS = { md: "henry.mdView", html: "henry.htmlView" } as const;
+type PageKind = keyof typeof VIEW_KEYS;
 const MD_VIEWS = ["page", "split", "source"] as const;
 type MdView = (typeof MD_VIEWS)[number];
-function loadMdView(): MdView {
+function loadMdView(kind: PageKind): MdView {
   try {
-    const v = localStorage.getItem(MD_VIEW_KEY);
+    const v = localStorage.getItem(VIEW_KEYS[kind]);
     return (MD_VIEWS as readonly string[]).includes(v ?? "") ? (v as MdView) : "page";
   } catch {
     return "page";
@@ -236,18 +251,25 @@ export function FileView({ path, line, active, local = false }: Props) {
   const name = path.slice(dir.length);
   const shown = peek?.rel ? { dir: peek.rel.slice(0, peek.rel.lastIndexOf("/") + 1), name } : { dir, name };
 
-  // Markdown is a page unless you asked for a line, or you are finding in it: both are about
-  // the source, so the page alone gives way to it (a split already shows it). The choice is
-  // remembered for the next markdown peek.
-  const isMd = languageFor(path) === "markdown" && !!peek && !peek.binary && !peek.image;
-  const [mdView, setMdView] = useState<MdView>(() => (line ? "source" : loadMdView()));
+  // Markdown and HTML are a page unless you asked for a line, or you are finding in it: both
+  // are about the source, so the page alone gives way to it (a split already shows it). The
+  // choice is remembered for the next peek of that kind.
+  const text = !!peek && !peek.binary && !peek.image;
+  const isMd = text && languageFor(path) === "markdown";
+  const isHtml = text && /\.html?$/i.test(path) && rawServed(local);
+  const kind: PageKind = isHtml ? "html" : "md";
+  const [mdView, setMdView] = useState<MdView>(() => (line ? "source" : loadMdView(kind)));
+  useEffect(() => {
+    if (!line) setMdView(loadMdView(kind));
+  }, [kind, line]);
   const chooseMdView = (next: MdView) => {
     setMdView(next);
     try {
-      localStorage.setItem(MD_VIEW_KEY, next);
+      localStorage.setItem(VIEW_KEYS[kind], next);
     } catch {}
   };
-  const showPage = isMd && (mdView === "split" || (mdView === "page" && !find));
+  const [reloads, setReloads] = useState(0);
+  const showPage = (isMd || isHtml) && (mdView === "split" || (mdView === "page" && !find));
   const showSource = !showPage || mdView === "split";
   // Images and links in the page resolve against the file's folder, on the machine it was read from.
   const loadImage = useCallback(
@@ -278,8 +300,11 @@ export function FileView({ path, line, active, local = false }: Props) {
         {imgSrc && dims && (
           <button className="peek-back" onClick={() => setFit((f) => !f)} title={fit ? "show at actual size" : "fit to the pane"}>{fit ? "1:1" : "fit"}</button>
         )}
-        {isMd && (
-          <span className="peek-seg" title="how to show the markdown">
+        {isHtml && showPage && (
+          <button className="peek-back" onClick={() => setReloads((n) => n + 1)} title="reload the page">↻</button>
+        )}
+        {(isMd || isHtml) && (
+          <span className="peek-seg" title={isHtml ? "how to show the HTML" : "how to show the markdown"}>
             {MD_VIEWS.map((v) => (
               <button key={v} className={v === mdView ? "on" : undefined} onClick={() => chooseMdView(v)}>{v}</button>
             ))}
@@ -319,7 +344,13 @@ export function FileView({ path, line, active, local = false }: Props) {
             ))}
           </pre>
         )}
-        {showPage && peek && (
+        {showPage && peek && isHtml && (
+          <div className="peek-pane peek-html">
+            {/* Opaque origin (no allow-same-origin): the page runs, but never as Henry. */}
+            <iframe key={reloads} src={rawUrl(peek.path)} title={name} sandbox="allow-scripts allow-forms allow-modals allow-popups allow-downloads" />
+          </div>
+        )}
+        {showPage && peek && !isHtml && (
           <div className="peek-pane">
             <Markdown text={peek.content} loadImage={loadImage} openLink={openLink} />
           </div>

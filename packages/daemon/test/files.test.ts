@@ -85,3 +85,30 @@ describe("readDirIndex", () => {
     expect(s.fsDirCachePaths).toBeGreaterThan(0);
   });
 });
+
+describe("serveRaw", () => {
+  const site = join(tmp, "my site");
+  const url = (p: string) => files.RAW_PREFIX + p.replace(/\\/g, "/").replace(/^\/+/, "").split("/").map((s) => encodeURIComponent(s).replace(/%3A/g, ":")).join("/");
+
+  beforeAll(() => {
+    mkdirSync(site, { recursive: true });
+    writeFileSync(join(site, "index.html"), "<link rel=stylesheet href=style.css>\n");
+    writeFileSync(join(site, "style.css"), "body{}\n");
+  });
+
+  test("a page and the files beside it, sandboxed and never cached", async () => {
+    expect(files.rawPath(url(join(site, "index.html")))).toBe(join(site, "index.html"));
+    const page = files.serveRaw(url(join(site, "index.html")));
+    expect(page.status).toBe(200);
+    expect(page.headers.get("content-security-policy")).toStartWith("sandbox allow-scripts");
+    expect(page.headers.get("content-security-policy")).not.toContain("allow-same-origin");
+    expect(page.headers.get("cache-control")).toBe("no-store");
+    expect(await files.serveRaw(url(join(site, "style.css"))).text()).toBe("body{}\n");
+  });
+
+  test("a folder is its index.html, and nothing else is found", async () => {
+    expect(await files.serveRaw(url(site)).text()).toContain("style.css");
+    expect(files.serveRaw(url(join(site, "missing.js"))).status).toBe(404);
+    expect(files.serveRaw(url(pics)).status).toBe(404);
+  });
+});

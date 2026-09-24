@@ -29,6 +29,17 @@ picks the page, the line view, or both side by side scrolling on their own, reme
 browser; a `path:line` reference opens as source, and ⌘F (find works on lines) shows the
 source when the page was showing alone.
 
+**HTML opens as a running page.** An `.html` peek is an iframe on `/raw/<path>`, which serves
+the file from disk, so its relative CSS, scripts and pictures load the way they would from
+file://; the same `page | split | source` switch (remembered apart from markdown's) and a ↻
+that reloads it. The page is someone's code, so it never runs as Henry: every `/raw` answer
+carries a CSP sandbox and the iframe omits `allow-same-origin`, which leaves it an opaque
+origin, and the daemon refuses anything but `/raw` from `Origin: null`, so it can neither read
+the API nor POST to it or open `/ws`. As on file://, that also means no ES modules or `fetch`
+of the files beside it. Only on this machine's loopback listener: a relayed session's file is
+on another disk, and on the phone the page's requests would go without the device cookie, so
+both show the source.
+
 The tree's marks are the exception: they are `git status`, against HEAD, so every session in
 a folder sees the same marks and a clean repo shows none. Before this they were vs baseline
 too, and a commit never cleared them: the tree said "uncommitted" next to a root card saying
