@@ -4,6 +4,7 @@ import type { DockviewApi, DockviewGroupPanel, DockviewTheme, IDockviewPanel, Se
 import type { Session } from "@henry/shared";
 import { isClaudeSession } from "@henry/shared";
 import { baseName } from "./platform";
+import { themeDocument } from "./theme";
 import { getState } from "./ws";
 
 export type ToolId = "sessions" | "files" | "history" | "flags" | "playbook" | "usage" | "voice";
@@ -77,6 +78,8 @@ export function loadLayout(): SerializedDockview | null {
     if (left) delete left.tabComponent;
     // The Repos tab became the Files tool. Renamed in place, so the tab keeps its slot.
     renamePanel(saved, "repos", "files");
+    // Only peeks pop out, and peeks don't come back; restoring one would open an empty window.
+    delete saved.popoutGroups;
     return saved;
   } catch {
     return null;
@@ -268,6 +271,23 @@ export function closePeek(id?: string) {
   api.removePanel(p);
   // Last peek gone: back to the session that was showing, not whichever tab Dockview picks.
   if (!g.panels.some((x) => isFilePanel(x.id))) stageStrip(g)[0]?.api.setActive();
+}
+
+/** A peek in a window of its own (dockview's popout: the panel moves, state stays shared).
+ *  Closing that window closes the peek rather than putting it back in the stage. */
+export function popoutPeek(path: string) {
+  const p = api?.getPanel(filePanelId(path));
+  if (!api || !p || p.api.location.type === "popout") return;
+  let unTheme = () => {};
+  void api.addPopoutGroup(p, {
+    popoutUrl: "/popout.html",
+    onDidOpen: ({ window: w }) => w.addEventListener("load", () => (unTheme = themeDocument(w.document)), { once: true }),
+    onWillClose: () => {
+      unTheme();
+      const ids = p.group.panels.map((x) => x.id).filter(isFilePanel);
+      setTimeout(() => ids.forEach((id) => api?.getPanel(id) && api.removePanel(api.getPanel(id)!)), 0);
+    },
+  });
 }
 
 /** Where the keyboard was when a picker opened, so closing it puts you back in the terminal. */

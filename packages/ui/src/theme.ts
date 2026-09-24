@@ -105,12 +105,24 @@ function load(): ThemeChoice {
 let current = load();
 const listeners = new Set<() => void>();
 
+// Popped-out windows (dock.ts) get stylesheets copied by dockview, but the palette lives in
+// inline variables on <html>, so each such document is themed alongside the main one.
+const popouts = new Set<Document>();
+export function themeDocument(doc: Document): () => void {
+  popouts.add(doc);
+  applyTheme();
+  return () => void popouts.delete(doc);
+}
+
 export function applyTheme() {
-  const root = document.documentElement.style;
-  for (const [k, val] of Object.entries(palette(current))) root.setProperty(k, val);
-  // Native widgets (popups, scrollbars) and the hand-coloured bits of styles.css follow.
-  root.colorScheme = isLight() ? "light" : "dark";
-  document.documentElement.classList.toggle("light", isLight());
+  const vars = Object.entries(palette(current));
+  for (const doc of [document, ...popouts]) {
+    const root = doc.documentElement.style;
+    for (const [k, val] of vars) root.setProperty(k, val);
+    // Native widgets (popups, scrollbars) and the hand-coloured bits of styles.css follow.
+    root.colorScheme = isLight() ? "light" : "dark";
+    doc.documentElement.classList.toggle("light", isLight());
+  }
 }
 export function setTheme(patch: Partial<ThemeChoice>) {
   current = { ...current, ...patch };

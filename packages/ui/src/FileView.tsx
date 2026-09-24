@@ -4,10 +4,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FileDiff, FilePeek } from "@henry/shared";
 import { parseDiff } from "./DiffView";
-import { closePeek, filePanelId, peekFile } from "./dock";
+import { closePeek, filePanelId, peekFile, popoutPeek } from "./dock";
 import { noteRecent } from "./files";
 import { highlightLines, languageFor } from "./highlight";
 import { Markdown } from "./Markdown";
+import { loadPdfJs, PDF_FRAME, PDF_ZOOM_MAX, PDF_ZOOM_MIN } from "./pdf";
 import { baseName } from "./platform";
 import { getState } from "./ws";
 
@@ -113,6 +114,22 @@ function loadMdView(kind: PageKind): MdView {
   }
 }
 
+/** Whether a PDF peek renders straight away or waits for "view", per browser. Off by default:
+ *  a stray click in the tree should not hand an unread file to the PDF parser. */
+const PDF_AUTO_KEY = "henry.pdfAuto";
+export function loadPdfAuto(): boolean {
+  try {
+    return localStorage.getItem(PDF_AUTO_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+export function savePdfAuto(on: boolean): void {
+  try {
+    localStorage.setItem(PDF_AUTO_KEY, on ? "1" : "0");
+  } catch {}
+}
+
 /** Every occurrence of `q` (smart case), in file order, keyed by 1-based line. */
 function findAll(lines: string[], q: string): { at: { line: number; i: number }[]; byLine: Map<number, Span[]> } {
   const at: { line: number; i: number }[] = [];
@@ -142,9 +159,11 @@ interface Props {
   active: boolean;
   /** Explorer preview: read on this machine, changes vs HEAD, and no dock buttons. */
   local?: boolean;
+  /** In a window of its own: no pop-out button. */
+  popped?: boolean;
 }
 
-export function FileView({ path, line, active, local = false }: Props) {
+export function FileView({ path, line, active, local = false, popped = false }: Props) {
   const [peek, setPeek] = useState<FilePeek | null | undefined>(() => primed.get(path));
   // Highlighted HTML per line; null until ready or when the file is plain text. Painted after
   // the text so a big file shows up immediately and colours in a beat later.
@@ -269,6 +288,16 @@ export function FileView({ path, line, active, local = false }: Props) {
     } catch {}
   };
   const [reloads, setReloads] = useState(0);
+  // A PDF's bytes come from `/raw`: same machine and listener rules as HTML.
+  const isPdf = !!peek?.pdf;
+  const pdfServed = isPdf && rawServed(local);
+  const [pdfOpen, setPdfOpen] = useState(loadPdfAuto);
+  // 1 = the page fits the pane's width.
+  const [pdfZoom, setPdfZoom] = useState(1);
+  useEffect(() => {
+    setPdfOpen(loadPdfAuto());
+    setPdfZoom(1);
+  }, [path]);
   const showPage = (isMd || isHtml) && (mdView === "split" || (mdView === "page" && !find));
   const showSource = !showPage || mdView === "split";
   // Images and links in the page resolve against the file's folder, on the machine it was read from.
@@ -281,7 +310,7 @@ export function FileView({ path, line, active, local = false }: Props) {
   return (
     <div className="peek">
       <div className="peek-head">
-        {!local && <button className="peek-back" onClick={() => closePeek(filePanelId(path))} title="back to the session (Esc)">←</button>}
+        {!local && !popped && <button className="peek-back" onClick={() => closePeek(filePanelId(path))} title="back to the session (Esc)">←</button>}
         <span className="peek-path" title={path}>
           {shown.dir}<b>{shown.name}</b>
         </span>
@@ -295,10 +324,18 @@ export function FileView({ path, line, active, local = false }: Props) {
         <span className="peek-meta">
           {peek?.image
             ? `${peek.image.slice(6).replace("+xml", "").replace("x-icon", "ico")}${dims ? ` · ${dims.w}×${dims.h}` : ""} · ${fmtSize(peek.size)}`
+            : peek?.pdf ? `pdf · ${fmtSize(peek.size)}`
             : peek ? `${lines.length} lines · ${fmtSize(peek.size)}${peek.truncated ? " · truncated" : ""}` : peek === null ? "not found" : "loading…"}
         </span>
         {imgSrc && dims && (
           <button className="peek-back" onClick={() => setFit((f) => !f)} title={fit ? "show at actual size" : "fit to the pane"}>{fit ? "1:1" : "fit"}</button>
+        )}
+        {pdfServed && pdfOpen && (
+          <span className="peek-zoom" title="zoom (⌘+scroll over the page)">
+            <input type="range" min={Math.log(PDF_ZOOM_MIN)} max={Math.log(PDF_ZOOM_MAX)} step={0.01} value={Math.log(pdfZoom)}
+              onChange={(e) => setPdfZoom(clampZoom(Math.exp(Number(e.target.value))))} />
+            <button className="peek-back" onClick={() => setPdfZoom(1)} title="fit to the pane">{Math.round(pdfZoom * 100)}%</button>
+          </span>
         )}
         {isHtml && showPage && (
           <button className="peek-back" onClick={() => setReloads((n) => n + 1)} title="reload the page">↻</button>
@@ -310,6 +347,7 @@ export function FileView({ path, line, active, local = false }: Props) {
             ))}
           </span>
         )}
+        {!local && !popped && <button className="peek-back" onClick={() => popoutPeek(path)} title="open in its own window">⧉</button>}
         {!local && <button className="peek-close" onClick={() => closePeek(filePanelId(path))} title="close (Esc)">×</button>}
       </div>
       {find && (
@@ -331,7 +369,19 @@ export function FileView({ path, line, active, local = false }: Props) {
           </div>
         )}
         {peek?.image && !imgSrc && <div className="peek-note">{peek.truncated ? `Image is ${fmtSize(peek.size)}, over what a peek carries.` : "Empty image file."}</div>}
-        {peek?.binary && !peek.image && <div className="peek-note">Binary file, nothing to show.</div>}
+        {peek?.binary && !peek.image && !isPdf && <div className="peek-note">Binary file, nothing to show.</div>}
+        {isPdf && !pdfServed && <div className="peek-note">PDFs are shown only in a Henry window on the machine that holds them.</div>}
+        {pdfServed && !pdfOpen && (
+          <div className="peek-note">
+            PDF, {fmtSize(peek!.size)}, not rendered yet. <button onClick={() => setPdfOpen(true)}>view</button>
+            <div style={{ marginTop: 8, fontSize: 11 }}>Settings can render PDFs as soon as they open.</div>
+          </div>
+        )}
+        {pdfServed && pdfOpen && (
+          <div className="peek-pane peek-html">
+            <PdfFrame path={peek!.path} title={name} zoom={pdfZoom} onZoom={setPdfZoom} />
+          </div>
+        )}
         {peek && !peek.binary && !peek.image && showSource && (
           <pre className="peek-pane">
             {lines.map((t, i) => (
@@ -358,6 +408,43 @@ export function FileView({ path, line, active, local = false }: Props) {
       </div>
     </div>
   );
+}
+
+/** Opaque origin (sandbox without allow-same-origin): pdf.js runs there, never as Henry. The
+ *  bytes are read here, where `/raw` is same-origin, and handed over with the library. */
+function PdfFrame({ path, title, zoom, onZoom }: { path: string; title: string; zoom: number; onZoom: (f: (z: number) => number) => void }) {
+  const ref = useRef<HTMLIFrameElement>(null);
+  const zoomNow = useRef(zoom);
+  zoomNow.current = zoom;
+  const unlisten = useRef(() => {});
+  useEffect(() => () => unlisten.current(), []);
+  // Runs again when the frame is moved into a popped-out window (moving an iframe reloads it),
+  // and the frame's messages then go to that window, so the listener is bound per load.
+  const onLoad = (e: React.SyntheticEvent<HTMLIFrameElement>) => {
+    const frame = e.currentTarget.contentWindow;
+    const host = e.currentTarget.ownerDocument.defaultView;
+    unlisten.current();
+    // ⌘+wheel inside the frame never reaches the host window; the frame forwards the delta.
+    const onMsg = (m: MessageEvent) => {
+      if (m.source !== frame || typeof m.data?.wheel !== "number") return;
+      const dy = m.data.wheel as number;
+      onZoom((z) => clampZoom(z * Math.exp(-dy * 0.002)));
+    };
+    host?.addEventListener("message", onMsg);
+    unlisten.current = () => host?.removeEventListener("message", onMsg);
+    Promise.all([loadPdfJs(), fetch(rawUrl(path)).then((r) => r.arrayBuffer())])
+      .then(([{ lib, worker }, data]) => {
+        frame?.postMessage({ lib, worker, data }, "*", [data]);
+        frame?.postMessage({ zoom: zoomNow.current }, "*");
+      })
+      .catch((err) => console.warn("[henry] pdf peek:", err));
+  };
+  useEffect(() => ref.current?.contentWindow?.postMessage({ zoom }, "*"), [zoom]);
+  return <iframe ref={ref} key={path} srcDoc={PDF_FRAME} sandbox="allow-scripts" title={title} onLoad={onLoad} />;
+}
+
+function clampZoom(z: number): number {
+  return Math.min(PDF_ZOOM_MAX, Math.max(PDF_ZOOM_MIN, z));
 }
 
 interface LineProps {

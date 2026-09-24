@@ -27,6 +27,7 @@ beforeAll(() => {
   writeFileSync(join(pics, "dot.dat"), PNG);
   writeFileSync(join(pics, "mark.svg"), '<svg xmlns="http://www.w3.org/2000/svg"/>\n');
   writeFileSync(join(pics, "blob.bin"), Buffer.from([1, 2, 0, 3]));
+  writeFileSync(join(pics, "paper.dat"), "%PDF-1.4\n%\xe2\xe3\n");
 });
 
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64");
@@ -76,6 +77,14 @@ describe("readDirIndex", () => {
     expect(blob.image).toBeUndefined();
     expect(blob.binary).toBe(true);
     expect(blob.content).toBe("");
+    expect(blob.pdf).toBeUndefined();
+  });
+
+  test("a PDF is flagged by its bytes and carries nothing", () => {
+    const p = files.readPeek(join(pics, "paper.dat"))!;
+    expect(p.pdf).toBe(true);
+    expect(p.binary).toBe(true);
+    expect(p.content).toBe("");
   });
 
   test("the cache is reported to /api/debug/memory", () => {
