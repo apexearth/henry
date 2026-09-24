@@ -21,8 +21,8 @@ is waiting on you, and what the others changed. That is the whole problem it sol
   title.
 - Machines paired over Tailscale, so one window drives both.
 - The same thing on your phone: scan a QR, get every session in your pocket, talk to them.
-- ⌘K by filename, ⌘F to browse or `git grep` every repo, files open read-only over the
-  terminal.
+- ⌘K by filename, ⌘F to browse or `git grep` every repo, files open over the terminal;
+  `edit` on a peek, or right-click → new file, when a spec is quicker typed than dictated.
 - 5h and 7d subscription usage, plus tokens, cost and context per session.
 - Sessions survive daemon restarts, closed windows and crashed browsers.
 

@@ -9,7 +9,7 @@ import { Gate } from "./mobile/Gate";
 import { useMobile } from "./mobile/useMobile";
 import type { Access } from "./access";
 import { FilePicker } from "./FilePicker";
-import { sendFind } from "./FileView";
+import { sendEsc, sendFind } from "./FileView";
 import { openFiles } from "./FilesPane";
 import { Layout } from "./Layout";
 import { Setup } from "./Setup";
@@ -59,10 +59,12 @@ function DesktopApp() {
           e.preventDefault();
           return;
         }
-        // Otherwise Esc closes the peek's find bar if one is open, else the file peek in view.
+        // Otherwise Esc is the editor's while it holds unsaved text or its find; then it closes
+        // the peek's find bar if one is open, else the file peek in view.
         const p = getDockApi()?.activePanel;
         if (p && isFilePanel(p.id)) {
           e.preventDefault();
+          if (sendEsc()) return;
           if (document.querySelector(".peek-find")) sendFind("close");
           else closePeek(p.id);
         }
@@ -106,7 +108,7 @@ function DesktopApp() {
       if ((e.key === "f" || e.key === "F") && (isMac ? !e.altKey && (e.metaKey || !inTerminal) : e.altKey ? !e.ctrlKey : !inTerminal)) {
         e.preventDefault();
         if (e.shiftKey) {
-          openFiles(document.querySelector<HTMLInputElement>(".peek-find input")?.value ?? "");
+          openFiles(document.querySelector<HTMLInputElement>(".peek-find input, .cm-search input[name=search]")?.value ?? "");
           return;
         }
         const p = getDockApi()?.activePanel;

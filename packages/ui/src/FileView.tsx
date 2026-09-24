@@ -1,16 +1,21 @@
-// A file peek: read-only view of one file, shown over the session in the stage group.
+// A file peek: one file shown over the session in the stage group, read-only until you press
+// edit (Editor.tsx takes the body; ⌘S saves, a file changed on disk meanwhile is not overwritten).
 // Opened by ⌘-clicking a path (terminal output, diff headers); Esc or × closes it. ⌘F over
 // the peek in view opens a find bar (App.tsx routes it here as a `henry:find` event).
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FileDiff, FilePeek } from "@henry/shared";
 import { parseDiff } from "./DiffView";
 import { closePeek, filePanelId, peekFile, popoutPeek } from "./dock";
+import type { EditorHandle } from "./Editor";
 import { noteRecent } from "./files";
 import { highlightLines, languageFor } from "./highlight";
 import { Markdown } from "./Markdown";
 import { loadPdfJs, PDF_FRAME, PDF_ZOOM_MAX, PDF_ZOOM_MIN } from "./pdf";
-import { baseName } from "./platform";
+import { baseName, MOD, mod } from "./platform";
 import { getState } from "./ws";
+
+// CodeMirror is a third of the bundle and most peeks are never edited.
+const Editor = lazy(() => import("./Editor").then((m) => ({ default: m.Editor })));
 
 /** `path:line[:col]` → parts. Windows-style drive letters aren't a concern here. */
 export function splitLineRef(ref: string): { path: string; line?: number } {
@@ -45,18 +50,28 @@ function rawUrl(path: string): string {
 
 // Fetched once by openPeek so the panel paints without a second round trip.
 const primed = new Map<string, FilePeek>();
+/** Peeks that open straight into the editor: a file just made from the tree. */
+const wantEdit = new Set<string>();
 
 /** Resolve `raw` (maybe relative to `cwd`) and open it; a path that isn't a file opens nothing. */
-export async function openPeek(raw: string, cwd?: string, line?: number): Promise<boolean> {
+export async function openPeek(raw: string, cwd?: string, line?: number, edit = false): Promise<boolean> {
   const peek = await fetchPeek(raw, cwd);
   if (!peek) {
     console.info(`[henry] no file at ${raw}${cwd ? ` (cwd ${cwd})` : ""}`);
     return false;
   }
   primed.set(peek.path, peek);
+  if (edit) wantEdit.add(peek.path);
   noteRecent(peek.path);
   peekFile(peek.path, line);
   return true;
+}
+
+/** Save `content` over `path`. `ifMtime` refuses a file changed since it was read (409). */
+export async function saveFile(path: string, content: string, ifMtime?: number): Promise<{ peek: FilePeek } | { error: string; status: number }> {
+  const r = await fetch("/api/file", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path, content, ifMtime }) });
+  const body = (await r.json().catch(() => ({}))) as FilePeek & { error?: string };
+  return r.ok ? { peek: body } : { error: body.error ?? r.statusText, status: r.status };
 }
 
 /** Line tints from a unified diff: new-side line numbers that were added, and deleted lines
@@ -94,6 +109,14 @@ export type FindAction = "open" | "close";
 export const FIND_EVENT = "henry:find";
 export function sendFind(action: FindAction): void {
   window.dispatchEvent(new CustomEvent<FindAction>(FIND_EVENT, { detail: action }));
+}
+
+/** Esc over the peek in view. True when an editor took it (closed its find, or is holding
+ *  unsaved text and will not be closed by a stray key); false leaves it to the find bar and
+ *  the peek. */
+export const ESC_EVENT = "henry:peek-esc";
+export function sendEsc(): boolean {
+  return !window.dispatchEvent(new CustomEvent(ESC_EVENT, { cancelable: true }));
 }
 
 const FIND_CAP = 5000;
@@ -161,9 +184,11 @@ interface Props {
   local?: boolean;
   /** In a window of its own: no pop-out button. */
   popped?: boolean;
+  /** Offers the edit button. Not on the phone, and never for a peer's file: peers read. */
+  editable?: boolean;
 }
 
-export function FileView({ path, line, active, local = false, popped = false }: Props) {
+export function FileView({ path, line, active, local = false, popped = false, editable = false }: Props) {
   const [peek, setPeek] = useState<FilePeek | null | undefined>(() => primed.get(path));
   // Highlighted HTML per line; null until ready or when the file is plain text. Painted after
   // the text so a big file shows up immediately and colours in a beat later.
@@ -177,6 +202,7 @@ export function FileView({ path, line, active, local = false, popped = false }: 
     let on = true;
     const cached = primed.get(path);
     primed.delete(path);
+    wantEdit.delete(path);
     if (cached) setPeek(cached);
     else fetchPeek(path, undefined, local).then((p) => on && setPeek(p));
     return () => {
@@ -213,12 +239,64 @@ export function FileView({ path, line, active, local = false, popped = false }: 
   }, [peek, local]);
   const tint = useMemo(() => (fd?.diff ? tintsOf(fd.diff) : null), [fd]);
 
+  // Editing. `draft` is the editor's text, so dirty is "not what was read"; on save the peek
+  // is replaced by what the daemon read back (new mtime), which makes the draft clean again.
+  const [editing, setEditing] = useState(() => wantEdit.has(path));
+  const [draft, setDraft] = useState<string | null>(null);
+  const [saveState, setSaveState] = useState<{ busy?: boolean; error?: string; conflict?: boolean } | null>(null);
+  const [nudge, setNudge] = useState(false);
+  const editor = useRef<EditorHandle>(null);
+  const canEdit = editable && !!peek && !peek.binary && !peek.image && !peek.truncated
+    && !getState().sessions.find((x) => x.id === getState().activeSessionId)?.peer;
+  // CodeMirror joins lines with LF whatever the file used; a CRLF file is compared and written
+  // back in its own line ends, or it would read as edited on opening and come out changed.
+  const crlf = !!peek?.content.includes("\r\n");
+  const text = useMemo(() => (crlf ? peek!.content.replace(/\r\n/g, "\n") : peek?.content ?? ""), [peek, crlf]);
+  const dirty = editing && draft !== null && draft !== text;
+  const startEdit = () => {
+    setDraft(text);
+    setFind(null);
+    setEditing(true);
+  };
+  const stopEdit = () => {
+    setEditing(false);
+    setDraft(null);
+    setSaveState(null);
+    requestAnimationFrame(() => body.current?.focus());
+  };
+  // A key or × on unsaved text does not lose it; the header points at save / discard instead.
+  const holdUnsaved = () => {
+    setNudge(true);
+    setTimeout(() => setNudge(false), 900);
+  };
+  const save = async (force = false) => {
+    if (!peek || draft === null || saveState?.busy) return;
+    setSaveState({ busy: true });
+    const r = await saveFile(peek.path, crlf ? draft.replace(/\n/g, "\r\n") : draft, force ? undefined : peek.mtime);
+    if ("peek" in r) {
+      setPeek(r.peek);
+      setSaveState(null);
+    } else setSaveState({ error: r.error, conflict: r.status === 409 });
+  };
+  const tryClose = () => (dirty ? holdUnsaved() : closePeek(filePanelId(path)));
+  useEffect(() => {
+    if (!active || !editing) return;
+    const onEsc = (e: Event) => {
+      e.preventDefault();
+      if (editor.current?.isFinding()) return editor.current.find("close");
+      if (dirty) return holdUnsaved();
+      stopEdit();
+    };
+    window.addEventListener(ESC_EVENT, onEsc);
+    return () => window.removeEventListener(ESC_EVENT, onEsc);
+  }, [active, editing, dirty]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Dockview hides inactive panels, which drops their scroll position: re-centre on return.
   // The explorer's preview is never active but still follows the line of the hit it shows.
   useEffect(() => {
-    if (active) body.current?.focus();
+    if (active) (editing ? editor.current?.focus() : body.current?.focus());
     if ((active || local) && peek && line) hit.current?.scrollIntoView({ block: "center" });
-  }, [active, local, peek, line]);
+  }, [active, local, peek, line, editing]);
 
   const lines = useMemo(() => {
     const ls = peek?.content && !peek.image ? peek.content.split("\n") : [];
@@ -243,6 +321,7 @@ export function FileView({ path, line, active, local = false, popped = false }: 
     }
     const onFind = (e: Event) => {
       const action = (e as CustomEvent<FindAction>).detail;
+      if (editor.current) return editor.current.find(action);
       if (action === "close") {
         setFind(null);
         body.current?.focus();
@@ -273,9 +352,9 @@ export function FileView({ path, line, active, local = false, popped = false }: 
   // Markdown and HTML are a page unless you asked for a line, or you are finding in it: both
   // are about the source, so the page alone gives way to it (a split already shows it). The
   // choice is remembered for the next peek of that kind.
-  const text = !!peek && !peek.binary && !peek.image;
-  const isMd = text && languageFor(path) === "markdown";
-  const isHtml = text && /\.html?$/i.test(path) && rawServed(local);
+  const isText = !!peek && !peek.binary && !peek.image;
+  const isMd = isText && languageFor(path) === "markdown";
+  const isHtml = isText && /\.html?$/i.test(path) && rawServed(local);
   const kind: PageKind = isHtml ? "html" : "md";
   const [mdView, setMdView] = useState<MdView>(() => (line ? "source" : loadMdView(kind)));
   useEffect(() => {
@@ -298,8 +377,16 @@ export function FileView({ path, line, active, local = false, popped = false }: 
     setPdfOpen(loadPdfAuto());
     setPdfZoom(1);
   }, [path]);
-  const showPage = (isMd || isHtml) && (mdView === "split" || (mdView === "page" && !find));
+  // The editor is the source: a page alone gives way to it, a split shows the page of what is
+  // being typed, a beat behind the keys.
+  const showPage = (isMd || isHtml) && (mdView === "split" || (mdView === "page" && !find && !editing));
   const showSource = !showPage || mdView === "split";
+  const [preview, setPreview] = useState<string | null>(null);
+  useEffect(() => {
+    if (!editing || !showPage || draft === null) return void setPreview(null);
+    const t = setTimeout(() => setPreview(draft), 200);
+    return () => clearTimeout(t);
+  }, [editing, showPage, draft]);
   // Images and links in the page resolve against the file's folder, on the machine it was read from.
   const loadImage = useCallback(
     (src: string) => fetchPeek(src, dir, local).then((p) => (p?.image && p.content ? `data:${p.image};base64,${p.content}` : null)),
@@ -308,9 +395,16 @@ export function FileView({ path, line, active, local = false, popped = false }: 
   const openLink = useCallback((href: string) => void openPeek(href.replace(/[#?].*$/, ""), dir), [dir]);
 
   return (
-    <div className="peek">
+    <div className={"peek" + (editing ? " editing" : "")}
+      onKeyDown={(e) => {
+        // ⌘S from the header too, not just from inside the editor.
+        if (editing && mod(e) && !e.altKey && !e.shiftKey && (e.key === "s" || e.key === "S")) {
+          e.preventDefault();
+          void save();
+        }
+      }}>
       <div className="peek-head">
-        {!local && !popped && <button className="peek-back" onClick={() => closePeek(filePanelId(path))} title="back to the session (Esc)">←</button>}
+        {!local && !popped && <button className="peek-back" onClick={tryClose} title="back to the session (Esc)">←</button>}
         <span className="peek-path" title={path}>
           {shown.dir}<b>{shown.name}</b>
         </span>
@@ -347,8 +441,28 @@ export function FileView({ path, line, active, local = false, popped = false }: 
             ))}
           </span>
         )}
+        {canEdit && !editing && <button className="peek-back" onClick={startEdit} title="edit this file here">edit</button>}
+        {editing && (
+          <span className={"peek-edit" + (nudge ? " nudge" : "")}>
+            {saveState?.error && (
+              <span className="peek-save-err" title={saveState.error}>
+                {saveState.conflict ? "changed on disk" : saveState.error}
+                {saveState.conflict && <button className="peek-back" onClick={() => void save(true)} title="write your text over what is on disk now">save anyway</button>}
+              </span>
+            )}
+            {dirty ? (
+              <>
+                <span className="peek-unsaved" title="unsaved changes">●</span>
+                <button className="peek-back on" onClick={() => void save()} disabled={saveState?.busy} title={`save (${MOD}S)`}>{saveState?.busy ? "saving…" : "save"}</button>
+                <button className="peek-back" onClick={stopEdit} title="drop the unsaved changes and go back to reading">discard</button>
+              </>
+            ) : (
+              <button className="peek-back" onClick={stopEdit} title="back to reading (Esc)">done</button>
+            )}
+          </span>
+        )}
         {!local && !popped && <button className="peek-back" onClick={() => popoutPeek(path)} title="open in its own window">⧉</button>}
-        {!local && <button className="peek-close" onClick={() => closePeek(filePanelId(path))} title="close (Esc)">×</button>}
+        {!local && <button className="peek-close" onClick={tryClose} title="close (Esc)">×</button>}
       </div>
       {find && (
         <div className="peek-find">
@@ -382,7 +496,14 @@ export function FileView({ path, line, active, local = false, popped = false }: 
             <PdfFrame path={peek!.path} title={name} zoom={pdfZoom} onZoom={setPdfZoom} />
           </div>
         )}
-        {peek && !peek.binary && !peek.image && showSource && (
+        {editing && peek && showSource && (
+          <div className="peek-pane">
+            <Suspense fallback={<div className="peek-note">loading the editor…</div>}>
+              <Editor ref={editor} path={peek.path} doc={draft ?? text} onChange={setDraft} onSave={() => void save()} />
+            </Suspense>
+          </div>
+        )}
+        {peek && !peek.binary && !peek.image && showSource && !editing && (
           <pre className="peek-pane">
             {lines.map((t, i) => (
               <Line key={i} no={i + 1} text={t} html={html && i < html.length ? html[i] : undefined} hit={i + 1 === line}
@@ -402,7 +523,7 @@ export function FileView({ path, line, active, local = false, popped = false }: 
         )}
         {showPage && peek && !isHtml && (
           <div className="peek-pane">
-            <Markdown text={peek.content} loadImage={loadImage} openLink={openLink} />
+            <Markdown text={editing ? preview ?? draft ?? text : peek.content} loadImage={loadImage} openLink={openLink} />
           </div>
         )}
       </div>

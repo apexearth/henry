@@ -42,7 +42,7 @@ function FilePanel({ api, params }: IDockviewPanelProps<{ path: string; line?: n
       l.dispose();
     };
   }, [api]);
-  return <FileView path={params.path} line={params.line} active={active} popped={popped} />;
+  return <FileView path={params.path} line={params.line} active={active} popped={popped} editable />;
 }
 
 function SessionsPanel() {

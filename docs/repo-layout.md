@@ -70,7 +70,8 @@ henry/
       src/FilesRoot.tsx        # a root row of that tree: the repo card on one line, its log / PR folds and modals
       src/tree.ts              # flat paths -> a folder tree; collapsing, and a filter's ancestors
       src/match.ts             # fuzzy path matching + the glob box, shared by the tree and ⌘K
-      src/FileView.tsx         # read-only file peek (stage, with ⌘F find) and the tree's preview
+      src/FileView.tsx         # file peek (stage, with ⌘F find, edit + save) and the tree's preview
+      src/Editor.tsx           # the peek's editor: CodeMirror 6 with the read view's colour classes
       src/panels/{History,Flags,Playbook,Usage}.tsx
       src/panels/bound.tsx     # those four wired to the store, for both the dock and the phone's sheet
       src/history.ts           # GET /api/history + the hook that refetches a session's turns

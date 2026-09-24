@@ -95,6 +95,32 @@ describe("readDirIndex", () => {
   });
 });
 
+describe("writeFile", () => {
+  test("creates a file and its folders, refuses one that exists, and the tree sees it", () => {
+    const path = join(root, "docs", "spec.md");
+    const r = files.writeFile(path, "# spec\n", { create: true });
+    expect("peek" in r && r.peek.content).toBe("# spec\n");
+    expect(files.writeFile(path, "", { create: true })).toEqual({ error: "already exists", status: 409 });
+    expect(files.readDirIndex(root)!.files).toContain("docs/spec.md");
+  });
+
+  test("a save carries the mtime it read and is refused once the file has moved on", () => {
+    const path = join(root, "src", "a.ts");
+    const before = files.readPeek(path)!;
+    const r = files.writeFile(path, "a2\n", { ifMtime: before.mtime });
+    expect("peek" in r && r.peek.content).toBe("a2\n");
+    // The read from before the save is stale now.
+    const stale = files.writeFile(path, "a3\n", { ifMtime: before.mtime });
+    expect("error" in stale && stale.status).toBe(409);
+    expect(files.readPeek(path)!.content).toBe("a2\n");
+  });
+
+  test("relative paths and missing files are refused", () => {
+    expect("error" in files.writeFile("relative.md", "", { create: true })).toBe(true);
+    expect(files.writeFile(join(root, "gone.md"), "", {})).toEqual({ error: "no longer exists", status: 404 });
+  });
+});
+
 describe("serveRaw", () => {
   const site = join(tmp, "my site");
   const url = (p: string) => files.RAW_PREFIX + p.replace(/\\/g, "/").replace(/^\/+/, "").split("/").map((s) => encodeURIComponent(s).replace(/%3A/g, ":")).join("/");
