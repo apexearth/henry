@@ -9,7 +9,7 @@
 // typing, one slab you hold and the words it heard for talking.
 import { useEffect, useRef, useState } from "react";
 import { isClaudeSession, type Session } from "@henry/shared";
-import { send } from "../ws";
+import { send, useStore } from "../ws";
 import { dictationSupported, listen, type Dictation } from "./dictation";
 import { canRecord, holdToTalk } from "../voice-audio";
 
@@ -30,6 +30,8 @@ const KEYS: Key[] = [
   { label: "3", data: "3", title: "answer a prompt with 3" },
   { label: "↑", data: "\x1b[A", title: "up — previous command, or move in a menu" },
   { label: "↓", data: "\x1b[B", title: "down" },
+  { label: "←", data: "\x1b[D", title: "left — move the cursor, or step back in a menu" },
+  { label: "→", data: "\x1b[C", title: "right" },
   { label: "⏎", data: "\r", title: "Enter on its own" },
   { label: "⌃C", data: "\x03", title: "Ctrl+C — stop what is running" },
 ];
@@ -68,13 +70,16 @@ export function Composer({ session }: { session: Session }) {
   // Leaving the session (or the page) with the microphone open would keep listening.
   useEffect(() => () => speech.current?.stop(), []);
 
+  // Asked again on every reconnect: on iPhone Chrome whisper is the only ear, so one status call
+  // lost to a daemon restart or a waking tailnet would otherwise hide the mic until a reload.
+  const connectionId = useStore((s) => s.connectionId);
   useEffect(() => {
-    if (!canRecord()) return;
+    if (!canRecord() || !connectionId) return;
     fetch("/api/voice/status")
       .then((r) => r.json())
       .then((s: { ready?: boolean }) => setWhisper(!!s.ready))
       .catch(() => setWhisper(false));
-  }, []);
+  }, [connectionId]);
   useEffect(() => {
     speech.current?.stop();
     setText("");
