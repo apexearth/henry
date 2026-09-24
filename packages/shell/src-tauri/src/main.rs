@@ -13,8 +13,10 @@ use tauri::menu::AboutMetadata;
 #[cfg(not(target_os = "windows"))]
 use tauri::menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 #[cfg(not(target_os = "windows"))]
-use tauri::{App, Wry};
+use tauri::App;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use tauri::webview::NewWindowResponse;
+use tauri::Wry;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
 fn henry_url() -> String {
@@ -26,8 +28,9 @@ fn henry_url() -> String {
 }
 
 // A `target="_blank"` link (the repo's ↗, a PR number) asks the webview for a new window,
-// which it has no way to make on its own: without an answer the click does nothing. Henry
-// has one window, so the link goes to the default browser instead. Only web URLs: the page
+// which it has no way to make on its own: without an answer the click does nothing. Other
+// than a popped-out peek, Henry's windows are not browsers, so the link goes to the default
+// browser instead. Only web URLs: the page
 // is trusted, but a stray file: or custom scheme should not launch anything.
 fn open_in_browser(url: &tauri::Url) {
     if !matches!(url.scheme(), "http" | "https") {
@@ -57,10 +60,32 @@ fn open_in_browser(url: &tauri::Url) {
     let _ = cmd.spawn();
 }
 
+// A popped-out peek: the page opens its own origin's `/popout.html` and moves the panel into
+// it, which needs the real `window.open` result (same process, `opener` intact). WebKit and
+// WebView2 give that only to a webview made from the features they hand over.
+fn open_popout(app: &tauri::AppHandle, features: tauri::webview::NewWindowFeatures) -> NewWindowResponse<Wry> {
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    let label = format!("popout-{}", NEXT.fetch_add(1, Ordering::Relaxed));
+    let built = WebviewWindowBuilder::new(app, label, WebviewUrl::External("about:blank".parse().unwrap()))
+        .window_features(features)
+        .title("Henry")
+        .disable_drag_drop_handler()
+        .on_document_title_changed(|w, title| {
+            let _ = w.set_title(&title);
+        })
+        .build();
+    match built {
+        Ok(window) => NewWindowResponse::Create { window },
+        Err(_) => NewWindowResponse::Deny,
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         .setup(|app| {
-            let url = henry_url().parse()?;
+            let url: tauri::Url = henry_url().parse()?;
+            let origin = url.origin();
+            let handle = app.handle().clone();
             WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
                 .title("Henry")
                 .inner_size(1440.0, 900.0)
@@ -69,7 +94,10 @@ fn main() {
                 // target, which eats the HTML5 drag events dockview needs to move panels.
                 // Henry accepts no dropped files, so nothing is lost by turning it off.
                 .disable_drag_drop_handler()
-                .on_new_window(|url, _features| {
+                .on_new_window(move |url, features| {
+                    if url.origin() == origin && url.path() == "/popout.html" {
+                        return open_popout(&handle, features);
+                    }
                     open_in_browser(&url);
                     NewWindowResponse::Deny
                 })

@@ -10,7 +10,10 @@ same stage group (on a phone, as a full-screen sheet), with its own slim header 
 scrolls to and tints that line. The stage is a strip: the session at position 0, its peeks
 to the right; ⌘←/→ walk it, Esc (or ×) closes the peek in view, and closing the last one
 lands on the session that was showing. Peeks are per window, never restored with the
-layout, served by `GET /api/file?path=&cwd=` (1 MB cap, binary detection).
+layout, served by `GET /api/file?path=&cwd=` (1 MB cap, binary detection). ⧉ in the header
+pops a peek out into a window of its own (dockview's popout group on `/popout.html`: the
+panel moves, the app's state stays shared, the theme follows); closing that window closes
+the peek.
 
 **Changes are shown against the session's baseline**, not HEAD: that is the Henry question
 ("what did this session do"). `GET /api/file/diff?sessionId=&path=` returns the one-file
@@ -62,6 +65,20 @@ the API nor POST to it or open `/ws`. As on file://, that also means no ES modul
 of the files beside it. Only on this machine's loopback listener: a relayed session's file is
 on another disk, and on the phone the page's requests would go without the device cookie, so
 both show the source.
+
+**A PDF is drawn by pdf.js in a sandboxed frame, after you ask.** A file whose bytes start
+`%PDF-` (whatever its name) is flagged in the peek and carries no content. The peek is an
+iframe with `sandbox="allow-scripts"` and a fixed `srcdoc` (`ui/pdf.ts`), so it has an opaque
+origin: Henry reads the bytes from `/raw` and posts them in with pdf.js's source, which the
+frame imports from a blob URL of its own; a PDF that breaks pdf.js lands somewhere that cannot
+reach the API. The browser's own viewer is not used because WebKit (the Tauri shell on macOS)
+treats it as a plugin, and sandboxed frames get none. By default the peek shows a "view"
+button first, so a stray click in the tree does not hand an unread file to the parser;
+Settings → files turns that off, per browser. Zoom (25–400%, 100% fitting the pane's width)
+is a slider in the header, or ⌘+wheel and pinch over the page: the frame forwards the wheel
+to the peek, which owns the zoom and posts it back; pages resize at once and redraw sharp
+when the zooming stops. Pages are pictures (no text selection or links). Same limits as
+HTML: this machine's loopback only.
 
 The tree's marks are the exception: they are `git status`, against HEAD, so every session in
 a folder sees the same marks and a clean repo shows none. Before this they were vs baseline

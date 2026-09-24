@@ -456,6 +456,8 @@ export interface FilePeek {
    * the image cap. Base64 in the JSON, not a bytes endpoint, so a relayed session's images
    * travel the same path as its text. */
   image?: string;
+  /** The bytes start `%PDF-`. `content` is empty: a PDF is shown from `/raw`, never carried. */
+  pdf?: boolean;
   content: string;
 }
 

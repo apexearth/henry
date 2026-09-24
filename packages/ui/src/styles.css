@@ -322,6 +322,9 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 .peek-seg button + button { border-left: 1px solid var(--border); }
 .peek-seg button:hover { color: var(--fg); }
 .peek-seg button.on { background: var(--bg-3); color: var(--fg); }
+.peek-zoom { flex: none; display: inline-flex; align-items: center; gap: 4px; }
+.peek-zoom input { width: 110px; margin: 0; }
+.peek-zoom button { min-width: 42px; font-variant-numeric: tabular-nums; }
 .peek-body { flex: 1; overflow: auto; outline: none; font-size: 12px; line-height: 1.5; }
 /* Source and page side by side, each scrolling on its own. */
 .peek-body.split { display: flex; overflow: hidden; }

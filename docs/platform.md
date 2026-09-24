@@ -9,9 +9,11 @@ What Henry is built on, how it is served, which ports it takes, and what differs
   bundled frontend. It exists for the macOS menu, since a browser tab never sees ⌘N or
   ⌘1..9. Menu items reach the page as `henry:menu` CustomEvents. On Windows the shell has
   no menu bar: wry turns WebView2's browser accelerators off, so the page's own bindings
-  see every Ctrl chord and the bar would only cost a row. The shell has one window: a
-  `target="_blank"` link (the repo's ↗, a PR number) goes to the default browser from Rust,
-  since the webview cannot make a window by itself and the click would otherwise do nothing.
+  see every Ctrl chord and the bar would only cost a row. The webview cannot make a window
+  by itself, so Rust answers every `window.open`: the page's own `/popout.html` (a
+  popped-out peek) gets a linked Tauri window built from the webview's features, so the
+  page keeps its handle on it; anything else, a `target="_blank"` link (the repo's ↗, a PR
+  number), goes to the default browser.
   Both front ends run at once against the one daemon. `bun run dev` (scripts/dev.ts) runs daemon, Vite and the shell
   together: the shell is the debug cargo build with `HENRY_URL` on the Vite page so it
   hot-reloads, rebuilt and reopened on edits under `src-tauri`. Each child is supervised

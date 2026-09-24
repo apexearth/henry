@@ -6,6 +6,7 @@
 // sections. Long lists (rules.alarm / rules.notable) stay in the JSON file — see the footnote.
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import type { HenryConfig, RepoPickerEntry } from "@henry/shared";
+import { loadPdfAuto, savePdfAuto } from "./FileView";
 import { NotifyToggle } from "./NotifyToggle";
 import { useStore } from "./ws";
 
@@ -69,6 +70,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const c = draft ?? config;
   const rootCount = useRepoCount(c?.reposRoot ?? "");
+  const [pdfAuto, setPdfAuto] = useState(loadPdfAuto);
 
   if (!c) return null;
 
@@ -143,6 +145,16 @@ export function Settings({ onClose }: { onClose: () => void }) {
             <NotifyToggle id="notify-settings" />
             <div style={{ ...st.note, marginLeft: 0, paddingTop: 4 }}>
               An OS notification from this browser when a session opens a permission prompt, ends a turn after real work, or asks for you by name — never for the session you are looking at. Sessions on paired machines included. Per browser, and on as soon as you tick it.
+            </div>
+          </Section>
+
+          <Section title="files">
+            <div style={st.check}>
+              <input id="pdf-auto" type="checkbox" checked={pdfAuto} onChange={(e) => { savePdfAuto(e.target.checked); setPdfAuto(e.target.checked); }} />
+              <label htmlFor="pdf-auto">render PDFs as soon as they open</label>
+            </div>
+            <div style={{ ...st.note, marginLeft: 0, paddingTop: 4 }}>
+              Off: a PDF peek waits for "view", so a stray click in the tree does not hand a file nobody has read to the browser's PDF viewer. Per browser, and on as soon as you tick it.
             </div>
           </Section>
 

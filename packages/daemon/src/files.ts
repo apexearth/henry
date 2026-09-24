@@ -31,6 +31,10 @@ function imageType(head: Buffer, size: number, path: string): string | undefined
   return undefined;
 }
 
+function isPdf(head: Buffer): boolean {
+  return head.length >= 5 && head.toString("latin1", 0, 5) === "%PDF-";
+}
+
 function readHead(path: string, size: number, cap: number): Buffer {
   const buf = Buffer.alloc(Math.min(size, cap));
   const fd = openSync(path, "r");
@@ -69,6 +73,7 @@ export function readPeek(raw: string, cwd?: string, imageCap = IMAGE_CAP_BYTES):
     if (bytes.length < size) bytes = readHead(path, size, imageCap);
     return { ...base, truncated: false, binary: true, image, content: bytes.toString("base64") };
   }
+  if (isPdf(bytes)) return { ...base, truncated: false, binary: true, pdf: true, content: "" };
   const binary = bytes.subarray(0, 8192).includes(0);
   return { ...base, truncated: size > bytes.length, binary, content: binary ? "" : bytes.toString("utf8") };
 }
