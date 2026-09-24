@@ -28,8 +28,10 @@ const SECTIONS: [string, Key[]][] = [
     [[isMac ? "⌘⇧F" : "Ctrl+Shift+F"], "the files tree searching file contents (git grep), taking the peek's find term along"],
     [["↩", "⇧↩"], "in a peek's find bar: next / previous match"],
     [[isMac ? "⌘ click" : "Ctrl click"], "peek at a path in terminal output or a diff header"],
+    [[`${MOD}S`], "in a peek being edited: save it"],
+    [["right click"], "in the files tree: a new file in that folder, opened in the editor"],
     [[`${ARROW_MOD}←`, `${ARROW_MOD}→`], "walk the stage: the session, then its peeks"],
-    [["esc"], "close the peek's find bar, then the peek in view, or the dialog that is open"],
+    [["esc"], "close the editor's find, then the editor (unsaved text holds it), then the peek's find bar, then the peek in view, or the dialog that is open"],
   ]],
   ["the files tree", [
     [["⇥"], "switch the filter between file names and file contents"],

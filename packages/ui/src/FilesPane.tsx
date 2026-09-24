@@ -4,13 +4,14 @@
 // One filter, two modes: file names (fuzzy, client-side over the repo index) or file contents
 // (`git grep` on the daemon). Either way the *tree* narrows - matches keep their parent folders,
 // because where a match sits is half of what you wanted to know. Aa / .* / ab| / glob are the
-// search's usual knobs. Read-only throughout: a click opens a peek in the stage, nothing edits.
+// search's usual knobs. A click opens a peek in the stage; the one way to change anything is
+// the right-click menu's "new file", which makes an empty file and opens it in the editor.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ChangedFile, GrepResult, RepoState } from "@henry/shared";
+import type { ChangedFile, FilePeek, GrepResult, RepoState } from "@henry/shared";
 import { restoreFocus, showTool } from "./dock";
 import { openPeek } from "./FileView";
 import { FilesRoot } from "./FilesRoot";
-import { rootIndex, useSessionFiles } from "./files";
+import { forgetIndex, rootIndex, useSessionFiles } from "./files";
 import { globFilter, matches, tokenize } from "./match";
 import { baseName, joinPath } from "./platform";
 import { ancestorsOf, buildTree, type TreeNode } from "./tree";
@@ -110,8 +111,36 @@ function matchSpan(text: string, col: number, q: string, o: Opts): [number, numb
   return i >= 0 ? [i, i + q.length] : undefined;
 }
 
+/** Where a new file goes: a root and a folder in it ("" for the root itself). */
+interface Spot {
+  root: Root;
+  dir: string;
+}
+
+/** The folder a row stands for: the root, the folder, or the folder a file sits in. */
+function spotOf(row: Row): Spot | undefined {
+  if (row.kind === "root") return { root: row.root, dir: "" };
+  if (row.kind === "dir") return { root: row.root, dir: row.rel };
+  if (row.kind === "file") return { root: row.root, dir: row.rel.slice(0, row.rel.lastIndexOf("/") + 1).replace(/\/$/, "") };
+  return undefined;
+}
+
+/** A typed file name, cleaned: slashes make folders, nothing climbs out of the spot. */
+function cleanName(raw: string): string | undefined {
+  const parts = raw.trim().replace(/\\/g, "/").split("/").filter(Boolean);
+  if (!parts.length || parts.some((p) => p === "." || p === "..")) return undefined;
+  return parts.join("/");
+}
+
+async function createFile(path: string): Promise<{ peek: FilePeek } | { error: string }> {
+  const r = await fetch("/api/file", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path, content: "", create: true }) });
+  const body = (await r.json().catch(() => ({}))) as FilePeek & { error?: string };
+  return r.ok ? { peek: body } : { error: body.error ?? r.statusText };
+}
+
 type Row =
   | { kind: "root"; key: string; root: Root; open: boolean; depth: number }
+  | { kind: "new"; key: string; spot: Spot; depth: number }
   | { kind: "dir"; key: string; root: Root; rel: string; name: string; open: boolean; depth: number; dirty: boolean }
   | { kind: "file"; key: string; root: Root; rel: string; name: string; depth: number; status?: ChangedFile["status"]; hits?: number; open?: boolean }
   | { kind: "hit"; key: string; root: Root; rel: string; line: number; col: number; text: string; depth: number }
@@ -148,6 +177,10 @@ export function FilesPane() {
   const [newRoot, setNewRoot] = useState("");
   const [pinError, setPinError] = useState<string | undefined>();
   const [wide, setWide] = useState(false);
+  const [menu, setMenu] = useState<{ x: number; y: number; spot: Spot } | null>(null);
+  const [making, setMaking] = useState<{ spot: Spot; name: string; error?: string; busy?: boolean } | null>(null);
+  // Bumped when a file is made here, so the tree re-reads before the 10 s index would.
+  const [made, setMade] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -238,7 +271,7 @@ export function FilesPane() {
       on = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rootsKey, peer, sf]);
+  }, [rootsKey, peer, sf, made]);
 
   // Status for pinned folders, which the session's answer does not cover. Not on `sf`: a pinned
   // folder is by definition not one of the session's repos, so its broadcasts say nothing about it,
@@ -324,6 +357,8 @@ export function FilesPane() {
       const rootOpen = open.has(nodeKey(root.path, ""));
       out.push({ kind: "root", key: nodeKey(root.path, ""), root, open: rootOpen, depth: 0 });
       if (!rootOpen) continue;
+      const newHere = making && making.spot.root.path === root.path ? making.spot : undefined;
+      if (newHere && !newHere.dir) out.push({ kind: "new", key: nodeKey(root.path, "\u0000new"), spot: newHere, depth: 1 });
 
       const status = statusFor(root.path);
       const hitFiles = hitsByRoot.get(root.path);
@@ -364,6 +399,7 @@ export function FilesPane() {
           if (n.dir) {
             const o = isOpen(n.rel);
             out.push({ kind: "dir", key: nodeKey(root.path, n.rel), root, rel: n.rel, name: n.name, open: o, depth, dirty: dirtyDirs.has(n.rel) });
+            if (o && newHere?.dir === n.rel) out.push({ kind: "new", key: nodeKey(root.path, "\u0000new"), spot: newHere, depth: depth + 1 });
             if (o) walk(n.children, depth + 1);
             continue;
           }
@@ -384,7 +420,7 @@ export function FilesPane() {
     }
     if (out.length >= MAX_ROWS) out.push({ kind: "note", key: "\u0000more", text: "too many to list - narrow the filter", depth: 1 });
     return out;
-  }, [shownRoots, open, indexes, statusFor, tokens, glob, opts.changedOnly, text, hitsByRoot, live, autoOpenHits]);
+  }, [shownRoots, open, indexes, statusFor, tokens, glob, opts.changedOnly, text, hitsByRoot, live, autoOpenHits, making]);
 
   const selIdx = Math.max(0, rows.findIndex((r) => r.key === sel));
   const current = rows[selIdx];
@@ -401,8 +437,34 @@ export function FilesPane() {
     });
   }, []);
 
+  // "new file" from the menu: the spot's folders open and an input row appears under it.
+  const startNew = (spot: Spot) => {
+    setMenu(null);
+    setOpen((prev) => {
+      const next = new Set(prev).add(nodeKey(spot.root.path, ""));
+      const parts = spot.dir.split("/").filter(Boolean);
+      for (let i = 1; i <= parts.length; i++) next.add(nodeKey(spot.root.path, parts.slice(0, i).join("/")));
+      return next;
+    });
+    setMaking({ spot, name: "" });
+  };
+
+  const finishNew = async () => {
+    if (!making || making.busy) return;
+    const name = cleanName(making.name);
+    if (!name) return setMaking({ ...making, error: "a file name, like spec.md or docs/spec.md" });
+    setMaking({ ...making, busy: true, error: undefined });
+    const rel = making.spot.dir ? `${making.spot.dir}/${name}` : name;
+    const r = await createFile(joinPath(making.spot.root.path, rel));
+    if ("error" in r) return setMaking({ ...making, busy: false, error: r.error });
+    forgetIndex(making.spot.root.path, peer);
+    setMade((n) => n + 1);
+    setMaking(null);
+    void openPeek(r.peek.path, undefined, undefined, true);
+  };
+
   const activate = useCallback((row: Row | undefined) => {
-    if (!row || row.kind === "note") return;
+    if (!row || row.kind === "note" || row.kind === "new") return;
     if (row.kind === "root" || row.kind === "dir") return toggle(row.key);
     if (row.kind === "hit") return void openPeek(joinPath(row.root.path, row.rel), undefined, row.line);
     // A file with hits folds them open first, and opens the file itself on the next press.
@@ -496,21 +558,51 @@ export function FilesPane() {
         <input className="fglob" value={opts.glob} spellCheck={false} placeholder="*.ts, !*.test.ts"
           title="which files to search; a leading ! excludes" onChange={(e) => setOpts((o) => ({ ...o, glob: e.target.value }))} />
       </div>
-      <div className="files-list" ref={listRef}>
+      <div className="files-list" ref={listRef}
+        onContextMenu={(e) => {
+          // The row under the pointer, by walking up from the target to a row element. A peer's
+          // tree has no menu: peers read.
+          if (peer) return;
+          const el = (e.target as HTMLElement).closest<HTMLElement>("[data-row]");
+          const row = el ? rows[Number(el.dataset.row)] : undefined;
+          const spot = row && spotOf(row);
+          if (!spot) return;
+          e.preventDefault();
+          setSel(row.key);
+          setMenu({ x: e.clientX, y: e.clientY, spot });
+        }}>
         {rows.map((r, i) => {
           const on = i === selIdx;
           const pad = { paddingLeft: 4 + r.depth * 10 };
           if (r.kind === "note") return <div key={r.key} className="files-note" style={pad}>{r.text}</div>;
+          if (r.kind === "new") {
+            return (
+              <div key={r.key} className="files-row files-new" style={pad}>
+                <input autoFocus className="picker-input" value={making?.name ?? ""} spellCheck={false} placeholder="new file name"
+                  title={making?.error} disabled={making?.busy}
+                  onChange={(e) => setMaking((m) => m && { ...m, name: e.target.value, error: undefined })}
+                  onBlur={() => setMaking((m) => (m && !m.busy && !m.name.trim() ? null : m))}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void finishNew();
+                    else if (e.key === "Escape") {
+                      e.preventDefault();
+                      setMaking(null);
+                    }
+                  }} />
+                {making?.error && <span className="files-err">{making.error}</span>}
+              </div>
+            );
+          }
           if (r.kind === "root") {
             return (
               <FilesRoot key={r.key} path={r.root.path} name={r.root.name} pinned={r.root.pinned} repo={cards.get(r.root.path)}
-                sessionId={activeId} open={r.open} sel={on} style={pad}
+                sessionId={activeId} open={r.open} sel={on} style={pad} index={i}
                 onHover={() => setSel(r.key)} onToggle={() => toggle(r.key)} onUnpin={() => unpin(r.root.path)} />
             );
           }
           if (r.kind === "dir") {
             return (
-              <div key={r.key} className={"files-row files-dir" + (r.dirty ? " dirty" : "") + (on ? " sel" : "")} style={pad}
+              <div key={r.key} className={"files-row files-dir" + (r.dirty ? " dirty" : "") + (on ? " sel" : "")} style={pad} data-row={i}
                 title={r.dirty ? `${r.rel} - has uncommitted changes` : r.rel}
                 onMouseEnter={() => setSel(r.key)} onClick={() => toggle(r.key)}>
                 <span className="fold" aria-hidden>{r.open ? "▾" : "▸"}</span>
@@ -529,7 +621,7 @@ export function FilesPane() {
             );
           }
           return (
-            <div key={r.key} className={"files-row files-file" + (on ? " sel" : "")} style={pad}
+            <div key={r.key} className={"files-row files-file" + (on ? " sel" : "")} style={pad} data-row={i}
               title={joinPath(r.root.path, r.rel)}
               onMouseEnter={() => setSel(r.key)} onClick={() => activate(r)}>
               <span className={"fstat" + (r.status ? " s-" + r.status : "")}>{r.status ?? ""}</span>
@@ -550,6 +642,16 @@ export function FilesPane() {
           <button className="rail-toggle" onClick={() => setAdding(true)} title="pin a folder so it shows here in every session">+ folder</button>
         ) : null}
       </div>
+      {menu && (
+        <>
+          <div className="pop-bg" onClick={() => setMenu(null)} onContextMenu={(e) => { e.preventDefault(); setMenu(null); }} />
+          <div className="pop files-menu" style={{ left: menu.x, top: menu.y }}>
+            <button onClick={() => startNew(menu.spot)}>
+              new file in <b>{menu.spot.dir ? baseName(menu.spot.dir) : menu.spot.root.name}</b>
+            </button>
+          </div>
+        </>
+      )}
       {adding && (
         <div className="files-add">
           <input autoFocus className="picker-input" value={newRoot} spellCheck={false} placeholder="~/notes or /path/to/folder"

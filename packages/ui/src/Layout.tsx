@@ -37,7 +37,7 @@ function FilePanel({ api, params }: IDockviewPanelProps<{ path: string; line?: n
     const d = api.onDidActiveChange((e) => setPanelActive(e.isActive));
     return () => d.dispose();
   }, [api]);
-  return <FileView path={params.path} line={params.line} active={active} />;
+  return <FileView path={params.path} line={params.line} active={active} editable />;
 }
 
 function SessionsPanel() {

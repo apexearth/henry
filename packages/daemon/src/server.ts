@@ -642,6 +642,14 @@ export async function handleApi(req: Request, url: URL, origin: ApiOrigin): Prom
         const d = await git.fileDiff(url.searchParams.get("sessionId") || undefined, url.searchParams.get("path") ?? "");
         return d ? json(d) : json({ error: "not in a repo" }, 404);
       }
+      // A peek edited in the UI, saved; or a new file from the tree. Loopback and phones only:
+      // a peer's request never gets past the method check above.
+      if (req.method === "POST" && pathname === "/api/file") {
+        const body = (await readJson(req)) as { path?: unknown; content?: unknown; create?: unknown; ifMtime?: unknown };
+        if (typeof body?.path !== "string" || typeof body.content !== "string") return json({ error: "path and content required" }, 400);
+        const r = files.writeFile(body.path, body.content, { create: body.create === true, ifMtime: typeof body.ifMtime === "number" ? body.ifMtime : undefined });
+        return "peek" in r ? json(r.peek) : json({ error: r.error }, r.status);
+      }
       if (pathname === "/api/file") {
         const peek = files.readPeek(url.searchParams.get("path") ?? "", url.searchParams.get("cwd") ?? undefined, fromPeer ? files.RELAYED_IMAGE_CAP_BYTES : files.IMAGE_CAP_BYTES);
         return peek ? json(peek) : json({ error: "not found" }, 404);

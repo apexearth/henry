@@ -447,6 +447,8 @@ export interface FilePeek {
   repoPath?: string;
   rel?: string;
   size: number;
+  /** Modification time (ms). A save hands it back so a file changed since it was read is not overwritten. */
+  mtime: number;
   truncated: boolean;
   binary: boolean;
   /** Set when the bytes are a picture (by signature, or `.svg`): its MIME type, and `content`

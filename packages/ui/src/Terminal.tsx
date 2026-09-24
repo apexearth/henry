@@ -171,7 +171,11 @@ export function TerminalView({ sessionId, visible, focused, fontSize }: Props) {
         if (!ev.shiftKey && !t.hasSelection()) return true; // nothing selected: Ctrl+C is still SIGINT
         ev.preventDefault(); // xterm's own copy handler would race our write with an empty selection
         if (ev.type === "keydown" && t.hasSelection()) {
-          void navigator.clipboard?.writeText(t.getSelection());
+          // Reached over the LAN (http://<host>:14711, not localhost) the origin is insecure and
+          // navigator.clipboard is undefined; the legacy command still works inside a key handler,
+          // and xterm fills the copy event it fires from its own selection.
+          if (navigator.clipboard) void navigator.clipboard.writeText(t.getSelection());
+          else document.execCommand("copy");
           t.clearSelection();
         }
         return false;

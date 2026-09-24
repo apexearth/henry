@@ -909,6 +909,12 @@ export async function listFiles(anyPath: string): Promise<string[]> {
   return files;
 }
 
+/** Drop the cached file list of the repo holding `anyPath`: a file was just made there. */
+export function forgetFiles(anyPath: string): void {
+  const info = resolveRepo(anyPath);
+  if (info) indexCache.delete(info.path);
+}
+
 const GREP_CAP_HITS = 500;
 const GREP_CAP_BYTES = 4 * 1024 * 1024;
 const GREP_LINE_CHARS = 240;

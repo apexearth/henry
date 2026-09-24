@@ -28,6 +28,8 @@ export interface FilesRootProps {
   open: boolean;
   sel: boolean;
   style: React.CSSProperties;
+  /** Position in the pane's row list, for the pane's right-click menu to find the row. */
+  index: number;
   onHover: () => void;
   onToggle: () => void;
   onUnpin: () => void;
@@ -47,7 +49,7 @@ function TreeIcon({ size = 11 }: { size?: number }) {
 
 const stop = (e: React.SyntheticEvent) => e.stopPropagation();
 
-export function FilesRoot({ path, name, pinned, repo, sessionId, open, sel, style, onHover, onToggle, onUnpin }: FilesRootProps) {
+export function FilesRoot({ path, name, pinned, repo, sessionId, open, sel, style, index, onHover, onToggle, onUnpin }: FilesRootProps) {
   const [showDiff, setShowDiff] = useState(false);
   const [showTree, setShowTree] = useState(false);
   const [commit, setCommit] = useState<string | null>(null);
@@ -111,7 +113,7 @@ export function FilesRoot({ path, name, pinned, repo, sessionId, open, sel, styl
     : path;
   return (
     <>
-      <div className={"files-row files-root" + (sel ? " sel" : "")} style={style} title={tip} onMouseEnter={onHover} onClick={onToggle}>
+      <div className={"files-row files-root" + (sel ? " sel" : "")} style={style} title={tip} data-row={index} onMouseEnter={onHover} onClick={onToggle}>
         <span className="fold" aria-hidden>{open ? "▾" : "▸"}</span>
         <span className="title" style={{ color: hueText(nameHue(name)) }}>{name}</span>
         {repo && (

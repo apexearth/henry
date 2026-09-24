@@ -65,6 +65,13 @@ export async function rootIndex(path: string, peer?: string): Promise<RootIndex>
 
 const dirIndex = new Map<string, { at: number; index: RootIndex }>();
 
+/** Drop a root's cached listing: a file was just made under it, and 10 s is a long wait. */
+export function forgetIndex(path: string, peer?: string): void {
+  const key = `${peer ?? ""}\n${path}`;
+  index.delete(key);
+  dirIndex.delete(key);
+}
+
 const RECENT_KEY = "henry.recentFiles";
 const RECENT_MAX = 40;
 

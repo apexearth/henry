@@ -1,8 +1,8 @@
-// File peeks: read one file for the UI to show over the terminal. Loopback-only, the user's
-// own machine, so any readable regular file is fair game; size is capped so a stray click on
-// a log never ships megabytes.
-import { openSync, readSync, closeSync, readdirSync, realpathSync, statSync } from "node:fs";
-import { isAbsolute, join, resolve } from "node:path";
+// File peeks: read one file for the UI to show over the terminal, and write one back when the
+// peek was edited. Loopback-only, the user's own machine, so any readable regular file is fair
+// game; size is capped so a stray click on a log never ships megabytes.
+import { openSync, readSync, closeSync, existsSync, mkdirSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import type { DirIndex, FilePeek } from "@henry/shared";
 import { expandHome } from "./config";
 import * as git from "./git";
@@ -49,18 +49,20 @@ export function readPeek(raw: string, cwd?: string, imageCap = IMAGE_CAP_BYTES):
   if (!abs) return undefined;
   let path: string;
   let size: number;
+  let mtime: number;
   try {
     path = realpathSync(abs);
     const st = statSync(path);
     if (!st.isFile()) return undefined;
     size = st.size;
+    mtime = st.mtimeMs;
   } catch {
     return undefined;
   }
   let bytes = readHead(path, size, CAP_BYTES);
   const image = imageType(bytes.subarray(0, 16), size, path);
   const repo = git.resolveRepo(path);
-  const base = { path, repoPath: repo?.path, rel: repo ? git.relIn(repo.path, path) : undefined, size };
+  const base = { path, repoPath: repo?.path, rel: repo ? git.relIn(repo.path, path) : undefined, size, mtime };
   if (image) {
     if (size > imageCap) return { ...base, truncated: true, binary: true, image, content: "" };
     if (bytes.length < size) bytes = readHead(path, size, imageCap);
@@ -68,6 +70,44 @@ export function readPeek(raw: string, cwd?: string, imageCap = IMAGE_CAP_BYTES):
   }
   const binary = bytes.subarray(0, 8192).includes(0);
   return { ...base, truncated: size > bytes.length, binary, content: binary ? "" : bytes.toString("utf8") };
+}
+
+export type WriteResult = { peek: FilePeek } | { error: string; status: number };
+
+/**
+ * Write `content` (UTF-8) to `raw`, absolute or `~/…`; a relative path has no cwd here.
+ * `create` makes a new file (and its folders) and refuses one that exists; a save carries
+ * `ifMtime`, the mtime it read, and is refused when the file has changed since — a Claude
+ * session may be editing the same file, and its work must not vanish under a peek's.
+ */
+export function writeFile(raw: string, content: string, opts: { create?: boolean; ifMtime?: number }): WriteResult {
+  const path = expandHome(raw.trim());
+  if (!path || !isAbsolute(path)) return { error: "absolute path required", status: 400 };
+  if (opts.create) {
+    if (existsSync(path)) return { error: "already exists", status: 409 };
+  } else {
+    let st;
+    try {
+      st = statSync(path);
+    } catch {
+      return { error: "no longer exists", status: 404 };
+    }
+    if (!st.isFile()) return { error: "not a file", status: 400 };
+    if (opts.ifMtime !== undefined && st.mtimeMs !== opts.ifMtime) return { error: "changed on disk since you opened it", status: 409 };
+  }
+  try {
+    if (opts.create) mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, content, "utf8");
+  } catch (e) {
+    return { error: (e as Error).message, status: 500 };
+  }
+  // A new file is not in any 10 s index yet; the tree asks again right away.
+  if (opts.create) {
+    git.forgetFiles(path);
+    dirCache.clear();
+  }
+  const peek = readPeek(path);
+  return peek ? { peek } : { error: "written, but could not be read back", status: 500 };
 }
 
 // ---- the files pane's tree, for roots that are not git repos ----

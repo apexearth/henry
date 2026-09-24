@@ -721,3 +721,23 @@ html:not([data-platform="mac"]) ::-webkit-scrollbar-button { display: none; widt
   .modal .row { padding: 11px 12px; touch-action: manipulation; }
   .modal .list { -webkit-overflow-scrolling: touch; }
 }
+
+/* Editing a peek: CodeMirror fills the pane; the header carries save / discard while the text is unsaved. */
+.peek-editor { height: 100%; }
+.peek-editor .cm-editor { height: 100%; }
+.peek-editor .cm-editor.cm-focused { outline: none; }
+.peek-edit { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+.peek-edit .peek-back.on { color: var(--accent); }
+.peek-edit .peek-back:disabled { color: var(--fg-faint); }
+.peek-unsaved { color: var(--warn); font-size: 9px; }
+.peek-edit.nudge .peek-unsaved, .peek-edit.nudge .peek-back.on { animation: peek-nudge .3s ease-in-out 3; }
+@keyframes peek-nudge { 50% { transform: translateY(-2px); color: var(--alarm); } }
+.peek-save-err { color: var(--alarm); font-size: 11px; display: inline-flex; align-items: center; gap: 4px; }
+.peek-save-err .peek-back { color: var(--alarm); text-decoration: underline; }
+
+/* The tree's right-click menu, at the pointer; and the name row a new file starts as. */
+.files-menu { position: fixed; right: auto; padding: 4px; }
+.files-menu button { display: block; width: 100%; text-align: left; background: none; border: none; padding: 4px 10px; font-size: 12px; color: var(--fg); white-space: nowrap; border-radius: 4px; }
+.files-menu button:hover { background: var(--bg-3); }
+.files-new { cursor: default; gap: 8px; }
+.files-new .picker-input { flex: 1; min-width: 0; margin: 0; font-size: 11px; padding: 1px 6px; }

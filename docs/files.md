@@ -1,6 +1,6 @@
 # Files: peeks, the tree, ⌘K and ⌘F
 
-Looking at files without opening an editor.
+Looking at files without opening an editor, and the odd spec written without one.
 
 **File peeks.** Files are things you glance at, not documents you keep open. ⌘-click a
 path in terminal output (relative paths resolve against the session's cwd; on a phone a tap
@@ -28,6 +28,29 @@ relayed session's README shows its screenshots. A `page | split | source` switch
 picks the page, the line view, or both side by side scrolling on their own, remembered per
 browser; a `path:line` reference opens as source, and ⌘F (find works on lines) shows the
 source when the page was showing alone.
+
+**A peek edits when you ask it to.** Most of the time you read here and write in the
+session, but a spec you want to be exact about is quicker to type than to dictate, so the
+header's `edit` swaps the source pane for an editor (`ui/Editor.tsx`: CodeMirror 6, loaded
+the first time it is asked for, grammars on demand like the read view's and painted with the
+read view's own colour classes, so the light shade and the syntax palette are one set of
+rules). It has what an editor has — undo, multiple cursors, bracket pairs, folds, find and
+replace on ⌘F, Tab indents — and nothing that knows the project: no completion, no lint.
+Prose (markdown, plain text) wraps; code scrolls. A markdown peek in `split` shows the page of
+what you are typing, a beat behind the keys. `⌘S` (or `save`) writes the text back through
+`POST /api/file` carrying the mtime the peek read; a file that has changed on disk since is
+refused with "changed on disk" and a `save anyway`, because a Claude session may be editing
+the same file and its work must not vanish under yours. A CRLF file comes back CRLF. While
+the text is unsaved, Esc and × hold the peek and point at `save` / `discard` rather than
+losing it; clean, Esc leaves the editor and the next Esc closes the peek. Not on the phone,
+and never for a peer's file: peers read (`federation.md`).
+
+**The tree makes files.** Right-click a root, a folder, or a file (for the folder it is in)
+and `new file in …` puts a name row under that folder; a name with slashes makes the folders
+in between, `..` is refused, an existing name is refused by the daemon. The file is created
+empty (`create: true` on the same `POST`) and opens straight in the editor, and the tree
+re-reads its index at once rather than waiting out the 10 s cache. That is the whole of what
+the tree changes: no rename, no delete, no folders on their own.
 
 The tree's marks are the exception: they are `git status`, against HEAD, so every session in
 a folder sees the same marks and a clean repo shows none. Before this they were vs baseline
