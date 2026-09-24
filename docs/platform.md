@@ -17,6 +17,10 @@ What Henry is built on, how it is served, which ports it takes, and what differs
   hot-reloads, rebuilt and reopened on edits under `src-tauri`. Each child is supervised
   with a debounced restart (1s doubling to 15s, reset after a stable run); the servers
   come back from any exit, the window only from a crash, since closing it is deliberate.
+  `--app` makes the window the app: closing it stops the servers too (the whole process
+  tree, since on Windows a killed `bun run` leaves its children serving), and launching while
+  Vite is up only opens another window. `scripts/henry.vbs` runs that with no console, which is
+  what a Windows Start-menu shortcut points at (`wscript.exe scripts\henry.vbs`).
 - **Ports nobody else wants.** Daemon 14711, federation 14712, Vite dev 14713, phone 14714. Henry sits
   next to whatever the user is developing, so it stays off 3000/5173/8080 and their
   neighbours, off IANA-registered numbers, and below 32768 so no OS's ephemeral range can

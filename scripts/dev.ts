@@ -8,14 +8,21 @@
 // window hot-reloads like a browser tab would. It starts once Vite answers, and an edit
 // under src-tauri rebuilds and relaunches it. Without a Rust toolchain, or with --no-shell,
 // the other two run alone.
+//
+// --app is the Start-menu shape (scripts/henry.vbs runs it with no console): the window is the
+// app, so closing it stops the daemon and Vite too, and a second launch while they are up just
+// opens another window rather than fighting them for their ports. Sessions live in sessiond and
+// are untouched either way.
 import { existsSync, watch } from "node:fs";
 import { join } from "node:path";
 import { connect } from "node:net";
+import { spawn as nodeSpawn } from "node:child_process";
 import type { Subprocess } from "bun";
 
 const root = join(import.meta.dir, "..");
 const VITE_PORT = Number(process.env.HENRY_UI_PORT ?? 14713); // vite.config.ts reads the same variable
 const withShell = !process.argv.includes("--no-shell");
+const appMode = process.argv.includes("--app");
 const tauriDir = join(root, "packages", "shell", "src-tauri");
 const shellBin = join(tauriDir, "target", "debug", process.platform === "win32" ? "henry-shell.exe" : "henry-shell");
 
@@ -60,6 +67,10 @@ function supervise(name: string, start: () => Subprocess, restartOnClean: boolea
         continue;
       }
       if (code === 0 && !restartOnClean) {
+        if (appMode) {
+          log(`${name} closed; stopping`);
+          return stop();
+        }
         log(`${name} closed (an edit under src-tauri reopens it)`);
         return;
       }
@@ -154,15 +165,33 @@ function watchShellSources(): void {
 
 // ---- run ---------------------------------------------------------------------------------
 
-const stop = () => {
-  if (stopping) return;
+// Each child is a chain (bun run → vite.exe → node, bun run → bun --watch → bun), and on
+// Windows killing the head leaves the rest serving. A console's Ctrl+C reaches them all; a
+// window closed under --app has no console, so the whole tree goes. sessiond is not in it: it is
+// launched through Start-Process, whose PowerShell has long exited.
+function killTree(p: Subprocess): void {
+  if (process.platform === "win32") Bun.spawnSync(["taskkill", "/PID", String(p.pid), "/T", "/F"], { stdout: "ignore", stderr: "ignore" });
+  else p.kill();
+}
+
+function stop(): never {
   stopping = true;
-  for (const p of running) p.kill();
+  for (const p of running) killTree(p);
+  running.clear();
   process.exit(0);
-};
+}
 process.on("SIGINT", stop);
 process.on("SIGTERM", stop);
-process.on("exit", () => { for (const p of running) p.kill(); });
+process.on("exit", () => { for (const p of running) killTree(p); });
+
+if (appMode && (await portOpen(VITE_PORT))) {
+  if (existsSync(shellBin)) {
+    // Detached: a Bun.spawn child is taken down with this process, which exits right away.
+    nodeSpawn(shellBin, [], { cwd: tauriDir, env: { ...process.env, HENRY_URL: `http://127.0.0.1:${VITE_PORT}` }, detached: true, stdio: "ignore" }).unref();
+    log("already running; opened a window");
+  }
+  process.exit(0);
+}
 
 const daemon = supervise("daemon", () => spawn(["bun", "run", "dev"], join(root, "packages", "daemon")), true);
 const vite = supervise("vite", () => spawn(["bun", "run", "dev"], join(root, "packages", "ui")), true);
