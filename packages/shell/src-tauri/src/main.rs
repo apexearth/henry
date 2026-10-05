@@ -80,7 +80,22 @@ fn open_popout(app: &tauri::AppHandle, features: tauri::webview::NewWindowFeatur
     }
 }
 
+// The taskbar groups a window with a pinned shortcut by AppUserModelID, else by exe path. The
+// Start-menu shortcut launches wscript (scripts/henry.vbs), not this exe, so without a shared
+// ID the pin and the window are two icons. scripts/shortcut.ps1 stamps the same ID on the .lnk.
+#[cfg(target_os = "windows")]
+fn set_app_id() {
+    #[link(name = "shell32")]
+    extern "system" {
+        fn SetCurrentProcessExplicitAppUserModelID(id: *const u16) -> i32;
+    }
+    let id: Vec<u16> = "dev.apexearth.henry".encode_utf16().chain(Some(0)).collect();
+    unsafe { SetCurrentProcessExplicitAppUserModelID(id.as_ptr()) };
+}
+
 fn main() {
+    #[cfg(target_os = "windows")]
+    set_app_id();
     tauri::Builder::default()
         .setup(|app| {
             let url: tauri::Url = henry_url().parse()?;

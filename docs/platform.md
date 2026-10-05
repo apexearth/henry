@@ -21,8 +21,10 @@ What Henry is built on, how it is served, which ports it takes, and what differs
   come back from any exit, the window only from a crash, since closing it is deliberate.
   `--app` makes the window the app: closing it stops the servers too (the whole process
   tree, since on Windows a killed `bun run` leaves its children serving), and launching while
-  Vite is up only opens another window. `scripts/henry.vbs` runs that with no console, which is
-  what a Windows Start-menu shortcut points at (`wscript.exe scripts\henry.vbs`).
+  Vite is up only opens another window. `scripts/henry.vbs` runs that with no console, and
+  `scripts/shortcut.ps1` makes the Windows Start-menu shortcut to it. The shortcut and the shell
+  carry one AppUserModelID (`dev.apexearth.henry`), because the taskbar groups by that and
+  otherwise by exe, and the shortcut's exe is wscript: without it a pin and its window are two icons.
 - **Ports nobody else wants.** Daemon 14711, federation 14712, Vite dev 14713, phone 14714. Henry sits
   next to whatever the user is developing, so it stays off 3000/5173/8080 and their
   neighbours, off IANA-registered numbers, and below 32768 so no OS's ephemeral range can

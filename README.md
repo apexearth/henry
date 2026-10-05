@@ -106,7 +106,7 @@ to delete.
 ```sh
 bun run dev          # daemon :14711 + Vite :14713 + native window, all reloading
 bun run app          # native window against a running daemon (needs Rust)
-wscript scripts\henry.vbs  # Windows: bun run dev --app, no console; point a Start-menu shortcut here
+powershell -ExecutionPolicy Bypass -File scripts\shortcut.ps1  # Windows: Start-menu "Henry (dev)", one window, no console
 bun run test
 bun run smoke        # throwaway daemon driven over WS, /bin/sh in place of claude
 ```
