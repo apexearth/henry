@@ -1,5 +1,5 @@
 // A file peek: one file shown over the session in the stage group, read-only until you press
-// edit (Editor.tsx takes the body; ⌘S saves, a file changed on disk meanwhile is not overwritten).
+// edit (Editor.tsx takes the body; it saves as you type, a file changed on disk meanwhile is not overwritten).
 // Opened by ⌘-clicking a path (terminal output, diff headers); Esc or × closes it. ⌘F over
 // the peek in view opens a find bar (App.tsx routes it here as a `henry:find` event).
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -269,16 +269,49 @@ export function FileView({ path, line, active, local = false, popped = false, ed
     setNudge(true);
     setTimeout(() => setNudge(false), 900);
   };
-  const save = async (force = false) => {
-    if (!peek || draft === null || saveState?.busy) return;
+  const save = async (force = false): Promise<boolean> => {
+    if (!peek || draft === null || saveState?.busy) return false;
     setSaveState({ busy: true });
     const r = await saveFile(peek.path, crlf ? draft.replace(/\n/g, "\r\n") : draft, force ? undefined : peek.mtime);
     if ("peek" in r) {
       setPeek(r.peek);
       setSaveState(null);
-    } else setSaveState({ error: r.error, conflict: r.status === 409 });
+      return true;
+    }
+    setSaveState({ error: r.error, conflict: r.status === 409 });
+    return false;
   };
-  const tryClose = () => (dirty ? holdUnsaved() : closePeek(filePanelId(path)));
+  // Leaving with unsaved text saves it first; only a refused save (changed on disk) holds you.
+  const leave = async (then: () => void) => {
+    if (!dirty) return then();
+    if (saveState?.error || !(await save())) return holdUnsaved();
+    then();
+  };
+  const tryClose = () => void leave(() => closePeek(filePanelId(path)));
+
+  // Autosave: text in memory alone dies with the window (a dev relaunch, a crash), so it goes
+  // to disk a beat after the typing stops. Same mtime guard as ⌘S, so a conflict stops it and
+  // asks rather than writing over a session's edit. A finishing save changes `peek`, which
+  // re-arms this for whatever was typed meanwhile.
+  useEffect(() => {
+    if (!dirty || saveState) return;
+    const t = setTimeout(() => void save(), 600);
+    return () => clearTimeout(t);
+  }, [draft, dirty, saveState, peek]); // eslint-disable-line react-hooks/exhaustive-deps
+  const unload = useRef({ dirty, draft, peek, crlf, saveState });
+  unload.current = { dirty, draft, peek, crlf, saveState };
+  useEffect(() => {
+    // The window is going (reload, relaunch, close) inside the debounce: a keepalive request
+    // outlives the page, best effort.
+    const flush = () => {
+      const { dirty: d, draft: t, peek: p, crlf: c, saveState: s } = unload.current;
+      if (!d || t === null || !p || s?.conflict) return;
+      const content = c ? t.replace(/\n/g, "\r\n") : t;
+      void fetch("/api/file", { method: "POST", keepalive: true, headers: { "content-type": "application/json" }, body: JSON.stringify({ path: p.path, content, ifMtime: p.mtime }) }).catch(() => {});
+    };
+    window.addEventListener("pagehide", flush);
+    return () => window.removeEventListener("pagehide", flush);
+  }, []);
 
   // An agent (or another editor) changes the file while it is open: read it again on coming
   // back to the peek, on any hook event or repo change, and on window focus, and take the new
@@ -319,12 +352,11 @@ export function FileView({ path, line, active, local = false, popped = false, ed
     const onEsc = (e: Event) => {
       e.preventDefault();
       if (editor.current?.isFinding()) return editor.current.find("close");
-      if (dirty) return holdUnsaved();
-      stopEdit();
+      void leave(stopEdit);
     };
     window.addEventListener(ESC_EVENT, onEsc);
     return () => window.removeEventListener(ESC_EVENT, onEsc);
-  }, [active, editing, dirty]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [active, editing, dirty, draft, saveState, peek]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Dockview hides inactive panels, which drops their scroll position: re-centre on return.
   // The explorer's preview is never active but still follows the line of the hit it shows.
@@ -486,14 +518,14 @@ export function FileView({ path, line, active, local = false, popped = false, ed
                 {saveState.conflict && <button className="peek-back" onClick={() => void save(true)} title="write your text over what is on disk now">save anyway</button>}
               </span>
             )}
-            {dirty ? (
+            {dirty && <span className="peek-unsaved" title="saving as you type">●</span>}
+            {dirty && saveState?.error ? (
               <>
-                <span className="peek-unsaved" title="unsaved changes">●</span>
-                <button className="peek-back on" onClick={() => void save()} disabled={saveState?.busy} title={`save (${MOD}S)`}>{saveState?.busy ? "saving…" : "save"}</button>
+                <button className="peek-back on" onClick={() => void save()} disabled={saveState?.busy} title={`retry the save (${MOD}S)`}>save</button>
                 <button className="peek-back" onClick={stopEdit} title="drop the unsaved changes and go back to reading">discard</button>
               </>
             ) : (
-              <button className="peek-back" onClick={stopEdit} title="back to reading (Esc)">done</button>
+              <button className="peek-back" onClick={() => void leave(stopEdit)} title="back to reading (Esc); edits save as you type">done</button>
             )}
           </span>
         )}

@@ -43,16 +43,19 @@ read view's own colour classes, so the light shade and the syntax palette are on
 rules). It has what an editor has — undo, multiple cursors, bracket pairs, folds, find and
 replace on ⌘F, Tab indents — and nothing that knows the project: no completion, no lint.
 Prose (markdown, plain text) wraps; code scrolls. A markdown peek in `split` shows the page of
-what you are typing, a beat behind the keys. `⌘S` (or `save`) writes the text back through
-`POST /api/file` carrying the mtime the peek read; a file that has changed on disk since is
-refused with "changed on disk" and a `save anyway`, because a Claude session may be editing
-the same file and its work must not vanish under yours. A CRLF file comes back CRLF.
+what you are typing, a beat behind the keys. The text saves itself 0.6 s after the typing
+stops (`⌘S` saves at once), because text that lives only in the window dies with it, and a dev
+relaunch of the shell is enough to take it; a page going away inside that beat sends a last
+keepalive save. Every save goes through `POST /api/file` carrying the mtime the peek read; a
+file that has changed on disk since is refused with "changed on disk", `save anyway` and
+`discard`, and autosave stops until you pick one, because a Claude session may be editing the
+same file and its work must not vanish under yours. A CRLF file comes back CRLF.
 An open peek follows the file: it reads it again when you come back to it, on any hook event
 or repo change, and on window focus, and shows the new text when the mtime or size moved
 (scroll kept; a clean editor reopens on it). Unsaved text is never replaced; its save is the
-one refused. While
-the text is unsaved, Esc and × hold the peek and point at `save` / `discard` rather than
-losing it; clean, Esc leaves the editor and the next Esc closes the peek. Not on the phone,
+one refused. Esc,
+`done` and × save unsaved text before they leave; only a refused save holds the peek and
+points at `save` / `discard`. Clean, Esc leaves the editor and the next Esc closes the peek. Not on the phone,
 and never for a peer's file: peers read (`federation.md`).
 
 **The tree makes files.** Right-click a root, a folder, or a file (for the folder it is in)
