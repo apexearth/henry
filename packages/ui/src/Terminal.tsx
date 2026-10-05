@@ -199,6 +199,19 @@ export function TerminalView({ sessionId, visible, focused, fontSize }: Props) {
       }
       return true;
     });
+    // OSC 52: an app asking the terminal to set the clipboard. Claude Code copies its own
+    // selection this way as well as through the clipboard of the machine it runs on, and for a
+    // session on a peer that machine is not this one. Writes only: a read ("?") would hand the
+    // clipboard to whatever runs in the PTY. Replayed scrollback does not copy again.
+    t.parser.registerOscHandler(52, (data) => {
+      const b64 = data.slice(data.indexOf(";") + 1);
+      if (replaying.current || !b64 || b64 === "?") return true;
+      try {
+        const text = new TextDecoder().decode(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)));
+        if (navigator.clipboard) navigator.clipboard.writeText(text).catch((e) => console.warn("[henry] OSC 52 copy:", e));
+      } catch {}
+      return true;
+    });
     t.onData((data) => {
       // Scrollback replay re-parses old device queries (DA, DSR, OSC colour asks) and xterm
       // answers each one again; the app that asked is long gone, so the reply would land in

@@ -58,6 +58,10 @@ until it is back. Two machines that both listen dial each other, so each window 
   out of ⌘1..9 / ⌘↑↓. Folding is a view choice, persisted per browser; the link stays up and
   the sessions keep running. File peeks and ⌘K read from the machine of the
   session you are looking at. The global playbook stays per machine.
+- **A copy lands on the machine you are sitting at.** Claude Code copies its selection to
+  the clipboard of the machine it runs on and also by OSC 52; the window's terminal takes
+  the OSC 52 write into the browser's clipboard, so a peer session's copy pastes here. Clipboard
+  reads by OSC 52 are never answered, and replayed scrollback does not copy again.
 - **Every machine's 5h/7d windows are shown, never added up.** A daemon meters the
   subscription it is signed in to and only that one, so one pair of bars was one machine's
   answer standing in for the rail's. `mergeUsage` therefore builds a `hosts` table — this
