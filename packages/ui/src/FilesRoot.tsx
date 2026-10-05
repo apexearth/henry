@@ -1,7 +1,7 @@
 // A root row of the Files tree. When the root is a repo the session has touched, the row is
 // also the repo's card, condensed to one line: name, branch, ↑↓ against the upstream, commits
-// since the session's baseline, open PRs, then icon buttons for the diff (with the dirty
-// count), the commit graph and the remote. The path and the last commit live in tooltips.
+// since the session's baseline, open PRs, then icon buttons for the uncommitted diff (with the
+// dirty count), the commit graph and the remote. The path and the last commit live in tooltips.
 // The commit log and the PR list unfold under the row, in the tree's own indentation.
 import { useEffect, useState } from "react";
 import type { PullRequest, RepoPrs, RepoState } from "@henry/shared";
@@ -145,7 +145,7 @@ export function FilesRoot({ path, name, pinned, repo, sessionId, open, sel, styl
               </button>
             )}
             <button className={"fr-btn fr-diff" + (repo.dirty ? " dirty" : "")} onMouseDown={stop} onClick={(e) => { stop(e); openDiff(); }}
-              title={`${repo.dirty ? `${repo.dirty} uncommitted path${repo.dirty === 1 ? "" : "s"}` : "clean"} — diff against the session's baseline`}>
+              title={`${repo.dirty ? `${repo.dirty} uncommitted path${repo.dirty === 1 ? "" : "s"}` : "clean"} — diff against HEAD`}>
               ±{repo.dirty}
             </button>
             <button className="fr-btn" onMouseDown={stop} onClick={(e) => { stop(e); setShowTree(true); }} title="commit graph of every branch">

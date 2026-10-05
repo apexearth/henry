@@ -159,12 +159,12 @@ describe("git", () => {
     expect(git.getSessionRepos("s1")[0].commitsSinceBaseline).toBe(1);
   });
 
-  test("diffSinceBaseline covers tracked changes and untracked files, not ignored", async () => {
-    const { diff, baseline } = await git.diffSinceBaseline("s1", repo);
-    expect(baseline).toBe(baselineSha);
+  test("uncommittedDiff covers tracked changes and untracked files, not commits or ignored", async () => {
+    const { diff, baseline } = await git.uncommittedDiff(repo);
+    expect(baseline).toBe(g(repo, "rev-parse", "HEAD"));
     expect(diff).toContain("diff --git a/a.txt b/a.txt");
     expect(diff).toContain("+two");
-    expect(diff).toContain("diff --git a/d.txt b/d.txt"); // committed since baseline
+    expect(diff).not.toContain("a/d.txt"); // committed since the baseline: the log's, not the diff's
     expect(diff).toContain("diff --git a/untracked.txt b/untracked.txt");
     expect(diff).toContain("new file mode");
     expect(diff).toContain("+new");
@@ -190,12 +190,13 @@ describe("git", () => {
     expect(all).toContain("a.txt");
     expect(all).toContain("untracked.txt");
     expect(all).not.toContain("ignored.txt");
-    const d = await git.fileDiff("s1", join(repo, "a.txt"));
-    expect(d?.baseline).toBe(baselineSha);
+    const d = await git.fileDiff(join(repo, "a.txt"));
+    expect(d?.baseline).toBe(g(repo, "rev-parse", "HEAD"));
     expect(d?.diff).toContain("+two");
-    expect((await git.fileDiff("s1", join(repo, "untracked.txt")))?.diff).toContain("+new");
-    expect((await git.fileDiff("s1", join(repo, "ignored.txt")))?.diff).toBe("");
-    expect(await git.fileDiff("s1", "/")).toBeUndefined();
+    expect((await git.fileDiff(join(repo, "untracked.txt")))?.diff).toContain("+new");
+    expect((await git.fileDiff(join(repo, "d.txt")))?.diff).toBe("");
+    expect((await git.fileDiff(join(repo, "ignored.txt")))?.diff).toBe("");
+    expect(await git.fileDiff("/")).toBeUndefined();
     const sf = await git.sessionFiles("s1");
     expect(sf.repos.find((r) => r.path === repo)?.files.length).toBe(changed.length);
   });

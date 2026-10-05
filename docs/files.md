@@ -15,11 +15,11 @@ pops a peek out into a window of its own (dockview's popout group on `/popout.ht
 panel moves, the app's state stays shared, the theme follows); closing that window closes
 the peek.
 
-**Changes are shown against the session's baseline**, not HEAD: that is the Henry question
-("what did this session do"). `GET /api/file/diff?sessionId=&path=` returns the one-file
-unified diff (untracked files against /dev/null); the peek tints added lines and shows
-deleted lines as struck-through ghosts where they were. A session with no baseline (a plain
-terminal) diffs against HEAD, so "changed" means "uncommitted" there.
+**Diffs show what is uncommitted**, against HEAD: once you commit, the change leaves the
+diff, and what the session committed lives in its `+n` log instead. `GET
+/api/file/diff?sessionId=&path=` returns the one-file unified diff (untracked files against
+/dev/null; `sessionId` only routes it to the right machine); the peek tints added lines and
+shows deleted lines as struck-through ghosts where they were.
 
 **Markdown opens as a page.** A `.md` peek renders (`ui/Markdown.tsx`: marked, sanitized by
 DOMPurify, code fences coloured by the same highlighter as the source view) with
@@ -27,7 +27,10 @@ DOMPurify, code fences coloured by the same highlighter as the source view) with
 when a file has one. A diagram that will not parse shows mermaid's message over its source. A
 relative link opens that file as another peek, a `#heading` link scrolls, anything else opens
 in the browser, and a relative image is fetched through `/api/file` like the file itself, so a
-relayed session's README shows its screenshots. A `page | split | source` switch in the header
+relayed session's README shows its screenshots. The page fills the pane's width; on a phone it
+is laid out at a desktop's 860px and zoomed out to fit, since prose reflowed to a phone's width
+breaks tables and code. Zoomed out, a scroll box is too small to drag, so wide code and tables
+run past the page and the whole pane scrolls sideways. A `page | split | source` switch in the header
 picks the page, the line view, or both side by side scrolling on their own, remembered per
 browser; a `path:line` reference opens as source, and ⌘F (find works on lines) shows the
 source when the page was showing alone.
@@ -43,7 +46,11 @@ Prose (markdown, plain text) wraps; code scrolls. A markdown peek in `split` sho
 what you are typing, a beat behind the keys. `⌘S` (or `save`) writes the text back through
 `POST /api/file` carrying the mtime the peek read; a file that has changed on disk since is
 refused with "changed on disk" and a `save anyway`, because a Claude session may be editing
-the same file and its work must not vanish under yours. A CRLF file comes back CRLF. While
+the same file and its work must not vanish under yours. A CRLF file comes back CRLF.
+An open peek follows the file: it reads it again when you come back to it, on any hook event
+or repo change, and on window focus, and shows the new text when the mtime or size moved
+(scroll kept; a clean editor reopens on it). Unsaved text is never replaced; its save is the
+one refused. While
 the text is unsaved, Esc and × hold the peek and point at `save` / `discard` rather than
 losing it; clean, Esc leaves the editor and the next Esc closes the peek. Not on the phone,
 and never for a peer's file: peers read (`federation.md`).
@@ -155,7 +162,7 @@ is one key. ⌃F works outside the terminal, where it stays forward-char.
 each repo's root row is also its card, on one line: name, branch, `↑n ↓n` against the upstream (only the non-zero side; `↑∅` when there is no upstream),
 `+n` commits since the session baseline (click: the log unfolds under the row), the
 open-PR count when there is one (click: the list unfolds), then three icons — `±n` is the
-dirty count and opens the diff vs baseline (unified/split), the graph mark opens the commit
+dirty count and opens the uncommitted diff (unified/split), the graph mark opens the commit
 graph of every branch as `git log --graph --all` draws it (`GET /api/repo/tree`, capped at
 400 commits), `↗` opens the upstream remote's web page (scp/ssh/https git URLs become
 https). The path, the last commit and a worktree's parent live in the row's tooltip; a

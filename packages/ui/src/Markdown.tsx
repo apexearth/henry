@@ -5,9 +5,13 @@
 // README shows its screenshots too.
 import DOMPurify from "dompurify";
 import { Marked, type Tokens } from "marked";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { highlightBlock } from "./highlight";
+import { useMobile } from "./mobile/useMobile";
 import { cssVar, useTheme } from "./theme";
+
+/** On a phone the page is laid out this wide and zoomed out to fit, as a desktop shows it. */
+const DESKTOP_WIDTH = 860;
 
 const escapeHtml = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 
@@ -57,6 +61,17 @@ export function Markdown({ text, loadImage, openLink }: Props) {
   const html = useMemo(() => toHtml(text), [text]);
   const root = useRef<HTMLDivElement>(null);
   const theme = useTheme();
+  const mobile = useMobile();
+  const [zoom, setZoom] = useState(1);
+
+  // CSS zoom, not a transform, so the scaled page still sets the pane's scroll height.
+  useEffect(() => {
+    const pane = root.current?.parentElement;
+    if (!mobile || !pane) return void setZoom(1);
+    const ro = new ResizeObserver(() => setZoom(Math.min(1, pane.clientWidth / DESKTOP_WIDTH)));
+    ro.observe(pane);
+    return () => ro.disconnect();
+  }, [mobile]);
 
   // Fenced code: the block is shown plain at once and coloured when its language arrives.
   useEffect(() => {
@@ -160,5 +175,9 @@ export function Markdown({ text, loadImage, openLink }: Props) {
     else window.open(href, "_blank", "noopener");
   };
 
-  return <div className="md" ref={root} onClick={onClick} dangerouslySetInnerHTML={{ __html: html }} />;
+  const desk = zoom < 1;
+  return (
+    <div className={desk ? "md desk" : "md"} ref={root} style={desk ? { width: DESKTOP_WIDTH, zoom } : undefined}
+      onClick={onClick} dangerouslySetInnerHTML={{ __html: html }} />
+  );
 }

@@ -727,14 +727,20 @@ async function baselineFor(sessionId: string, info: RepoInfo): Promise<string> {
   return code === 0 ? out.trim() : "";
 }
 
+async function headOf(info: RepoInfo): Promise<string> {
+  const { code, out } = await run(info.path, ["rev-parse", "HEAD"]);
+  return code === 0 ? out.trim() : "";
+}
+
 /**
- * Working tree vs the session baseline: `git diff <baseline>` for tracked paths, plus a
- * "new file" diff for every untracked (non-ignored) file. Capped at ~2MB.
+ * Uncommitted changes: `git diff HEAD` for tracked paths, plus a "new file" diff for every
+ * untracked (non-ignored) file. Capped at ~2MB. Not the baseline: what the session committed is
+ * the log's, and a diff that keeps showing it after the commit reads as still dirty.
  */
-export async function diffSinceBaseline(sessionId: string, repoPath: string): Promise<{ diff: string; baseline: string }> {
+export async function uncommittedDiff(repoPath: string): Promise<{ diff: string; baseline: string }> {
   const info = resolveRepo(repoPath);
   if (!info) return { diff: "", baseline: "" };
-  const baseline = await baselineFor(sessionId, info);
+  const baseline = await headOf(info);
   if (!baseline) return { diff: "", baseline: "" };
   const parts: string[] = [];
   let bytes = 0;
@@ -1039,14 +1045,14 @@ export async function grepRepos(root: string, q: string, opts: GrepOptions = {})
 }
 
 /**
- * One file vs the session baseline (HEAD when no session is given). An untracked file diffs
- * against /dev/null; an unchanged or ignored file yields an empty diff. Undefined: not in a repo.
+ * One file's uncommitted changes, vs HEAD like the repo diff. An untracked file diffs against
+ * /dev/null; an unchanged or ignored file yields an empty diff. Undefined: not in a repo.
  */
-export async function fileDiff(sessionId: string | undefined, absPath: string): Promise<FileDiff | undefined> {
+export async function fileDiff(absPath: string): Promise<FileDiff | undefined> {
   const info = resolveRepo(absPath);
   const rel = info && relIn(info.path, absPath);
   if (!info || rel === undefined) return undefined;
-  const baseline = sessionId ? await baselineFor(sessionId, info) : (await run(info.path, ["rev-parse", "HEAD"])).out.trim();
+  const baseline = await headOf(info);
   if (!baseline) return { baseline: "", diff: "" };
   const tracked = await run(info.path, ["diff", "--no-color", "--no-ext-diff", baseline, "--", rel], { maxBytes: DIFF_CAP_BYTES });
   if (tracked.out) return { baseline, diff: tracked.out };

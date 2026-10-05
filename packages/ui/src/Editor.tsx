@@ -34,31 +34,34 @@ const palette = HighlightStyle.define([
   { tag: t.deleted, class: "hljs-deletion" },
 ]);
 
-// The app's variables, so the editor follows the theme without a theme of its own.
+// The app's variables, so the editor follows the theme without a theme of its own. Every rule is
+// scoped under `.cm-editor` to tie the base theme's `&light` rules, which otherwise win and paint a
+// pale selection behind light text; ties go to us because the base theme mounts first.
 const look = EditorView.theme({
   "&": { height: "100%", fontSize: "12px", backgroundColor: "var(--bg)", color: "var(--fg)" },
-  ".cm-scroller": { fontFamily: "var(--mono)", lineHeight: "1.5", overflow: "auto" },
-  ".cm-content": { caretColor: "var(--fg)", padding: "0" },
-  ".cm-line": { padding: "0 1ch 0 0" },
-  ".cm-gutters": { backgroundColor: "var(--bg)", color: "var(--fg-faint)", borderRight: "1px solid var(--border)" },
-  ".cm-lineNumbers .cm-gutterElement": { minWidth: "5ch", padding: "0 1ch 0 0" },
-  ".cm-activeLineGutter": { backgroundColor: "var(--bg-2)", color: "var(--fg-dim)" },
-  ".cm-activeLine": { backgroundColor: "var(--bg-2)" },
-  ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--fg)" },
-  "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection": { backgroundColor: "var(--sel)" },
-  ".cm-selectionMatch": { backgroundColor: "var(--accent-soft)" },
-  ".cm-matchingBracket, &.cm-focused .cm-matchingBracket": { backgroundColor: "var(--accent-soft)", outline: "none" },
-  ".cm-searchMatch": { backgroundColor: "var(--accent-soft)", outline: "none" },
-  ".cm-searchMatch.cm-searchMatch-selected": { backgroundColor: "var(--accent)", color: "var(--bg)" },
-  ".cm-panels": { backgroundColor: "var(--bg-2)", color: "var(--fg)", fontSize: "12px" },
-  ".cm-panels.cm-panels-top": { borderBottom: "1px solid var(--border)" },
-  ".cm-panel.cm-search": { padding: "4px 10px" },
-  ".cm-panel.cm-search label": { color: "var(--fg-dim)", fontSize: "11px" },
-  ".cm-textfield": { backgroundColor: "var(--bg)", color: "var(--fg)", border: "1px solid var(--border)", borderRadius: "4px", fontFamily: "var(--mono)", fontSize: "12px" },
-  ".cm-button": { backgroundImage: "none", backgroundColor: "var(--bg-3)", color: "var(--fg)", border: "1px solid var(--border)", borderRadius: "4px", fontFamily: "var(--mono)", fontSize: "11px" },
-  ".cm-foldGutter .cm-gutterElement": { color: "var(--fg-faint)" },
-  ".cm-foldPlaceholder": { backgroundColor: "var(--bg-3)", color: "var(--fg-dim)", border: "none" },
-  ".cm-tooltip": { backgroundColor: "var(--bg-2)", color: "var(--fg)", border: "1px solid var(--border)" },
+  "&.cm-editor .cm-scroller": { fontFamily: "var(--mono)", lineHeight: "1.5", overflow: "auto" },
+  "&.cm-editor .cm-content": { caretColor: "var(--fg)", padding: "0" },
+  "&.cm-editor .cm-line": { padding: "0 1ch 0 0" },
+  "&.cm-editor .cm-gutters": { backgroundColor: "var(--bg)", color: "var(--fg-faint)", borderRight: "1px solid var(--border)" },
+  "&.cm-editor .cm-lineNumbers .cm-gutterElement": { minWidth: "5ch", padding: "0 1ch 0 0" },
+  "&.cm-editor .cm-activeLineGutter": { backgroundColor: "var(--bg-2)", color: "var(--fg-dim)" },
+  // Translucent: line backgrounds sit above the selection layer and would hide it.
+  "&.cm-editor .cm-activeLine": { backgroundColor: "color-mix(in srgb, var(--fg) 5%, transparent)" },
+  "&.cm-editor .cm-cursor, &.cm-editor .cm-dropCursor": { borderLeftColor: "var(--fg)" },
+  "&.cm-editor.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, &.cm-editor .cm-selectionLayer .cm-selectionBackground": { backgroundColor: "var(--sel)" },
+  "&.cm-editor .cm-selectionMatch": { backgroundColor: "var(--accent-soft)" },
+  "&.cm-editor .cm-matchingBracket, &.cm-editor.cm-focused .cm-matchingBracket": { backgroundColor: "var(--accent-soft)", outline: "none" },
+  "&.cm-editor .cm-searchMatch": { backgroundColor: "var(--accent-soft)", outline: "none" },
+  "&.cm-editor .cm-searchMatch.cm-searchMatch-selected": { backgroundColor: "var(--accent)", color: "var(--bg)" },
+  "&.cm-editor .cm-panels": { backgroundColor: "var(--bg-2)", color: "var(--fg)", fontSize: "12px" },
+  "&.cm-editor .cm-panels.cm-panels-top": { borderBottom: "1px solid var(--border)" },
+  "&.cm-editor .cm-panel.cm-search": { padding: "4px 10px" },
+  "&.cm-editor .cm-panel.cm-search label": { color: "var(--fg-dim)", fontSize: "11px" },
+  "&.cm-editor .cm-textfield": { backgroundColor: "var(--bg)", color: "var(--fg)", border: "1px solid var(--border)", borderRadius: "4px", fontFamily: "var(--mono)", fontSize: "12px" },
+  "&.cm-editor .cm-button": { backgroundImage: "none", backgroundColor: "var(--bg-3)", color: "var(--fg)", border: "1px solid var(--border)", borderRadius: "4px", fontFamily: "var(--mono)", fontSize: "11px" },
+  "&.cm-editor .cm-foldGutter .cm-gutterElement": { color: "var(--fg-faint)" },
+  "&.cm-editor .cm-foldPlaceholder": { backgroundColor: "var(--bg-3)", color: "var(--fg-dim)", border: "none" },
+  "&.cm-editor .cm-tooltip": { backgroundColor: "var(--bg-2)", color: "var(--fg)", border: "1px solid var(--border)" },
 });
 
 export interface EditorHandle {

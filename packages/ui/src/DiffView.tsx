@@ -1,4 +1,4 @@
-// Milestone 3: unified/split diff of a repo vs the session baseline.
+// Unified/split diff: a repo's uncommitted changes, or a commit vs its parent.
 // Hand-rolled unified-diff parser + renderer. Files past the first 20 (and very large
 // files) start collapsed so a big diff does not freeze the panel.
 import { useMemo, useState } from "react";
@@ -262,7 +262,7 @@ export function DiffView({ repoPath, baseline, diff }: DiffViewProps) {
           {parsed.files.length} file{parsed.files.length === 1 ? "" : "s"}
           {adds > 0 && <span className="df-adds"> +{adds}</span>}
           {dels > 0 && <span className="df-dels"> −{dels}</span>}
-          <span className="dv-base"> vs {baseline ? baseline.slice(0, 7) : "(no baseline)"}</span>
+          <span className="dv-base"> vs {baseline ? baseline.slice(0, 7) : "(no commits)"}</span>
         </span>
         <span className="dv-actions">
           <button className={!split ? "on" : ""} onClick={() => setSplit(false)}>unified</button>
@@ -271,7 +271,7 @@ export function DiffView({ repoPath, baseline, diff }: DiffViewProps) {
           <button onClick={() => setAll(false)} title="collapse all files">⊟</button>
         </span>
       </div>
-      {parsed.files.length === 0 && <div className="df-note">{diff.trim() ? "nothing parseable in this diff" : "no changes since baseline"}</div>}
+      {parsed.files.length === 0 && <div className="df-note">{diff.trim() ? "nothing parseable in this diff" : "no changes"}</div>}
       {parsed.files.map((f, i) => (
         <FileBlock key={keyOf(f, i)} file={f} open={isOpen(f, i)} onToggle={() => toggle(f, i)} split={split} repoPath={repoPath} />
       ))}

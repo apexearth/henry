@@ -11,4 +11,4 @@ Per-session baselines, repo state, and the one place Henry reaches past the mach
 
 Baseline: when a session first touches a repo (first hook event whose cwd or file
 path resolves into it), record `HEAD` as that session's baseline for that repo.
-"Commits since" and the diff are against that ref.
+"Commits since" is against that ref; the diff is not (it is uncommitted changes, vs HEAD).

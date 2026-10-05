@@ -284,7 +284,7 @@ async function handleMessage(client: Client, msg: ClientMessage): Promise<void> 
       for (const entry of db.listPlaybook(msg.sessionId).reverse()) client.send({ type: "playbook:update", entry });
       return;
     case "repo:diff": {
-      const { diff, baseline } = await git.diffSinceBaseline(msg.sessionId, msg.repoPath);
+      const { diff, baseline } = await git.uncommittedDiff(msg.repoPath);
       client.send({ type: "repo:diff", sessionId: msg.sessionId, repoPath: msg.repoPath, diff, baseline });
       return;
     }
@@ -649,7 +649,7 @@ export async function handleApi(req: Request, url: URL, origin: ApiOrigin): Prom
         return idx ? json(idx) : json({ error: "not a directory" }, 404);
       }
       if (pathname === "/api/file/diff") {
-        const d = await git.fileDiff(url.searchParams.get("sessionId") || undefined, url.searchParams.get("path") ?? "");
+        const d = await git.fileDiff(url.searchParams.get("path") ?? "");
         return d ? json(d) : json({ error: "not in a repo" }, 404);
       }
       // A peek edited in the UI, saved; or a new file from the tree. Loopback and phones only:

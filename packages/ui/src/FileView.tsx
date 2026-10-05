@@ -12,7 +12,7 @@ import { highlightLines, languageFor } from "./highlight";
 import { Markdown } from "./Markdown";
 import { loadPdfJs, PDF_FRAME, PDF_ZOOM_MAX, PDF_ZOOM_MIN } from "./pdf";
 import { baseName, MOD, mod } from "./platform";
-import { getState } from "./ws";
+import { getState, useStore } from "./ws";
 
 // CodeMirror is a third of the bundle and most peeks are never edited.
 const Editor = lazy(() => import("./Editor").then((m) => ({ default: m.Editor })));
@@ -219,7 +219,7 @@ export function FileView({ path, line, active, local = false, popped = false, ed
     };
   }, [peek]);
 
-  // Changes vs the active session's baseline (HEAD when none): added lines tinted in place,
+  // Uncommitted changes (vs HEAD): added lines tinted in place,
   // deleted lines as struck-through ghosts where they used to be.
   const [fd, setFd] = useState<FileDiff | null>(null);
   useEffect(() => {
@@ -279,6 +279,41 @@ export function FileView({ path, line, active, local = false, popped = false, ed
     } else setSaveState({ error: r.error, conflict: r.status === 409 });
   };
   const tryClose = () => (dirty ? holdUnsaved() : closePeek(filePanelId(path)));
+
+  // An agent (or another editor) changes the file while it is open: read it again on coming
+  // back to the peek, on any hook event or repo change, and on window focus, and take the new
+  // text when mtime or size moved. Unsaved edits are never replaced; their save refuses a file
+  // changed on disk instead. A clean editor remounts on the new text.
+  const [editorKey, setEditorKey] = useState(0);
+  const live = useRef({ peek, editing, dirty });
+  live.current = { peek, editing, dirty };
+  const lastEvent = useStore((s) => s.events[0]?.id);
+  const repos = useStore((s) => s.repos);
+  const [focused, setFocused] = useState(0);
+  useEffect(() => {
+    const onFocus = () => setFocused((n) => n + 1);
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, []);
+  useEffect(() => {
+    if (!live.current.peek || live.current.peek.pdf) return;
+    let on = true;
+    const t = setTimeout(() => {
+      fetchPeek(path, undefined, local).then((p) => {
+        const { peek: was, editing: ed, dirty: d } = live.current;
+        if (!on || !p || !was || d || (p.mtime === was.mtime && p.size === was.size)) return;
+        setPeek(p);
+        if (ed) {
+          setDraft(p.content.includes("\r\n") ? p.content.replace(/\r\n/g, "\n") : p.content);
+          setEditorKey((k) => k + 1);
+        }
+      });
+    }, 250);
+    return () => {
+      on = false;
+      clearTimeout(t);
+    };
+  }, [path, local, active, lastEvent, repos, focused]);
   useEffect(() => {
     if (!active || !editing) return;
     const onEsc = (e: Event) => {
@@ -296,7 +331,8 @@ export function FileView({ path, line, active, local = false, popped = false, ed
   useEffect(() => {
     if (active) (editing ? editor.current?.focus() : body.current?.focus());
     if ((active || local) && peek && line) hit.current?.scrollIntoView({ block: "center" });
-  }, [active, local, peek, line, editing]);
+    // The path, not the peek: a re-read of a changed file keeps where you scrolled to.
+  }, [active, local, peek?.path, line, editing]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const lines = useMemo(() => {
     const ls = peek?.content && !peek.image ? peek.content.split("\n") : [];
@@ -410,7 +446,7 @@ export function FileView({ path, line, active, local = false, popped = false, ed
         </span>
         {peek?.repoPath && <span className="peek-meta" style={{ marginLeft: 0 }}>{baseName(peek.repoPath)}</span>}
         {tint && (
-          <span className="peek-meta peek-diffstat" style={{ marginLeft: 0 }} title={local ? "uncommitted" : `vs baseline ${fd?.baseline.slice(0, 7)}`}>
+          <span className="peek-meta peek-diffstat" style={{ marginLeft: 0 }} title={`uncommitted, vs ${fd?.baseline.slice(0, 7)}`}>
             {tint.adds.size > 0 && <span className="a">+{tint.adds.size}</span>}
             {tint.nDel > 0 && <span className="d">−{tint.nDel}</span>}
           </span>
@@ -499,7 +535,7 @@ export function FileView({ path, line, active, local = false, popped = false, ed
         {editing && peek && showSource && (
           <div className="peek-pane">
             <Suspense fallback={<div className="peek-note">loading the editor…</div>}>
-              <Editor ref={editor} path={peek.path} doc={draft ?? text} onChange={setDraft} onSave={() => void save()} />
+              <Editor key={editorKey} ref={editor} path={peek.path} doc={draft ?? text} onChange={setDraft} onSave={() => void save()} />
             </Suspense>
           </div>
         )}
