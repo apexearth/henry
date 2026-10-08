@@ -87,7 +87,11 @@ button first, so a stray click in the tree does not hand an unread file to the p
 Settings → files turns that off, per browser. Zoom (25–400%, 100% fitting the pane's width)
 is a slider in the header, or ⌘+wheel and pinch over the page: the frame forwards the wheel
 to the peek, which owns the zoom and posts it back; pages resize at once and redraw sharp
-when the zooming stops. Pages are pictures (no text selection or links). Same limits as
+when the zooming stops. Over each page lies pdf.js's text layer, invisible text in the
+picture's place, so text selects and copies (links do not follow). ⌘F is the peek's find bar
+as for any file; the frame searches that text (smart case, a line break counts as a space)
+and marks the matches with the CSS highlight API, and Henry only shows the count. Keys pressed
+inside the frame never reach Henry, so the frame passes on ⌘F, ⌘K and Esc. Same limits as
 HTML: this machine's loopback only.
 
 The tree's marks are the exception: they are `git status`, against HEAD, so every session in

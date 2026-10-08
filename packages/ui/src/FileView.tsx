@@ -401,8 +401,22 @@ export function FileView({ path, line, active, local = false, popped = false, ed
     window.addEventListener(FIND_EVENT, onFind);
     return () => window.removeEventListener(FIND_EVENT, onFind);
   }, [active]);
+  // A PDF's bytes come from `/raw`: same machine and listener rules as HTML.
+  const isPdf = !!peek?.pdf;
+  const pdfServed = isPdf && rawServed(local);
+  const [pdfOpen, setPdfOpen] = useState(loadPdfAuto);
+  // 1 = the page fits the pane's width.
+  const [pdfZoom, setPdfZoom] = useState(1);
+  // A PDF's matches are counted in its frame, which owns the text.
+  const [pdfFound, setPdfFound] = useState(0);
+  useEffect(() => {
+    setPdfOpen(loadPdfAuto());
+    setPdfZoom(1);
+    setPdfFound(0);
+  }, [path]);
   const found = useMemo(() => findAll(lines, find?.q ?? ""), [lines, find?.q]);
-  const curIdx = find && found.at.length ? ((find.n % found.at.length) + found.at.length) % found.at.length : -1;
+  const nFound = pdfServed && pdfOpen ? pdfFound : found.at.length;
+  const curIdx = find && nFound ? ((find.n % nFound) + nFound) % nFound : -1;
   const curAt = curIdx >= 0 ? found.at[curIdx] : undefined;
   useEffect(() => {
     cur.current?.scrollIntoView({ block: "center" });
@@ -435,16 +449,6 @@ export function FileView({ path, line, active, local = false, popped = false, ed
     } catch {}
   };
   const [reloads, setReloads] = useState(0);
-  // A PDF's bytes come from `/raw`: same machine and listener rules as HTML.
-  const isPdf = !!peek?.pdf;
-  const pdfServed = isPdf && rawServed(local);
-  const [pdfOpen, setPdfOpen] = useState(loadPdfAuto);
-  // 1 = the page fits the pane's width.
-  const [pdfZoom, setPdfZoom] = useState(1);
-  useEffect(() => {
-    setPdfOpen(loadPdfAuto());
-    setPdfZoom(1);
-  }, [path]);
   // The editor is the source: a page alone gives way to it, a split shows the page of what is
   // being typed, a beat behind the keys.
   const showPage = (isMd || isHtml) && (mdView === "split" || (mdView === "page" && !find && !editing));
@@ -537,7 +541,7 @@ export function FileView({ path, line, active, local = false, popped = false, ed
           <input ref={findInput} value={find.q} spellCheck={false} placeholder="find in file" autoFocus
             onChange={(e) => setFind({ q: e.target.value, n: 0 })} onKeyDown={onFindKey} />
           <span className="hint">
-            {find.q ? found.at.length ? `${curIdx + 1} of ${found.at.length}${found.at.length >= FIND_CAP ? "+" : ""}` : "no match" : ""}
+            {find.q ? nFound ? `${curIdx + 1} of ${nFound}${nFound >= FIND_CAP ? "+" : ""}` : "no match" : ""}
           </span>
           <span style={{ flex: 1 }} />
           <span className="hint">↩ next · ⇧↩ previous · Esc closes</span>
@@ -561,7 +565,7 @@ export function FileView({ path, line, active, local = false, popped = false, ed
         )}
         {pdfServed && pdfOpen && (
           <div className="peek-pane peek-html">
-            <PdfFrame path={peek!.path} title={name} zoom={pdfZoom} onZoom={setPdfZoom} />
+            <PdfFrame path={peek!.path} title={name} zoom={pdfZoom} onZoom={setPdfZoom} find={find} onFound={setPdfFound} />
           </div>
         )}
         {editing && peek && showSource && (
@@ -601,10 +605,19 @@ export function FileView({ path, line, active, local = false, popped = false, ed
 
 /** Opaque origin (sandbox without allow-same-origin): pdf.js runs there, never as Henry. The
  *  bytes are read here, where `/raw` is same-origin, and handed over with the library. */
-function PdfFrame({ path, title, zoom, onZoom }: { path: string; title: string; zoom: number; onZoom: (f: (z: number) => number) => void }) {
+interface PdfFrameProps {
+  path: string;
+  title: string;
+  zoom: number;
+  onZoom: (f: (z: number) => number) => void;
+  find: { q: string; n: number } | null;
+  onFound: (count: number) => void;
+}
+
+function PdfFrame({ path, title, zoom, onZoom, find, onFound }: PdfFrameProps) {
   const ref = useRef<HTMLIFrameElement>(null);
-  const zoomNow = useRef(zoom);
-  zoomNow.current = zoom;
+  const now = useRef({ zoom, find, onZoom, onFound });
+  now.current = { zoom, find, onZoom, onFound };
   const unlisten = useRef(() => {});
   useEffect(() => () => unlisten.current(), []);
   // Runs again when the frame is moved into a popped-out window (moving an iframe reloads it),
@@ -613,22 +626,36 @@ function PdfFrame({ path, title, zoom, onZoom }: { path: string; title: string; 
     const frame = e.currentTarget.contentWindow;
     const host = e.currentTarget.ownerDocument.defaultView;
     unlisten.current();
-    // ⌘+wheel inside the frame never reaches the host window; the frame forwards the delta.
     const onMsg = (m: MessageEvent) => {
-      if (m.source !== frame || typeof m.data?.wheel !== "number") return;
-      const dy = m.data.wheel as number;
-      onZoom((z) => clampZoom(z * Math.exp(-dy * 0.002)));
+      if (m.source !== frame) return;
+      const d = m.data;
+      // ⌘+wheel inside the frame never reaches the host window; the frame forwards the delta.
+      if (typeof d?.wheel === "number") {
+        const dy = d.wheel as number;
+        now.current.onZoom((z) => clampZoom(z * Math.exp(-dy * 0.002)));
+      } else if (typeof d?.found === "number") now.current.onFound(d.found);
+      // Nor do keys: ⌘F, ⌘K and Esc are replayed on the host so App's shortcuts see them.
+      else if (typeof d?.key?.key === "string") {
+        const k = d.key as Record<string, unknown>;
+        host?.dispatchEvent(new KeyboardEvent("keydown", {
+          key: k.key as string, metaKey: k.metaKey === true, ctrlKey: k.ctrlKey === true,
+          shiftKey: k.shiftKey === true, altKey: k.altKey === true, bubbles: true, cancelable: true,
+        }));
+      }
     };
     host?.addEventListener("message", onMsg);
     unlisten.current = () => host?.removeEventListener("message", onMsg);
+    const f = now.current.find;
+    frame?.postMessage({ find: f?.q ?? "", n: f?.n ?? 0 }, "*");
     Promise.all([loadPdfJs(), fetch(rawUrl(path)).then((r) => r.arrayBuffer())])
       .then(([{ lib, worker }, data]) => {
         frame?.postMessage({ lib, worker, data }, "*", [data]);
-        frame?.postMessage({ zoom: zoomNow.current }, "*");
+        frame?.postMessage({ zoom: now.current.zoom }, "*");
       })
       .catch((err) => console.warn("[henry] pdf peek:", err));
   };
   useEffect(() => ref.current?.contentWindow?.postMessage({ zoom }, "*"), [zoom]);
+  useEffect(() => ref.current?.contentWindow?.postMessage({ find: find?.q ?? "", n: find?.n ?? 0 }, "*"), [find?.q, find?.n]);
   return <iframe ref={ref} key={path} srcDoc={PDF_FRAME} sandbox="allow-scripts" title={title} onLoad={onLoad} />;
 }
 
