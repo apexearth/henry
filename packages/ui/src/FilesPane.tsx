@@ -13,7 +13,7 @@ import { openPeek } from "./FileView";
 import { FilesRoot } from "./FilesRoot";
 import { forgetIndex, rootIndex, useSessionFiles } from "./files";
 import { globFilter, matches, tokenize } from "./match";
-import { baseName, joinPath } from "./platform";
+import { FILE_MANAGER, baseName, joinPath, onLoopback, revealFolder } from "./platform";
 import { ancestorsOf, buildTree, type TreeNode } from "./tree";
 import { getState, useStore } from "./ws";
 
@@ -596,7 +596,7 @@ export function FilesPane() {
           if (r.kind === "root") {
             return (
               <FilesRoot key={r.key} path={r.root.path} name={r.root.name} pinned={r.root.pinned} repo={cards.get(r.root.path)}
-                sessionId={activeId} open={r.open} sel={on} style={pad} index={i}
+                sessionId={activeId} local={!peer && onLoopback} open={r.open} sel={on} style={pad} index={i}
                 onHover={() => setSel(r.key)} onToggle={() => toggle(r.key)} onUnpin={() => unpin(r.root.path)} />
             );
           }
@@ -649,6 +649,11 @@ export function FilesPane() {
             <button onClick={() => startNew(menu.spot)}>
               new file in <b>{menu.spot.dir ? baseName(menu.spot.dir) : menu.spot.root.name}</b>
             </button>
+            {onLoopback && (
+              <button onClick={() => { revealFolder(menu.spot.dir ? joinPath(menu.spot.root.path, menu.spot.dir) : menu.spot.root.path); setMenu(null); }}>
+                open <b>{menu.spot.dir ? baseName(menu.spot.dir) : menu.spot.root.name}</b> in {FILE_MANAGER}
+              </button>
+            )}
           </div>
         </>
       )}

@@ -88,6 +88,17 @@ export function speakSpec(text: string, out: string, voice?: string): { command:
   return { command: ps, args: ["-NoProfile", "-NonInteractive", "-Command", script] };
 }
 
+/**
+ * How to show the folder `dir` in the OS file manager. Explorer and `xdg-open` open a folder
+ * as a folder. macOS `open` launches a bundle (`X.app`) rather than showing it, so a folder
+ * whose name has an extension is revealed in its parent (`-R`) instead.
+ */
+export function revealSpec(dir: string): { command: string; args: string[] } {
+  if (isWindows) return { command: "explorer.exe", args: [dir] };
+  if (process.platform === "darwin") return { command: "open", args: /.\.[^.]+$/.test(basename(dir)) ? ["-R", dir] : [dir] };
+  return { command: "xdg-open", args: [dir] };
+}
+
 /** How to get whisper.cpp here. Homebrew has it; Windows has only the project's own zips. */
 export const STT_INSTALL_HINT = isWindows
   ? "unzip whisper-bin-x64.zip from github.com/ggml-org/whisper.cpp/releases and point voice.stt at whisper-cli.exe"

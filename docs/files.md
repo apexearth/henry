@@ -168,11 +168,15 @@ is one key. ⌃F works outside the terminal, where it stays forward-char.
 **The Files tab** is the folder tree of every repo this session has touched (⌘F above), where
 each repo's root row is also its card, on one line: name, branch, `↑n ↓n` against the upstream (only the non-zero side; `↑∅` when there is no upstream),
 `+n` commits since the session baseline (click: the log unfolds under the row), the
-open-PR count when there is one (click: the list unfolds), then three icons — `±n` is the
+open-PR count when there is one (click: the list unfolds), then the icons — `±n` is the
 dirty count and opens the uncommitted diff (unified/split), the graph mark opens the commit
 graph of every branch as `git log --graph --all` draws it (`GET /api/repo/tree`, capped at
 400 commits), `↗` opens the upstream remote's web page (scp/ssh/https git URLs become
-https). The path, the last commit and a worktree's parent live in the row's tooltip; a
+https), and the folder mark opens the root in Explorer or Finder (a pinned folder has it too;
+so does any folder, from the tree's right-click menu). Only for a window on this machine: not
+for a peer's session or on the phone, and the daemon takes `POST /api/reveal` only from
+loopback and only for a folder.
+The path, the last commit and a worktree's parent live in the row's tooltip; a
 worktree carries a `wt` tag. Any commit hash (tree rows, the log, a commit's parents) opens
 that commit: metadata, message and its patch vs the first parent (`GET /api/repo/commit`).
 Diff, tree and commit are full-screen modals over the app and stack; Esc closes the top

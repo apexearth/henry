@@ -10,6 +10,17 @@ export const mod = (e: { metaKey: boolean; ctrlKey: boolean }) => (isMac ? e.met
  * and off macOS the explorer's F): ⌘ on macOS, Alt elsewhere. */
 export const arrowMod = (e: { metaKey: boolean; altKey: boolean }) => (isMac ? e.metaKey : e.altKey);
 
+/** What the OS calls its file manager, for "open in …". */
+export const FILE_MANAGER = isMac ? "Finder" : typeof navigator !== "undefined" && /^Win/.test(navigator.platform || "") ? "Explorer" : "file manager";
+
+/** The window is on this machine's loopback listener, not a phone's; folders open here. */
+export const onLoopback = typeof location !== "undefined" && ["127.0.0.1", "localhost", "[::1]"].includes(location.hostname);
+
+/** Opens `dir` (absolute, on this machine) in the OS file manager. */
+export function revealFolder(dir: string): void {
+  void fetch("/api/reveal", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path: dir }) });
+}
+
 /** Shortcut labels for tooltips. */
 export const MOD = isMac ? "⌘" : "Ctrl+";
 export const ARROW_MOD = isMac ? "⌘" : "Alt+";

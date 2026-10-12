@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 import type { PullRequest, RepoPrs, RepoState } from "@henry/shared";
 import { DiffView } from "./DiffView";
 import { CommitModal, RepoModal, TreeModal, relTime } from "./GitTree";
-import { baseName } from "./platform";
+import { FILE_MANAGER, baseName, revealFolder } from "./platform";
 import { PrIcon } from "./PrsMenu";
 import { hueText, nameHue } from "./theme";
 import { diffKey, requestDiff, useStore } from "./ws";
@@ -25,6 +25,8 @@ export interface FilesRootProps {
   /** The session's card for this root; absent for a pinned folder or before the watcher reports. */
   repo?: RepoState;
   sessionId: string | null;
+  /** The folder is on this machine and so is the window: it can open in the file manager. */
+  local: boolean;
   open: boolean;
   sel: boolean;
   style: React.CSSProperties;
@@ -33,6 +35,15 @@ export interface FilesRootProps {
   onHover: () => void;
   onToggle: () => void;
   onUnpin: () => void;
+}
+
+/** A folder in eleven pixels, same stroke as TreeIcon. */
+function FolderIcon({ size = 11 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden>
+      <path d="M1.5 3.5h4.5l1.5 2h7v7.5h-13z" />
+    </svg>
+  );
 }
 
 /** A commit graph in eleven pixels: a trunk with a branch leaving it. Same stroke as PrIcon. */
@@ -49,7 +60,7 @@ function TreeIcon({ size = 11 }: { size?: number }) {
 
 const stop = (e: React.SyntheticEvent) => e.stopPropagation();
 
-export function FilesRoot({ path, name, pinned, repo, sessionId, open, sel, style, index, onHover, onToggle, onUnpin }: FilesRootProps) {
+export function FilesRoot({ path, name, pinned, repo, sessionId, local, open, sel, style, index, onHover, onToggle, onUnpin }: FilesRootProps) {
   const [showDiff, setShowDiff] = useState(false);
   const [showTree, setShowTree] = useState(false);
   const [commit, setCommit] = useState<string | null>(null);
@@ -156,6 +167,12 @@ export function FilesRoot({ path, name, pinned, repo, sessionId, open, sel, styl
                 title={`open ${repo.remoteUrl}`}>↗</a>
             )}
           </>
+        )}
+        {!repo && <span className="fr-spacer" />}
+        {local && (
+          <button className="fr-btn" onMouseDown={stop} onClick={(e) => { stop(e); revealFolder(path); }} title={`open ${path} in ${FILE_MANAGER}`}>
+            <FolderIcon />
+          </button>
         )}
         {pinned && <button className="files-unpin" title="unpin this folder" onClick={(e) => { stop(e); onUnpin(); }}>&times;</button>}
       </div>

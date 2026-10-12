@@ -1,7 +1,7 @@
 // HTTP + WS on 127.0.0.1:<port>. Serves packages/ui/dist, /api/*, /hook, /statusline, /ws.
 // Later milestones: import { broadcast } from "./server" to push ServerMessages to every window.
 import { existsSync, statSync } from "node:fs";
-import { join, normalize } from "node:path";
+import { isAbsolute, join, normalize } from "node:path";
 import type { ServerWebSocket } from "bun";
 import type { ClientMessage, HenryConfig, PresenceBeat, PresenceSource, ServerMessage, StateSnapshot, Usage } from "@henry/shared";
 import { SOURCES } from "@henry/shared";
@@ -23,6 +23,7 @@ import * as mcp from "./mcp";
 import * as notify from "./notify";
 import * as overseer from "./overseer";
 import * as phone from "./phone";
+import { revealSpec } from "./platform";
 import { sessions } from "./sessions";
 import * as voice from "./voice";
 
@@ -499,6 +500,17 @@ export async function handleApi(req: Request, url: URL, origin: ApiOrigin): Prom
   // What this process holds. For the person at this machine only: never proxied, never a
   // peer's or a phone's business, and a heap snapshot has every secret in memory in it.
   if (pathname.startsWith("/api/debug/")) return origin === "local" ? debugApi(req, pathname) : json({ error: "forbidden" }, 403);
+  // A folder opened in this machine's file manager, so only a window at this machine may ask.
+  // JSON only, so a page on another site cannot send it without a preflight the daemon never answers.
+  if (pathname === "/api/reveal") {
+    if (origin !== "local" || req.method !== "POST" || !req.headers.get("content-type")?.startsWith("application/json")) return json({ error: "forbidden" }, 403);
+    const body = (await readJson(req)) as { path?: unknown };
+    const dir = typeof body?.path === "string" && isAbsolute(body.path) ? normalize(body.path) : "";
+    if (!dir || !statSync(dir, { throwIfNoEntry: false })?.isDirectory()) return json({ error: "not a folder" }, 404);
+    const { command, args } = revealSpec(dir);
+    Bun.spawn([command, ...args], { stdio: ["ignore", "ignore", "ignore"] });
+    return json({ ok: true });
+  }
   if (pathname.startsWith("/api/federation/")) return fromPeer ? json({ error: "forbidden" }, 403) : federationApi(req, url);
   // Phone access is machine business like pairing: never proxied, never served to a peer.
   // phone.verdict has already refused everything but claim and me on the phone listener.
