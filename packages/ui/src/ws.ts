@@ -374,23 +374,32 @@ function machineGroups(order: Session[], s: UiState): RailGroup[] {
   return [...groups.values()].sort((a, b) => Number(a.key === NO_REPO) - Number(b.key === NO_REPO) || byTitle(a.label, b.label));
 }
 
+/** Finished (or marked unread, or a reminder came due) and you have not looked since. Only a
+ * running session: an exited row restored from an old run may still carry the mark. */
+export const isUnseen = (s: Session): boolean => s.status === "running" && s.unseenSince !== undefined;
+
 /** Running Claude sessions split into "asking for you" (a session that raised an ask, which
- * beats everything), "your move" (sorted by how long you have left them: oldest input first)
- * and "working", then terminals, then whatever closed rows are shown. */
+ * beats everything), "not seen yet" (oldest finish first), "your move" (sorted by how long you
+ * have left them: oldest input first) and "working", then terminals, then whatever closed rows
+ * are shown. A terminal you marked unread is listed with the unseen ones. */
 function attentionGroups(order: Session[], s: UiState): RailGroup[] {
   const asking: Session[] = [];
+  const fresh: Session[] = [];
   const yours: Session[] = [];
   const working: Session[] = [];
   const rest: Session[] = [];
   for (const x of order) {
-    if (x.status !== "running" || !isClaudeSession(x)) rest.push(x);
+    if (isUnseen(x) && !s.attention.some((a) => a.sessionId === x.id)) fresh.push(x);
+    else if (x.status !== "running" || !isClaudeSession(x)) rest.push(x);
     else if (s.attention.some((a) => a.sessionId === x.id)) asking.push(x);
     else if (x.activity === "working") working.push(x);
     else yours.push(x);
   }
+  fresh.sort((a, b) => a.unseenSince! - b.unseenSince!);
   yours.sort((a, b) => (a.lastInputAt ?? a.activitySince ?? a.createdAt) - (b.lastInputAt ?? b.activitySince ?? b.createdAt));
   const groups: RailGroup[] = [];
   if (asking.length) groups.push({ key: "asking", label: "asking for you", title: "these sessions asked you to come, and said why", sessions: asking });
+  if (fresh.length) groups.push({ key: "unseen", label: "not seen yet", title: "finished since you last looked, marked unread, or a reminder came due; longest waiting first", sessions: fresh });
   if (yours.length) groups.push({ key: "yours", label: "your move", title: "the turn ended or Claude is asking; longest since you typed first", sessions: yours });
   if (working.length) groups.push({ key: "working", label: "working", title: "a turn is running", sessions: working });
   if (rest.length) groups.push({ key: "rest", label: "other", title: "terminals and closed sessions", sessions: rest });
@@ -590,6 +599,26 @@ export function answerAttention(ids: string[]): void {
   if (!ids.length) return;
   for (const id of ids) send({ type: "attention:answered", id });
   setState({ attention: state.attention.filter((a) => !ids.includes(a.id)) });
+}
+
+/** You looked at a session, or (seen false) want it back in the unread pile. The daemon owning
+ * the session keeps the mark, so every window and machine agrees. */
+export function markSeen(sessionId: string, seen: boolean): void {
+  send({ type: "session:seen", sessionId, seen });
+}
+
+/** Come back to this session at `at` (null cancels). Setting one also marks it seen. */
+export function remindSession(sessionId: string, at: number | null): void {
+  send({ type: "session:remind", sessionId, at });
+}
+
+/** The unseen rows on screen, longest waiting first: what ⌘J walks. A session listed under
+ * several repos is one stop, at its first row. */
+export function unseenRows(s: UiState = state): RailRow[] {
+  const seen = new Set<string>();
+  return railRows(s)
+    .filter((r) => isUnseen(r.session) && !seen.has(r.session.id) && seen.add(r.session.id))
+    .sort((a, b) => a.session.unseenSince! - b.session.unseenSince!);
 }
 
 /** The asks a session has open, oldest first. */

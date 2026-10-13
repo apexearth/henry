@@ -7,6 +7,7 @@ import { ErrorBoundary } from "./ErrorBoundary";
 import { checkAccess, type Access } from "./access";
 import { connect } from "./ws";
 import { startPresence } from "./presence";
+import { startSeen } from "./seen";
 import { applyTheme } from "./theme";
 import { isMac } from "./platform";
 import "@xterm/xterm/css/xterm.css";
@@ -29,6 +30,7 @@ async function boot(): Promise<void> {
     started = true;
     connect();
     startPresence();
+    startSeen();
   }
   root.render(
     <ErrorBoundary>

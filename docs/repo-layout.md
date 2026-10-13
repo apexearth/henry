@@ -36,6 +36,7 @@ henry/
       src/attention.ts         # asks: a session calling for the user, with a deadline and a way to answer
       src/activity.ts          # working | needsInput | waiting | idle, derived from hooks
       src/engagement.ts        # my prompts + keystrokes per session: lastInputAt, prompt sparkline
+      src/seen.ts              # unseen marks (cleared by looking or typing) and rail reminders
       src/human.ts             # my minutes recorded + rolled up by local day (GET /api/human, POST /api/presence)
       src/overseer.ts          # playbook writer (api | claude-cli backend)
       src/installer.ts         # settings.json merge/unmerge
@@ -61,6 +62,7 @@ henry/
       src/mobile/Gate.tsx      # what an ungranted device sees: how to get a QR
       src/TopActivity.tsx      # the strip: sessions, dirty repos, my hours/prompts/cadence + "you"
       src/presence.ts          # this window beating "I am here" while you read (POST /api/presence)
+      src/seen.ts              # telling the daemon you looked at the session in view
       src/Layout.tsx           # Dockview root; wraps rail, terminals and tools as panels
       src/dock.ts              # default layout, localStorage persistence, open/focus helpers
       src/ws.ts                # client, reconnect, state store

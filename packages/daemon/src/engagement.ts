@@ -7,6 +7,7 @@ import { isClaudeSession, isSyntheticPrompt } from "@henry/shared";
 import * as attention from "./attention";
 import * as db from "./db";
 import { notePresence } from "./human";
+import * as seen from "./seen";
 import { sessions } from "./sessions";
 
 /** How far back the rail's prompt sparkline looks. */
@@ -52,6 +53,7 @@ export function note(sessionId: string, hookEvent: string, ts = Date.now(), prom
   }
   if (hookEvent !== "UserPromptSubmit" || isSyntheticPrompt(prompt)) return;
   attention.answered(sessionId, ts);
+  seen.seen(sessionId);
   const list = prune(prompts.get(sessionId) ?? [], ts);
   list.push(ts);
   prompts.set(sessionId, list);
@@ -69,6 +71,7 @@ export function input(sessionId: string, data: string, now = Date.now()): void {
   notePresence("terminal", now);
   // You are in the session, typing: whatever it asked you for, you have arrived.
   attention.answered(sessionId, now);
+  seen.seen(sessionId);
   if (!isClaudeSession(s)) return;
   const prev = lastInput.get(sessionId);
   if (prev !== undefined && now - prev < INPUT_THROTTLE_MS) return;

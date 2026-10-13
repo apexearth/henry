@@ -52,6 +52,11 @@ export interface Session {
   /** Timestamps of your prompts over the last PROMPT_WINDOW_MS, ascending. The rail draws
    * them as a sparkline so a session you stopped feeding reads as a flat tail. */
   prompts?: number[];
+  /** A turn ended after real work (or you marked it unread, or a reminder came due) and you
+   * have not looked since: when that first happened. Cleared by viewing or typing (daemon/seen.ts). Persisted. */
+  unseenSince?: number;
+  /** You asked to be reminded of this session then; it comes back unseen with a notice. Persisted. */
+  remindAt?: number;
 }
 
 export interface RepoState {
@@ -170,8 +175,9 @@ export interface Attention {
 export interface Notice {
   id: string;
   sessionId: string;
-  /** A permission prompt opened, a turn ended after real work, or the session asked by name. */
-  kind: "needsInput" | "waiting" | "ask";
+  /** A permission prompt opened, a turn ended after real work, the session asked by name, or a
+   * reminder you set came due. */
+  kind: "needsInput" | "waiting" | "ask" | "remind";
   /** The session's title, as the rail shows it. */
   title: string;
   body: string;

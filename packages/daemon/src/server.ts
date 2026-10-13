@@ -25,6 +25,7 @@ import * as notify from "./notify";
 import * as overseer from "./overseer";
 import * as phone from "./phone";
 import { revealSpec } from "./platform";
+import * as seen from "./seen";
 import { sessions } from "./sessions";
 import * as voice from "./voice";
 
@@ -284,6 +285,13 @@ async function handleMessage(client: Client, msg: ClientMessage): Promise<void> 
       if (!client.fromPeer && federation.answerAttention(msg.id)) return;
       attention.finish(msg.id, "answered");
       return;
+    case "session:seen":
+      if (msg.seen) seen.seen(msg.sessionId);
+      else seen.unseen(msg.sessionId);
+      return;
+    case "session:remind":
+      seen.remind(msg.sessionId, msg.at);
+      return;
     case "playbook:request":
       for (const entry of db.listPlaybook(msg.sessionId).reverse()) client.send({ type: "playbook:update", entry });
       return;
@@ -322,6 +330,8 @@ function handleRemote(client: Client, msg: ClientMessage, link: PeerLink): void 
     case "session:kill":
     case "playbook:request":
     case "repo:diff":
+    case "session:seen":
+    case "session:remind":
       link.send(msg);
       return;
   }
@@ -382,6 +392,7 @@ export async function startServer(): Promise<void> {
   notify.setBroadcast(broadcast);
   notify.start();
   engagement.start();
+  seen.start();
   attention.setBroadcast((m) => {
     broadcast(m);
     if (m.type === "attention:update") notify.onAsk(m.attention);
@@ -793,6 +804,7 @@ export function stopServer(): void {
   federation.stop();
   activity.stop();
   engagement.stop();
+  seen.stop();
   attention.stop();
   notify.stop();
   git.stop();

@@ -36,6 +36,10 @@ export type ClientMessage =
   /** You saw a session's ask for you (clicked it, or typed into the session). It stops showing
    * and, if the session is holding a `henry_attention` call open, that call returns. */
   | { type: "attention:answered"; id: string }
+  /** You looked at the session (seen) or marked it unread from the rail's menu (not seen). */
+  | { type: "session:seen"; sessionId: string; seen: boolean }
+  /** Bring the session back as unseen, with a notice, at `at`; null cancels. Setting one also marks it seen. */
+  | { type: "session:remind"; sessionId: string; at: number | null }
   | { type: "playbook:request"; sessionId: string | null }
   | { type: "repo:diff"; sessionId: string; repoPath: string }
   | { type: "state:request" };

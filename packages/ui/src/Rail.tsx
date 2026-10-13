@@ -5,7 +5,8 @@ import { MOD, baseName, isMac } from "./platform";
 import { inShell, onMenu } from "./shell";
 import { hueText, nameHue } from "./theme";
 import { showSession } from "./dock";
-import { activeRowIndex, answerAttention, duplicateSession, hiddenCount, hideSessions, killSession, railGroups, railRows, resumeSession, setActive, setGroupBy, showAllSessions, terminalHere, toggleMachine, toggleShowClosed, useStore, type GroupBy } from "./ws";
+import { markUnread } from "./seen";
+import { activeRowIndex, answerAttention, duplicateSession, hiddenCount, hideSessions, isUnseen, killSession, markSeen, railGroups, railRows, remindSession, resumeSession, setActive, setGroupBy, showAllSessions, terminalHere, toggleMachine, toggleShowClosed, useStore, type GroupBy } from "./ws";
 
 const base = baseName;
 
@@ -71,7 +72,8 @@ function Spark({ prompts, now }: { prompts: number[] | undefined; now: number })
 /** How stale your attention is: only while the session is waiting on you, in three steps
  * (5 min, 15 min, 1 h) so the row fades instead of the label just growing. */
 function neglect(s: Session, now: number): 0 | 1 | 2 | 3 {
-  if (s.status !== "running" || !s.activity || s.activity === "working") return 0;
+  // Unseen work stays bright: fading is for what you have seen and left, not what you missed.
+  if (s.status !== "running" || !s.activity || s.activity === "working" || isUnseen(s)) return 0;
   const since = now - (s.lastInputAt ?? s.activitySince ?? now);
   return since >= 60 * 60_000 ? 3 : since >= 15 * 60_000 ? 2 : since >= 5 * 60_000 ? 1 : 0;
 }
@@ -90,6 +92,26 @@ function since(ts: number | undefined, now: number): string {
   return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h`;
 }
 
+/** A reminder's time: the clock today, the weekday and clock after that. */
+function clock(ts: number, now: number): string {
+  const d = new Date(ts);
+  const t = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return d.toDateString() === new Date(now).toDateString() ? t : `${d.toLocaleDateString([], { weekday: "short" })} ${t}`;
+}
+
+/** The right-click menu's reminder choices, as a time from now. */
+const REMIND: [label: string, at: (now: number) => number][] = [
+  ["in 15 minutes", (now) => now + 15 * 60_000],
+  ["in 1 hour", (now) => now + 60 * 60_000],
+  ["in 3 hours", (now) => now + 3 * 60 * 60_000],
+  ["tomorrow at 9:00", (now) => {
+    const d = new Date(now);
+    d.setDate(d.getDate() + 1);
+    d.setHours(9, 0, 0, 0);
+    return d.getTime();
+  }],
+];
+
 /** Re-render slowly so the "4m" labels age; activity itself arrives over the WS. */
 function useNow(everyMs: number): number {
   const [now, setNow] = useState(Date.now);
@@ -98,6 +120,35 @@ function useNow(everyMs: number): number {
     return () => clearInterval(t);
   }, [everyMs]);
   return now;
+}
+
+/** A rail row's right-click menu: read / unread, and a reminder to come back. */
+function RowMenu({ x, y, session, now, onClose }: { x: number; y: number; session: Session; now: number; onClose: () => void }) {
+  // The row's session as the store has it now, not as it was when the menu opened.
+  const s = useStore((st) => st.sessions.find((v) => v.id === session.id)) ?? session;
+  const act = (fn: () => void) => () => {
+    fn();
+    onClose();
+  };
+  return (
+    <>
+      <div className="pop-bg" onClick={onClose} onContextMenu={(e) => { e.preventDefault(); onClose(); }} />
+      <div className="pop files-menu rail-menu" style={{ left: x, top: y }}>
+        {isUnseen(s)
+          ? <button onClick={act(() => markSeen(s.id, true))}>mark as read</button>
+          : <button onClick={act(() => markUnread(s.id))}>mark as unread</button>}
+        <div className="menu-sep" />
+        {REMIND.map(([label, at]) => (
+          <button key={label} onClick={act(() => remindSession(s.id, at(Date.now())))} title="it leaves the unread pile now and comes back, with a notification, then">
+            remind me {label}
+          </button>
+        ))}
+        {s.remindAt !== undefined && (
+          <button onClick={act(() => remindSession(s.id, null))}>cancel the reminder at {clock(s.remindAt, now)}</button>
+        )}
+      </div>
+    </>
+  );
 }
 
 const GROUP_LABEL: Record<GroupBy, string> = {
@@ -166,6 +217,7 @@ function Rail({ onNew }: { onNew: () => void }) {
   const flags = useStore((s) => s.flags);
   const attention = useStore((s) => s.attention);
   const now = useNow(15000);
+  const [menu, setMenu] = useState<{ x: number; y: number; session: Session } | null>(null);
 
   // The repo sub-label repeats the header under "by folder" / "by repo", so it only shows
   // where it is the row's only repo cue.
@@ -230,13 +282,24 @@ function Rail({ onNew }: { onNew: () => void }) {
               const nPrompts = on && claude ? bucketPrompts(s.prompts, now).reduce((a, b) => a + b, 0) : 0;
               const yours = on && claude ? `\nyou: ${nPrompts} prompt${nPrompts === 1 ? "" : "s"} in the last 4 h${typed ? `, last typed ${typed} ago` : s.lastInputAt ? ", typing now" : ""}` : "";
               const fade = neglect(s, now);
+              const fresh = isUnseen(s);
+              const remindAt = on ? s.remindAt : undefined;
               return (
-                <div key={g.key + "\n" + s.id} className={"rail-item" + mark + (on ? "" : " off") + (fade ? " neglect-" + fade : "") + (ask.length ? " asking" : "")} onClick={() => { setActive(s.id, g.key); showSession(s.id); }}
-                  title={`${ask.map((a) => `asking you: ${a.message} (${until(a.deadline, now)})\n`).join("")}${what}, ${state}${on && s.activity ? ` — ${ACTIVITY_TEXT[s.activity]}${ago && s.activity === "working" ? ` for ${ago}` : ""}` : ""}${yours}\n${s.cwd}${s.peer ? `\non ${s.peer} (remote, via its own Henry daemon)` : s.host ? `\non ${s.host}` : ""}${i >= 0 && i < 9 ? `\n${MOD}${i + 1}` : ""}`}>
+                <div key={g.key + "\n" + s.id} className={"rail-item" + mark + (on ? "" : " off") + (fade ? " neglect-" + fade : "") + (ask.length ? " asking" : "") + (fresh ? " unseen" : "")} onClick={() => { setActive(s.id, g.key); showSession(s.id); }}
+                  onContextMenu={(e) => {
+                    // Exited rows have nothing to mark: the browser's own menu stays.
+                    if (!on) return;
+                    e.preventDefault();
+                    setMenu({ x: e.clientX, y: e.clientY, session: s });
+                  }}
+                  title={`${ask.map((a) => `asking you: ${a.message} (${until(a.deadline, now)})\n`).join("")}${fresh ? `not seen yet${since(s.unseenSince, now) ? `, for ${since(s.unseenSince, now)}` : ""}\n` : ""}${remindAt ? `reminder at ${clock(remindAt, now)}\n` : ""}${what}, ${state}${on && s.activity ? ` — ${ACTIVITY_TEXT[s.activity]}${ago && s.activity === "working" ? ` for ${ago}` : ""}` : ""}${yours}\n${s.cwd}${s.peer ? `\non ${s.peer} (remote, via its own Henry daemon)` : s.host ? `\non ${s.host}` : ""}${i >= 0 && i < 9 ? `\n${MOD}${i + 1}` : ""}${on ? "\nright click: mark unread, remind me later" : ""}`}>
                   {on && claude && <Spark prompts={s.prompts} now={now} />}
                   {claude ? <ClaudeMark on={on} activity={on ? s.activity : undefined} /> : <ShellMark on={on} />}
+                  {fresh && <span className="unseen-dot" aria-label="not seen yet" />}
                   <span className="title">{s.title}</span>
                   {s.title !== repo && showSub && <span className="sub" style={{ color: hueText(nameHue(repo)) }}>{repo}</span>}
+                  {/* The time is in the tooltip: the rail is narrow and the title matters more. */}
+                  {remindAt && <span className="remind" aria-label={`reminder at ${clock(remindAt, now)}`}>⏰</span>}
                   {ago && <span className={"act act-" + s.activity}>{ago}</span>}
                   {ask.length > 0 && (
                     <button className="badge ask" title={`${ask.map((a) => `“${a.message}” — ${until(a.deadline, now)}`).join("\n")}\nclick: open it and tell the session you have seen it`}
@@ -259,6 +322,7 @@ function Rail({ onNew }: { onNew: () => void }) {
           </div>
         ))}
       </div>
+      {menu && <RowMenu {...menu} now={Date.now()} onClose={() => setMenu(null)} />}
       <div className="rail-new-wrap">
         <button className="rail-new" title={`new session (${isMac ? (inShell ? "⌘N" : "⌃N") : inShell ? "Ctrl+N" : "Alt+N"})`} onClick={onNew}>+ new session</button>
       </div>

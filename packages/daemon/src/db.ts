@@ -135,6 +135,9 @@ if (!(db.prepare("PRAGMA table_info(playbook)").all() as { name: string }[]).som
   // and a running Claude process cannot re-resolve it, so the daemon keeps answering on the
   // ports its live sessions still name (server.ts, syncAliasListeners).
   if (!cols.has("port")) db.exec("ALTER TABLE sessions ADD COLUMN port INTEGER");
+  // Unseen and reminders (seen.ts) outlive a daemon restart, which replays no transitions.
+  if (!cols.has("unseen_since")) db.exec("ALTER TABLE sessions ADD COLUMN unseen_since INTEGER");
+  if (!cols.has("remind_at")) db.exec("ALTER TABLE sessions ADD COLUMN remind_at INTEGER");
 }
 
 // ---- sessions ----
@@ -154,6 +157,8 @@ interface SessionRow {
   host: string | null;
   kind: Session["kind"] | null;
   claude_active: number | null;
+  unseen_since: number | null;
+  remind_at: number | null;
 }
 
 function rowToSession(r: SessionRow): Session {
@@ -167,6 +172,8 @@ function rowToSession(r: SessionRow): Session {
   if (r.host) s.host = r.host;
   if (r.kind) s.kind = r.kind;
   if (r.claude_active != null) s.claudeActive = r.claude_active === 1;
+  if (r.unseen_since != null) s.unseenSince = r.unseen_since;
+  if (r.remind_at != null) s.remindAt = r.remind_at;
   return s;
 }
 
@@ -205,6 +212,8 @@ const sessionColumns: Record<string, string> = {
   host: "host",
   kind: "kind",
   claudeActive: "claude_active",
+  unseenSince: "unseen_since",
+  remindAt: "remind_at",
 };
 
 export function updateSession(id: string, patch: Partial<Session>): void {

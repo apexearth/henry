@@ -21,7 +21,7 @@ import { StatusBar } from "./StatusBar";
 import { closePeek, getDockApi, isFilePanel, resetLayout, showSession, stageStep } from "./dock";
 import { MOD, arrowMod, isMac, mod } from "./platform";
 import { inShell, onMenu } from "./shell";
-import { activeRowIndex, railRows, setActive, subscribeNotices, useStore, type RailRow } from "./ws";
+import { activeRowIndex, getState, railRows, setActive, subscribeNotices, unseenRows, useStore, type RailRow } from "./ws";
 
 /**
  * One bundle, two shapes. A narrow touch screen gets the phone layout (mobile/Mobile.tsx);
@@ -124,8 +124,14 @@ function DesktopApp() {
       }
       const rows = railRows();
       let r: RailRow | undefined;
+      // ⌘J (Alt+J off macOS, where Ctrl+J is the terminal's newline and Chrome's downloads):
+      // the session that has waited longest since finishing unseen, other than the one in view.
+      if (e.code === "KeyJ" && !e.shiftKey && (isMac ? e.metaKey && !e.ctrlKey && !e.altKey : e.altKey && !e.ctrlKey && !e.metaKey)) {
+        e.preventDefault();
+        r = unseenRows().find((x) => x.session.id !== getState().activeSessionId);
+      }
       // Cmd+N is reserved by Chrome on macOS (browser tab switch); Ctrl+N works there. Both are bound.
-      if ((e.metaKey || e.ctrlKey) && /^[1-9]$/.test(e.key)) r = rows[Number(e.key) - 1];
+      else if ((e.metaKey || e.ctrlKey) && /^[1-9]$/.test(e.key)) r = rows[Number(e.key) - 1];
       // Cmd+↑/↓ (Alt+↑/↓ off macOS) step through the rail's rows, wrapping, from the row you are
       // on (a session listed under several repos is several rows). Ctrl+↑/↓ stay with the terminal.
       else if (arrowMod(e) && (e.key === "ArrowUp" || e.key === "ArrowDown") && rows.length) {

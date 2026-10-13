@@ -34,14 +34,29 @@ What Claude is doing in a session, and whether you have been showing up to it.
   sparkline across the whole row's background (15 min per bar, centred on the row's midline, faint ink under the text,
   current bar in the accent; flags there are a bare icon + count so they do not cover it)
   so a busy morning with a flat tail reads as "dropped", fades a row that is waiting on me the longer I leave it (5 min /
-  15 min / 1 h steps; a working session never fades, it does not need me), and offers
-  "by attention" grouping: sessions that asked for me by name first, then my move, longest
-  since I typed at the top, then working, then terminals and closed rows. Looking at a session
-  without typing is not engagement — answering an ask is the single exception.
+  15 min / 1 h steps; a working session never fades, it does not need me, and nor does an
+  unseen one, which is what I missed rather than what I parked), and offers
+  "by attention" grouping: sessions that asked for me by name first, then not seen yet (longest
+  waiting first), then my move, longest since I typed at the top, then working, then terminals
+  and closed rows. Looking at a session without typing is not engagement — answering an ask is
+  the single exception.
+- **Unseen is whether I have looked at what a session did.** A turn ending after real work (the
+  notice's 10 s rule) sets `unseenSince` on the session; the first moment is kept until it clears.
+  It clears when a window holds that session in view for 1.5 s while the window is visible,
+  focused and touched lately (presence's "here"), or when I type or prompt into it. The daemon
+  owning the session keeps the mark and persists it, so looking from the phone clears it on the
+  desktop and a restart keeps it. The rail draws an unseen row bold with an accent dot; the
+  window title and favicon carry the count; `⌘J` (Alt+J off macOS, where Ctrl+J is the
+  terminal's newline) jumps to the longest-waiting unseen session other than the one in view.
+  Right-clicking a running row marks it read or unread (marked unread while in view, it stays
+  unread until I move off it) or sets a reminder: 15 min, 1 h, 3 h or tomorrow at 9:00. A
+  reminder marks the session seen now and, when due, marks it unseen again and sends a notice;
+  the row shows ⏰ meanwhile, with the time in its tooltip. An exited session drops both marks.
 - **A notice is a session stopping and needing me, said outside the window.** `daemon/notify.ts`
   reads it off the activity transitions and asks the daemon already has, once, so every delivery
   says the same things: a permission prompt opening, always; a turn ending after at least 10 s
-  of work (a quicker turn was an answer, not work I walked away from); an ask, in its own words.
+  of work (a quicker turn was an answer, not work I walked away from); an ask, in its own words;
+  a reminder I set coming due.
   Reaching `waiting` any other way — startup, `/clear`, a resume, an approved prompt — says
   nothing, and nor does a daemon restart: the replayed activity is the baseline, not a
   transition. It goes out as a `notify` frame to every window, and peers relay it like a flag,

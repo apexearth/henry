@@ -168,6 +168,11 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 .rail-item.asking { box-shadow: inset 2px 0 0 var(--alarm); }
 .rail-item .badge.ask { padding: 0; background: none; border: none; font-size: 11px; color: var(--alarm); animation: mark-pulse 1.6s ease-in-out infinite; }
 .rail-item .badge.ask:hover { animation: none; }
+/* Finished and not seen yet (daemon/seen.ts): bold, with the accent dot, like unread mail. */
+.rail-item.unseen .title { font-weight: 600; color: var(--fg); }
+.rail-item .unseen-dot { flex: none; width: 6px; height: 6px; margin: 0 -2px; border-radius: 50%; background: var(--accent); }
+.rail-item .remind { flex: none; font-size: 10px; color: var(--fg-dim); }
+.rail-menu .menu-sep { height: 1px; margin: 4px 6px; background: var(--border); }
 .rail-group-h { position: sticky; top: 0; z-index: 1; display: flex; gap: 6px; align-items: center; padding: 6px 8px 2px; background: var(--bg-2); color: var(--fg-dim); font-size: 10px; letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; }
 .rail-group-h .name { overflow: hidden; text-overflow: ellipsis; }
 .rail-group-h .n { flex: none; margin-left: auto; color: var(--fg-faint); }

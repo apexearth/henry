@@ -432,6 +432,18 @@ class SessionManager extends EventEmitter<SessionEvents> {
     this.emit("update", l.session);
   }
 
+  /** Unseen and reminder marks, decided by seen.ts and notify.ts. Persisted: nothing replays them. */
+  setMarks(id: string, marks: Pick<Session, "unseenSince" | "remindAt">): void {
+    const l = this.live.get(id);
+    if (!l || l.session.status !== "running") return;
+    if (l.session.unseenSince === marks.unseenSince && l.session.remindAt === marks.remindAt) return;
+    l.session.unseenSince = marks.unseenSince;
+    l.session.remindAt = marks.remindAt;
+    // Both keys always present: updateSession writes an undefined one as NULL.
+    db.updateSession(id, { unseenSince: marks.unseenSince, remindAt: marks.remindAt });
+    this.emit("update", l.session);
+  }
+
   /** Disconnect from sessiond. Sessions keep running there; the next daemon picks them up. */
   shutdown(): void {
     this.client.close();
@@ -446,10 +458,12 @@ class SessionManager extends EventEmitter<SessionEvents> {
     l.session.activitySince = undefined;
     l.session.lastInputAt = undefined;
     l.session.prompts = undefined;
+    l.session.unseenSince = undefined;
+    l.session.remindAt = undefined;
     // An ask outlives its turn, not its session: there is nobody left to come to.
     attention.clearSession(l.session.id, l.session.endedAt);
     this.titleTail.delete(l.session.id);
-    db.updateSession(l.session.id, { status: "exited", exitCode, endedAt: l.session.endedAt });
+    db.updateSession(l.session.id, { status: "exited", exitCode, endedAt: l.session.endedAt, unseenSince: undefined, remindAt: undefined });
     this.emit("exit", l.session.id, exitCode);
     this.emit("update", l.session);
   }

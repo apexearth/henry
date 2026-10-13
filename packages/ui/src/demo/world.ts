@@ -69,7 +69,7 @@ export const sessions: Session[] = [
   {
     id: "d3", claudeSessionId: "2f7a6b33-tf", cwd: INFRA, title: "terraform drift", createdAt: ago(4 * HOUR + 5 * MIN),
     status: "running", kind: "claude", pid: 47102, host: HOST,
-    activity: "waiting", activitySince: ago(24 * MIN), lastInputAt: ago(31 * MIN),
+    activity: "waiting", activitySince: ago(24 * MIN), lastInputAt: ago(31 * MIN), unseenSince: ago(24 * MIN),
     prompts: prompts(ago(31 * MIN), [22, 9, 6, 41, 8, 5, 5, 13, 7]),
   },
   {
@@ -82,7 +82,7 @@ export const sessions: Session[] = [
   {
     id: "d6", claudeSessionId: "77ab12cd-docs", cwd: DOCS, title: "docs sweep", createdAt: ago(2 * HOUR + 15 * MIN),
     status: "running", kind: "claude", pid: 3120, host: PEER, peer: PEER,
-    activity: "idle", activitySince: ago(68 * MIN), lastInputAt: ago(71 * MIN),
+    activity: "idle", activitySince: ago(68 * MIN), lastInputAt: ago(71 * MIN), remindAt: ago(-40 * MIN),
     prompts: prompts(ago(71 * MIN), [6, 9, 4, 12, 7]),
   },
 ];

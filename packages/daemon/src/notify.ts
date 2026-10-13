@@ -1,4 +1,5 @@
-// What is worth saying from outside the window: a session stopped and needs the user.
+// What is worth saying from outside the window: a session stopped and needs the user, or a
+// reminder came due.
 // Decided here, once, off the activity transitions and asks the daemon already has, so every
 // delivery — a window raising an OS notification today, a push to a phone later — says the
 // same things. The daemon never shows anything itself; it only broadcasts the notice.
@@ -48,7 +49,16 @@ export function onSessionUpdate(s: Session, now = Date.now()): void {
   }
   last.set(s.id, { activity: s.activity, activitySince: s.activitySince });
   const n = decide(prev, s, now);
-  if (n) emit({ type: "notify", notice: n });
+  if (!n) return;
+  // Work you walked away from is also work you have not seen yet (seen.ts clears it). Set
+  // here rather than through seen.ts, which imports this file for reminders.
+  if (n.kind === "waiting" && s.unseenSince === undefined) sessions.setMarks(s.id, { unseenSince: now, remindAt: s.remindAt });
+  emit({ type: "notify", notice: n });
+}
+
+/** A reminder you set from the rail came due (seen.ts). */
+export function onRemind(s: Session, now = Date.now()): void {
+  emit({ type: "notify", notice: notice(s, "remind", "reminder: come back to this", now) });
 }
 
 /** An ask is always worth saying: the session used its one interruption on it. */

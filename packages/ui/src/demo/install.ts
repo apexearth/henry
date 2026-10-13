@@ -90,6 +90,16 @@ class DemoSocket {
       case "flags:markRead":
         for (const f of world.flags) if (m.ids.includes(f.id)) f.read = true;
         return;
+      case "session:seen":
+      case "session:remind": {
+        const s = world.sessions.find((x) => x.id === m.sessionId);
+        if (!s) return;
+        if (m.type === "session:seen") s.unseenSince = m.seen ? undefined : s.unseenSince ?? Date.now();
+        else if (m.at === null) s.remindAt = undefined;
+        else Object.assign(s, { unseenSince: undefined, remindAt: m.at });
+        this.push({ type: "session:update", session: { ...s } });
+        return;
+      }
       case "state:request":
         this.push({ type: "state", ...world.state });
         return;

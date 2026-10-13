@@ -15,6 +15,8 @@ const SECTIONS: [string, Key[]][] = [
   ["sessions", [
     [isMac ? ["⌘1…9", "⌃1…9"] : ["Ctrl+1…9"], "switch to the nth session in rail order"],
     [[`${ARROW_MOD}↑`, `${ARROW_MOD}↓`], "previous / next session in the rail, wrapping"],
+    [[isMac ? "⌘J" : "Alt+J"], "next session you have not seen since it finished, longest waiting first"],
+    [["right click"], "on a session in the rail: mark it read or unread, or remind you to come back later"],
     [[isMac ? (inShell ? "⌘N" : "⌃N") : inShell ? "Ctrl+N" : "Alt+N"], "new session (the + new session picker)"],
     [[isMac ? "⌘D" : "Ctrl+Shift+D"], "duplicate the session in view: same kind, same folder"],
     [[isMac ? (inShell ? "⌘`" : "⌃`") : "Ctrl+`"], "new terminal in the folder of the session in view"],

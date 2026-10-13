@@ -7,7 +7,7 @@ A changed decision edits the sentence that is now wrong; nothing here is a histo
 - [sessions.md](sessions.md) — the daemon owns sessions, sessiond owns PTYs, what a spawned `claude` gets
 - [platform.md](platform.md) — Bun/Vite/xterm, the Tauri shell, ports, the Windows switches
 - [rail.md](rail.md) — one line per session: titles, order, grouping, hiding, shortcuts
-- [activity.md](activity.md) — working / needsInput / waiting / idle, and your engagement with a session
+- [activity.md](activity.md) — working / needsInput / waiting / idle, your engagement with a session, unseen work and reminders
 - [hooks.md](hooks.md) — hooks, statusline, transcript tailer, data flow, session identity
 - [git.md](git.md) — per-session baselines and open PRs via `gh`
 - [flags.md](flags.md) — safeguard rules (observe, never block), per-repo overrides, the Flags tab
