@@ -7,9 +7,13 @@
 // to the keys is a thing you miss and long-press into a text selection. So the composer has two
 // modes and 🎙/⌨ swaps the whole bottom of the screen between them — keys and a text box for
 // typing, one slab you hold and the words it heard for talking.
+//
+// 📎 is the phone's paste for images: a photo goes to the daemon, which keeps it on the session's
+// machine, and the line sent carries its path, which Claude Code reads like any other image.
 import { useEffect, useRef, useState } from "react";
 import { isClaudeSession, type Session } from "@henry/shared";
 import { send, useStore } from "../ws";
+import { attachImage } from "./attach";
 import { dictationSupported, listen, type Dictation } from "./dictation";
 import { canRecord, holdToTalk } from "../voice-audio";
 
@@ -48,6 +52,14 @@ function readMode(): Mode {
   }
 }
 
+/** An image picked for the next line: its thumbnail now, its path once the upload lands. */
+interface Attached {
+  key: number;
+  thumb: string;
+  path?: string;
+}
+let attachKey = 0;
+
 export function Composer({ session }: { session: Session }) {
   const [mode, setMode] = useState<Mode>(readMode);
   const [text, setText] = useState("");
@@ -66,6 +78,11 @@ export function Composer({ session }: { session: Session }) {
   // What was in the box when the microphone opened; recognised words are appended to it.
   const before = useRef("");
   const claude = isClaudeSession(session);
+  const [attached, setAttached] = useState<Attached[]>([]);
+  const picker = useRef<HTMLInputElement>(null);
+  // The daemon relays a peer's API as text, so an image reaches only a session on its own machine.
+  const canAttach = claude && !session.peer;
+  const uploading = attached.some((a) => !a.path);
 
   // Leaving the session (or the page) with the microphone open would keep listening.
   useEffect(() => () => speech.current?.stop(), []);
@@ -83,6 +100,10 @@ export function Composer({ session }: { session: Session }) {
   useEffect(() => {
     speech.current?.stop();
     setText("");
+    setAttached((list) => {
+      for (const a of list) URL.revokeObjectURL(a.thumb);
+      return [];
+    });
   }, [session.id]);
 
   // Grow with what is typed (or dictated), up to a few lines, so a long prompt is readable
@@ -102,14 +123,60 @@ export function Composer({ session }: { session: Session }) {
   const write = (data: string) => send({ type: "pty:input", sessionId: session.id, data });
 
   const submit = (newline: boolean) => {
-    const body = text;
+    if (uploading) return;
+    // Quoted, because a home folder can have a space in it.
+    const body = [text.replace(/\s+$/, ""), ...attached.map((a) => `"${a.path}"`)].filter(Boolean).join(" ");
     if (!body && !newline) return;
     setText("");
+    for (const a of attached) URL.revokeObjectURL(a.thumb);
+    setAttached([]);
     // Shift+Enter is a newline inside Claude Code's prompt (ESC CR, what /terminal-setup binds);
     // a plain shell gets a normal Enter.
-    write(body + (newline && claude ? "\x1b\r" : "\r"));
+    // The Enter goes on its own a beat later: Claude Code reads a long burst of input as a paste
+    // and keeps a CR inside it as a newline, so a line carrying an image's path never sent.
+    const enter = newline && claude ? "\x1b\r" : "\r";
+    if (!body) write(enter);
+    else {
+      write(body);
+      setTimeout(() => write(enter), 150);
+    }
     box.current?.focus();
   };
+
+  const attach = (files: FileList | null) => {
+    for (const file of Array.from(files ?? [])) {
+      const item: Attached = { key: ++attachKey, thumb: URL.createObjectURL(file) };
+      setAttached((list) => [...list, item]);
+      const sessionId = session.id;
+      attachImage(sessionId, file).then(
+        (path) => setAttached((list) => list.map((a) => (a.key === item.key ? { ...a, path } : a))),
+        (e) => {
+          URL.revokeObjectURL(item.thumb);
+          setAttached((list) => list.filter((a) => a.key !== item.key));
+          setNote(e instanceof Error ? e.message : "could not send that image");
+        },
+      );
+    }
+  };
+
+  const unattach = (key: number) =>
+    setAttached((list) => {
+      const gone = list.find((a) => a.key === key);
+      if (gone) URL.revokeObjectURL(gone.thumb);
+      return list.filter((a) => a.key !== key);
+    });
+
+  const chips = attached.length > 0 && (
+    <div className="m-chips">
+      {attached.map((a) => (
+        <span key={a.key} className={"m-chip" + (a.path ? "" : " busy")} title={a.path ?? "sending…"}>
+          <img src={a.thumb} alt="" />
+          <button onClick={() => unattach(a.key)} aria-label="remove this image">&times;</button>
+        </span>
+      ))}
+    </div>
+  );
+  const canSend = (!!text.trim() || attached.length > 0) && !uploading;
 
   const swap = (to: Mode, edit = false) => {
     speech.current?.stop();
@@ -171,6 +238,7 @@ export function Composer({ session }: { session: Session }) {
     return (
       <div className="m-composer">
         {note && <div className="m-note" onClick={() => setNote(null)}>{note}</div>}
+        {chips}
         {/* What it heard, still yours: tap to fix a word, send when it says what you meant. */}
         <button className={"m-heard" + (text ? "" : " hint")} onClick={() => swap("type", true)} title="tap to edit before sending">
           {text || `${whisper ? "hold" : "tap"} the button and ${claude ? "tell Claude what to do" : "say a command"}`}
@@ -203,7 +271,7 @@ export function Composer({ session }: { session: Session }) {
               {dictating ? "listening — tap to stop" : "tap to talk"}
             </button>
           )}
-          <button className="m-send" onClick={() => submit(false)} disabled={!text.trim()} title="send this line to the session">
+          <button className="m-send" onClick={() => submit(false)} disabled={!canSend} title="send this line to the session">
             send
           </button>
         </div>
@@ -226,7 +294,26 @@ export function Composer({ session }: { session: Session }) {
         )}
       </div>
       {note && <div className="m-note" onClick={() => setNote(null)}>{note}</div>}
+      {chips}
       <div className="m-input">
+        {canAttach && (
+          <>
+            <button className="m-attach" onClick={() => picker.current?.click()} title="send an image: a photo, the camera or a file" aria-label="attach an image">
+              📎
+            </button>
+            <input
+              ref={picker}
+              type="file"
+              accept="image/*"
+              multiple
+              hidden
+              onChange={(e) => {
+                attach(e.target.files);
+                e.target.value = "";
+              }}
+            />
+          </>
+        )}
         <textarea
           ref={box}
           className="m-text"
@@ -250,7 +337,7 @@ export function Composer({ session }: { session: Session }) {
             🎙
           </button>
         )}
-        <button className="m-send" onClick={() => submit(false)} disabled={!text.trim()} title="send this line to the session">
+        <button className="m-send" onClick={() => submit(false)} disabled={!canSend} title="send this line to the session">
           send
         </button>
       </div>

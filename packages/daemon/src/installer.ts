@@ -5,6 +5,7 @@
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import { attachmentsDir } from "./attachments";
 import { boundPort, config } from "./config";
 import { isWindows, slashes } from "./platform";
 
@@ -105,7 +106,8 @@ function eventInstalled(settings: Dict, event: string): boolean {
 export function launchSettings(): Dict {
   const hooks: Dict = {};
   for (const event of HOOK_EVENTS) hooks[event] = [{ matcher: "", hooks: [{ type: "command", command: hookCommand(event) }] }];
-  return { hooks, statusLine: { type: "command", command: statusCommand() } };
+  // The folder a phone's images land in (attachments.ts), so reading one never stops to ask.
+  return { hooks, statusLine: { type: "command", command: statusCommand() }, permissions: { additionalDirectories: [attachmentsDir] } };
 }
 
 export function writeLaunchSettings(dir: string): string {

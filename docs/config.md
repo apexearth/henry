@@ -13,8 +13,8 @@
   settable from the UI — it would strand the window that asked. config.json stays
   hand-editable: the daemon watches it, hot-reloads, and broadcasts state either way.
 
-- **History is swept to `retentionDays` (30).** Events, flags, playbook entries and usage
-  snapshots older than the window go at startup and every 6h, and immediately when the
+- **History is swept to `retentionDays` (30).** Events, flags, playbook entries, usage
+  snapshots and images sent from a phone older than the window go at startup and every 6h, and immediately when the
   setting shrinks; `0` keeps everything. Sessions are never swept — the rail owns their
   lifetime. The newest usage snapshot survives at any age, since it is the live 5h/7d bars.
 - **The daemon can say what it is holding.** A process that runs for days is measured, not

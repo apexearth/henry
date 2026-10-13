@@ -7,6 +7,7 @@ import type { ClientMessage, HenryConfig, PresenceBeat, PresenceSource, ServerMe
 import { SOURCES } from "@henry/shared";
 import * as activity from "./activity";
 import * as attention from "./attention";
+import { MAX_ATTACHMENT_BYTES, imageExt, pruneAttachments, saveAttachment } from "./attachments";
 import { boundPort, config, expandHome, isFirstRun, onConfigReload, setConfig, setReposRoot, writePortFile } from "./config";
 import * as db from "./db";
 import * as diag from "./diag";
@@ -173,13 +174,15 @@ function readUiBuild(): string | undefined {
     return undefined;
   }
 }
-// Retention: history older than config.retentionDays goes at startup and every 6h after.
-// The interval reads the config at fire time, so changing the setting takes effect at the
-// next sweep without a restart.
+// Retention: history and attached images older than config.retentionDays go at startup and
+// every 6h after. The interval reads the config at fire time, so changing the setting takes
+// effect at the next sweep without a restart.
 const SWEEP_MS = 6 * 60 * 60_000;
 let sweepTimer: ReturnType<typeof setInterval> | undefined;
 function sweepHistory(): void {
   try {
+    const images = pruneAttachments(config.retentionDays);
+    if (images) console.log(`[henry] removed ${images} attached images older than ${config.retentionDays}d`);
     const c = db.pruneHistory(config.retentionDays);
     if (c && c.events + c.flags + c.playbook + c.snapshots + c.presence) {
       console.log(`[henry] pruned history older than ${config.retentionDays}d: ${c.events} events, ${c.flags} flags, ${c.playbook} playbook, ${c.snapshots} usage snapshots, ${c.presence} presence minutes`);
@@ -517,6 +520,21 @@ export async function handleApi(req: Request, url: URL, origin: ApiOrigin): Prom
   if (pathname.startsWith("/api/phone/")) return fromPeer ? json({ error: "forbidden" }, 403) : phoneApi(req, url, origin);
   // Peers read, and may ask the overseer; they never change this daemon's setup.
   if (fromPeer && req.method !== "GET" && pathname !== "/api/playbook/manual") return json({ error: "forbidden" }, 403);
+  // An image for a session here, from a phone that cannot paste into it. Ahead of the peer
+  // proxy, which relays bodies as text. An image type is never a simple CORS request, so
+  // another site's page cannot send one without a preflight the daemon never answers.
+  if (pathname === "/api/attach") {
+    if (req.method !== "POST") return json({ error: "POST an image" }, 405);
+    const sessionId = url.searchParams.get("session") ?? "";
+    if (federation.linkOf(sessionId)) return json({ error: "images reach only sessions on this machine" }, 501);
+    if (!sessions.get(sessionId)) return json({ error: "no such session" }, 404);
+    const ext = imageExt(req.headers.get("content-type"));
+    if (!ext) return json({ error: "send a JPEG, PNG, WebP or GIF" }, 415);
+    const bytes = new Uint8Array(await req.arrayBuffer());
+    if (!bytes.byteLength) return json({ error: "empty image" }, 400);
+    if (bytes.byteLength > MAX_ATTACHMENT_BYTES) return json({ error: "image too large" }, 413);
+    return json({ path: saveAttachment(sessionId, ext, bytes) });
+  }
   if (!fromPeer) {
     const peerName = url.searchParams.get("peer") ?? federation.linkOf(url.searchParams.get("sessionId"))?.rec.name;
     if (peerName) {

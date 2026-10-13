@@ -28,6 +28,7 @@ henry/
       src/hooks.ts             # POST /hook, POST /statusline ingest
       src/transcript.ts        # tail ~/.claude/projects/**/<session>.jsonl
       src/git.ts               # repo discovery, worktrees, status, ahead/behind, diff, grep
+      src/attachments.ts       # images a phone sent: written under ~/.henry/attachments, swept with history
       src/files.ts             # GET /api/file (one file, capped) and /api/fs/tree (a plain folder)
       src/prs.ts               # open PRs per checkout via `gh pr list`, cached and best-effort
       src/rules.ts             # ~/.henry/config.json rules → classify events
@@ -53,7 +54,8 @@ henry/
       src/Qr.tsx               # a QR matrix as one SVG path
       src/PhoneMenu.tsx        # topbar "phone": the QR, and the devices holding a token
       src/mobile/Mobile.tsx    # the phone shape: one session, rails as drawer + sheet, zoom
-      src/mobile/Composer.tsx  # the phone's input: the keys a phone keyboard lacks, a line box, a mic
+      src/mobile/Composer.tsx  # the phone's input: the keys a phone keyboard lacks, a line box, a mic, 📎
+      src/mobile/attach.ts     # a picked photo shrunk to what Claude reads, then POST /api/attach
       src/mobile/dictation.ts  # Web Speech API, for hands-free input
       src/mobile/useMobile.ts  # which shape, the terminal's font size, the keyboard-aware height
       src/mobile/Gate.tsx      # what an ungranted device sees: how to get a QR

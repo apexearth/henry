@@ -33,7 +33,8 @@ Where a session lives, how a window sees it, and what Henry spawns it with.
 - **Henry-launched sessions carry their own hooks.** Every `claude` Henry spawns gets
   `--session-id <henry id>` (so Claude's session id equals Henry's, no binding
   round-trip) and `--settings ~/.henry/launch-settings.json`, which layers Henry's
-  hooks and statusline over the user's settings for that process only. `henry install`
+  hooks and statusline over the user's settings for that process only, and adds
+  `~/.henry/attachments` to the folders it may read without asking. `henry install`
   is only needed for sessions started elsewhere (a terminal, Zed).
 - **Nothing Henry spawns inherits `CLAUDE_CODE_*` / `CLAUDECODE` env**: not sessiond,
   not the sessions it starts on the daemon's behalf (`sessions.ts` strips the
