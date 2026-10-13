@@ -34,8 +34,10 @@ until it is back. Two machines that both listen dial each other, so each window 
   and get its key pinned. The joiner also advertises its own listen URL, so one pairing
   links both ways. Both sides show fingerprints to compare afterwards. Five failed
   handshakes from one address lock it out for a minute.
-- **A paired machine is you.** It can attach, type, start and kill sessions and read files
-  in repos there, exactly what a window can. Pause or forget a peer from the remotes menu
+- **A paired machine is you.** It can attach, type, start and kill sessions, read files in
+  repos there, and send a session an image (`/api/attach`, the one write besides asking the
+  overseer, carried as base64 because a relayed body is otherwise JSON text), exactly what a
+  window can. Pause or forget a peer from the remotes menu
   (`henry peers forget <name>`); a forgotten key is refused at the next handshake. A peer
   whose address or port changed is re-pointed in place (menu "address", `henry peers url
   <name> <host[:port]>`): the URL is just where to dial, the pinned key is the identity.

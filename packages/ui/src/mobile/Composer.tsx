@@ -80,8 +80,6 @@ export function Composer({ session }: { session: Session }) {
   const claude = isClaudeSession(session);
   const [attached, setAttached] = useState<Attached[]>([]);
   const picker = useRef<HTMLInputElement>(null);
-  // The daemon relays a peer's API as text, so an image reaches only a session on its own machine.
-  const canAttach = claude && !session.peer;
   const uploading = attached.some((a) => !a.path);
 
   // Leaving the session (or the page) with the microphone open would keep listening.
@@ -296,7 +294,7 @@ export function Composer({ session }: { session: Session }) {
       {note && <div className="m-note" onClick={() => setNote(null)}>{note}</div>}
       {chips}
       <div className="m-input">
-        {canAttach && (
+        {claude && (
           <>
             <button className="m-attach" onClick={() => picker.current?.click()} title="send an image: a photo, the camera or a file" aria-label="attach an image">
               📎

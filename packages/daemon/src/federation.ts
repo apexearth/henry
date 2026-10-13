@@ -47,7 +47,8 @@ interface Store {
 }
 
 /** Frames a dialer may send after the handshake. */
-export type FedRequest = ClientMessage | { type: "http"; id: string; method: string; path: string; body?: string };
+/** An http body is JSON text, or `bytes` (base64) with its own type: an image sent to a session. */
+export type FedRequest = ClientMessage | { type: "http"; id: string; method: string; path: string; body?: string; bytes?: string; contentType?: string };
 /** Frames a listener sends after the handshake. */
 export type FedResponse = ServerMessage | { type: "http:res"; id: string; status: number; contentType: string; body: string };
 
@@ -376,11 +377,14 @@ class Inbound implements Client {
     let body = "proxy failed";
     try {
       if (!msg.path.startsWith("/api/")) throw new Error("only /api/* is served to peers");
-      const req = new Request(`http://henry.fed${msg.path}`, {
-        method: msg.method,
-        body: msg.body,
-        headers: msg.body !== undefined ? { "content-type": "application/json" } : undefined,
-      });
+      const req =
+        msg.bytes !== undefined
+          ? new Request(`http://henry.fed${msg.path}`, { method: msg.method, body: Buffer.from(msg.bytes, "base64"), headers: { "content-type": msg.contentType ?? "application/octet-stream" } })
+          : new Request(`http://henry.fed${msg.path}`, {
+              method: msg.method,
+              body: msg.body,
+              headers: msg.body !== undefined ? { "content-type": "application/json" } : undefined,
+            });
       const res = await deps.handleApi(req, true);
       status = res.status;
       contentType = res.headers.get("content-type") ?? "application/octet-stream";

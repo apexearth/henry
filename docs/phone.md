@@ -76,8 +76,8 @@ through that machine's peers, so one phone reaches every Henry the desk reaches.
   quoted paths after the text, and Claude reads them with its Read tool; launch settings let it
   read that folder without asking. The phone sends a JPEG at most 2000px on a side, which is past
   what Claude keeps and is what turns an iPhone's HEIC into something it reads; a PNG already that
-  small goes as it is, since JPEG blurs a screenshot's text. Only for a session on the machine the
-  phone is attached to: the peer relay carries bodies as text.
+  small goes as it is, since JPEG blurs a screenshot's text. A peer's session gets it the same
+  way: the image crosses the link and lands on the machine the session runs on.
 - **A fingertip is not a small mouse, and the picker is where that bites.** No field under 16px is
   focused on a coarse pointer: iOS zooms the page into one, and every tap after that lands where it
   looks like it should not. So "+ new session" opens the picker with the list showing and nothing

@@ -349,8 +349,9 @@ export class PeerLink {
     this.send({ type: "attention:answered", id });
   }
 
-  /** Run an /api/* request on the peer. `path` includes the query string. */
-  http(method: string, path: string, body?: string): Promise<Response> {
+  /** Run an /api/* request on the peer. `path` includes the query string. A JSON body is text;
+   * anything else goes as `bytes` with its type. */
+  http(method: string, path: string, body?: string | { bytes: Uint8Array; contentType: string }): Promise<Response> {
     return new Promise((resolve) => {
       if (this.status !== "connected") {
         resolve(new Response(JSON.stringify({ error: `${this.rec.name} is ${this.status}` }), { status: 502, headers: { "content-type": "application/json" } }));
@@ -358,7 +359,8 @@ export class PeerLink {
       }
       const id = crypto.randomUUID();
       this.httpWaiters.set(id, (r) => resolve(new Response(r.body, { status: r.status, headers: { "content-type": r.contentType } })));
-      this.send({ type: "http", id, method, path, body });
+      if (typeof body === "object") this.send({ type: "http", id, method, path, bytes: Buffer.from(body.bytes).toString("base64"), contentType: body.contentType });
+      else this.send({ type: "http", id, method, path, body });
     });
   }
 }

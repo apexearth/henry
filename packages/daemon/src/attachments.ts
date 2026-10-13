@@ -9,8 +9,9 @@ import { henryDir } from "./config";
 /** Outside every repo, so an attachment never shows up as an untracked file. */
 export const attachmentsDir = join(henryDir, "attachments");
 
-/** The phone shrinks a photo before it sends it; this only stops a mistake filling the disk. */
-export const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+/** The phone shrinks a photo to a megabyte or two before it sends it. Base64 on a peer link adds
+ * a third, and a link frame is at most 16 MB. */
+export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 
 const EXT: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif" };
 

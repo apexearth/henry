@@ -429,6 +429,17 @@ describe("two daemons", () => {
     expect(write.status).toBe(403);
   }, 30000);
 
+  test("an image for a peer's session crosses the link as bytes and lands on the peer", async () => {
+    const image = new Uint8Array(70_000).map((_, i) => (i * 7) & 255);
+    const res = await fetch(`${alpha.base}/api/attach?session=${betaSession}`, { method: "POST", body: image, headers: { "content-type": "image/png" } });
+    expect(res.status).toBe(200);
+    const { path } = (await res.json()) as { path: string };
+    expect(path.startsWith(join(beta.home, "attachments", betaSession))).toBe(true);
+    expect(new Uint8Array(readFileSync(path))).toEqual(image);
+    const notImage = await fetch(`${alpha.base}/api/attach?session=${betaSession}`, { method: "POST", body: "{}", headers: { "content-type": "application/json" } });
+    expect(notImage.status).toBe(415);
+  }, 30000);
+
   test("a listener that does not know the code cannot get itself paired", async () => {
     const fake = fakeListener();
     try {
@@ -463,6 +474,8 @@ describe("two daemons", () => {
     asBeta.send({ type: "session:create", peer: "gamma", cwd: gamma.home, title: "via-alpha", command: testShell.command, args: testShell.args, requestId: "x1" });
     asBeta.send({ type: "attach", sessionId: gammaSession, reqId: "x2" });
     asBeta.send({ type: "pty:input", sessionId: gammaSession, data: echoExpr("leaked", "5+5") });
+    asBeta.send({ type: "http", id: "x3", method: "POST", path: `/api/attach?session=${gammaSession}`, bytes: Buffer.from("png").toString("base64"), contentType: "image/png" });
+    expect(((await asBeta.next("http:res", 5000)) as { status: number }).status).toBe(403);
     expect(await asBeta.next("session:update")).toBeUndefined();
     expect(await asBeta.next("pty:scrollback")).toBeUndefined();
     // The channel itself is fine: a request for alpha's own state is answered.

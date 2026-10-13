@@ -518,23 +518,27 @@ export async function handleApi(req: Request, url: URL, origin: ApiOrigin): Prom
   // Phone access is machine business like pairing: never proxied, never served to a peer.
   // phone.verdict has already refused everything but claim and me on the phone listener.
   if (pathname.startsWith("/api/phone/")) return fromPeer ? json({ error: "forbidden" }, 403) : phoneApi(req, url, origin);
-  // Peers read, and may ask the overseer; they never change this daemon's setup.
-  if (fromPeer && req.method !== "GET" && pathname !== "/api/playbook/manual") return json({ error: "forbidden" }, 403);
-  // An image for a session here, from a phone that cannot paste into it. Ahead of the peer
-  // proxy, which relays bodies as text. An image type is never a simple CORS request, so
-  // another site's page cannot send one without a preflight the daemon never answers.
+  // An image for a session, from a phone that cannot paste into it. A peer may send one: it can
+  // already type into the session, which is more than putting a file where only Claude reads it.
+  // An image type is never a simple CORS request, so another site's page cannot send one
+  // without a preflight the daemon never answers.
   if (pathname === "/api/attach") {
     if (req.method !== "POST") return json({ error: "POST an image" }, 405);
     const sessionId = url.searchParams.get("session") ?? "";
-    if (federation.linkOf(sessionId)) return json({ error: "images reach only sessions on this machine" }, 501);
-    if (!sessions.get(sessionId)) return json({ error: "no such session" }, 404);
-    const ext = imageExt(req.headers.get("content-type"));
+    const contentType = req.headers.get("content-type") ?? "";
+    const ext = imageExt(contentType);
     if (!ext) return json({ error: "send a JPEG, PNG, WebP or GIF" }, 415);
     const bytes = new Uint8Array(await req.arrayBuffer());
     if (!bytes.byteLength) return json({ error: "empty image" }, 400);
     if (bytes.byteLength > MAX_ATTACHMENT_BYTES) return json({ error: "image too large" }, 413);
+    const link = federation.linkOf(sessionId);
+    // Trust is not transitive: a peer's image never goes on to a third machine.
+    if (link) return fromPeer ? json({ error: "forbidden" }, 403) : link.http("POST", `/api/attach?session=${encodeURIComponent(sessionId)}`, { bytes, contentType });
+    if (!sessions.get(sessionId)) return json({ error: "no such session" }, 404);
     return json({ path: saveAttachment(sessionId, ext, bytes) });
   }
+  // Peers read, and may ask the overseer; they never change this daemon's setup.
+  if (fromPeer && req.method !== "GET" && pathname !== "/api/playbook/manual") return json({ error: "forbidden" }, 403);
   if (!fromPeer) {
     const peerName = url.searchParams.get("peer") ?? federation.linkOf(url.searchParams.get("sessionId"))?.rec.name;
     if (peerName) {
