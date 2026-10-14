@@ -432,15 +432,16 @@ class SessionManager extends EventEmitter<SessionEvents> {
     this.emit("update", l.session);
   }
 
-  /** Unseen and reminder marks, decided by seen.ts and notify.ts. Persisted: nothing replays them. */
-  setMarks(id: string, marks: Pick<Session, "unseenSince" | "remindAt">): void {
+  /** Unseen, reminder and last-seen marks, decided by seen.ts and notify.ts. Persisted: nothing
+   * replays them. A key present in `marks` is set, undefined included; an absent one is kept. */
+  setMarks(id: string, marks: Partial<Pick<Session, "unseenSince" | "remindAt" | "lastSeenAt">>): void {
     const l = this.live.get(id);
     if (!l || l.session.status !== "running") return;
-    if (l.session.unseenSince === marks.unseenSince && l.session.remindAt === marks.remindAt) return;
-    l.session.unseenSince = marks.unseenSince;
-    l.session.remindAt = marks.remindAt;
-    // Both keys always present: updateSession writes an undefined one as NULL.
-    db.updateSession(id, { unseenSince: marks.unseenSince, remindAt: marks.remindAt });
+    const changed = (Object.keys(marks) as (keyof typeof marks)[]).filter((k) => l.session[k] !== marks[k]);
+    if (!changed.length) return;
+    Object.assign(l.session, marks);
+    // updateSession writes a present-but-undefined key as NULL.
+    db.updateSession(id, marks);
     this.emit("update", l.session);
   }
 

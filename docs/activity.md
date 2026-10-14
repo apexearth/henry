@@ -23,7 +23,8 @@ What Claude is doing in a session, and whether you have been showing up to it.
   `tool_result`, and a thread's next `PreToolUse` releases what it was blocked on. It is not
   persisted: a restarted daemon replays each running session's last hook events in order,
   because a session waiting for me sends nothing until I type. The rail says it on Clawd: orange pulsing =
-  working, amber = wants an answer, green = my move, dim = idle. The time beside it is
+  working, amber = wants an answer, green = my move, dim = idle and its row has begun to fade
+  (an idle session I was with this past hour is still green). The time beside it is
   time-in-state while working and time since I last typed otherwise (see the engagement bullet).
 - **Engagement is my side of the same coin.** `activity` says what Claude is doing;
   `lastInputAt` and `prompts` (daemon/engagement.ts) say whether I have been showing up,
@@ -33,18 +34,21 @@ What Claude is doing in a session, and whether you have been showing up to it.
   terminal replies filtered out, never persisted). The rail draws the prompts as a 16-bar
   sparkline across the whole row's background (15 min per bar, centred on the row's midline, faint ink under the text,
   current bar in the accent; flags there are a bare icon + count so they do not cover it)
-  so a busy morning with a flat tail reads as "dropped", fades a row that is waiting on me the longer I leave it (5 min /
-  15 min / 1 h steps; a working session never fades, it does not need me, and nor does an
-  unseen one, which is what I missed rather than what I parked), and offers
+  so a busy morning with a flat tail reads as "dropped", fades a row that is waiting on me the
+  longer it has been since I was last with it, typing or looking (`lastSeenAt`, see the unseen
+  bullet), in 1 h / 3 h / 8 h steps: the sessions I have been with this past hour are my working
+  set, answered or not, and stay bright. A working session never fades, it does not need me, and
+  nor does an unseen one, which is what I missed rather than what I parked. It offers
   "by attention" grouping: sessions that asked for me by name first, then not seen yet (longest
   waiting first), then my move, longest since I typed at the top, then working, then terminals
-  and closed rows. Looking at a session without typing is not engagement — answering an ask is
-  the single exception.
+  and closed rows. Beyond the fade, looking at a session without typing is not engagement —
+  answering an ask is the single exception.
 - **Unseen is whether I have looked at what a session did.** A turn ending after real work (the
   notice's 10 s rule) sets `unseenSince` on the session; the first moment is kept until it clears.
   It clears when a window holds that session in view for 1.5 s while the window is visible,
-  focused and touched lately (presence's "here"), or when I type or prompt into it. The daemon
-  owning the session keeps the mark and persists it, so looking from the phone clears it on the
+  focused and touched lately (presence's "here"), or when I type or prompt into it. The window
+  repeats the view about once a minute while I stay, which moves `lastSeenAt` to the minute.
+  The daemon owning the session keeps both marks and persists them, so looking from the phone clears it on the
   desktop and a restart keeps it. The rail draws an unseen row bold with an accent dot; the
   window title and favicon carry the count; `⌘J` (Alt+J off macOS, where Ctrl+J is the
   terminal's newline) jumps to the longest-waiting unseen session other than the one in view.

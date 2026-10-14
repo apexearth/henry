@@ -286,7 +286,7 @@ async function handleMessage(client: Client, msg: ClientMessage): Promise<void> 
       attention.finish(msg.id, "answered");
       return;
     case "session:seen":
-      if (msg.seen) seen.seen(msg.sessionId);
+      if (msg.seen) seen.viewed(msg.sessionId);
       else seen.unseen(msg.sessionId);
       return;
     case "session:remind":

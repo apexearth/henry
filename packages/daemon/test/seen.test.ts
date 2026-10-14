@@ -72,6 +72,18 @@ describe("seen", () => {
     expect(db.getSession(s.id)!.unseenSince).toBeUndefined();
   });
 
+  test("a view clears unseen and keeps lastSeenAt, to the minute", () => {
+    const t = Date.now();
+    seen.unseen(s.id, t - 5_000);
+    seen.viewed(s.id, t);
+    expect(sessions.get(s.id)!.unseenSince).toBeUndefined();
+    expect(sessions.get(s.id)!.lastSeenAt).toBe(t);
+    seen.viewed(s.id, t + 10_000);
+    expect(sessions.get(s.id)!.lastSeenAt).toBe(t);
+    seen.viewed(s.id, t + seen.VIEW_GRAIN_MS);
+    expect(db.getSession(s.id)!.lastSeenAt).toBe(t + seen.VIEW_GRAIN_MS);
+  });
+
   test("typing into the session or prompting it is seeing it", () => {
     seen.unseen(s.id);
     engagement.input(s.id, "y");

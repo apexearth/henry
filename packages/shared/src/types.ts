@@ -57,6 +57,9 @@ export interface Session {
   unseenSince?: number;
   /** You asked to be reminded of this session then; it comes back unseen with a notice. Persisted. */
   remindAt?: number;
+  /** When a window last held the session in view (to the minute). With lastInputAt it is how
+   * recently you were with the session, which is what the rail's fade measures. Persisted. */
+  lastSeenAt?: number;
 }
 
 export interface RepoState {

@@ -69,13 +69,17 @@ function Spark({ prompts, now }: { prompts: number[] | undefined; now: number })
   );
 }
 
-/** How stale your attention is: only while the session is waiting on you, in three steps
- * (5 min, 15 min, 1 h) so the row fades instead of the label just growing. */
+/** When you were last with the session: typed into it, or had it in view. */
+const lastWith = (s: Session): number | undefined => Math.max(s.lastInputAt ?? 0, s.lastSeenAt ?? 0) || undefined;
+
+/** How long you have left a session waiting on you, in three steps (1 h, 3 h, 8 h) so the row
+ * fades instead of the label just growing. Looking counts as much as typing: the sessions you
+ * have been with this past hour are your working set, answered or not, and stay bright. */
 function neglect(s: Session, now: number): 0 | 1 | 2 | 3 {
   // Unseen work stays bright: fading is for what you have seen and left, not what you missed.
   if (s.status !== "running" || !s.activity || s.activity === "working" || isUnseen(s)) return 0;
-  const since = now - (s.lastInputAt ?? s.activitySince ?? now);
-  return since >= 60 * 60_000 ? 3 : since >= 15 * 60_000 ? 2 : since >= 5 * 60_000 ? 1 : 0;
+  const since = now - (lastWith(s) ?? s.activitySince ?? now);
+  return since >= 8 * 60 * 60_000 ? 3 : since >= 3 * 60 * 60_000 ? 2 : since >= 60 * 60_000 ? 1 : 0;
 }
 
 /** How long an ask has left before Henry drops it. */
@@ -280,7 +284,7 @@ function Rail({ onNew }: { onNew: () => void }) {
               const ago = on && s.activity ? since(s.activity === "working" ? s.activitySince : s.lastInputAt ?? s.activitySince, now) : "";
               const typed = on && claude ? since(s.lastInputAt, now) : "";
               const nPrompts = on && claude ? bucketPrompts(s.prompts, now).reduce((a, b) => a + b, 0) : 0;
-              const yours = on && claude ? `\nyou: ${nPrompts} prompt${nPrompts === 1 ? "" : "s"} in the last 4 h${typed ? `, last typed ${typed} ago` : s.lastInputAt ? ", typing now" : ""}` : "";
+              const yours = on && claude ? `\nyou: ${nPrompts} prompt${nPrompts === 1 ? "" : "s"} in the last 4 h${typed ? `, last typed ${typed} ago` : s.lastInputAt ? ", typing now" : ""}${s.lastSeenAt ? `, last looked ${since(s.lastSeenAt, now) ? `${since(s.lastSeenAt, now)} ago` : "just now"}` : ""}` : "";
               const fade = neglect(s, now);
               const fresh = isUnseen(s);
               const remindAt = on ? s.remindAt : undefined;
@@ -294,7 +298,8 @@ function Rail({ onNew }: { onNew: () => void }) {
                   }}
                   title={`${ask.map((a) => `asking you: ${a.message} (${until(a.deadline, now)})\n`).join("")}${fresh ? `not seen yet${since(s.unseenSince, now) ? `, for ${since(s.unseenSince, now)}` : ""}\n` : ""}${remindAt ? `reminder at ${clock(remindAt, now)}\n` : ""}${what}, ${state}${on && s.activity ? ` — ${ACTIVITY_TEXT[s.activity]}${ago && s.activity === "working" ? ` for ${ago}` : ""}` : ""}${yours}\n${s.cwd}${s.peer ? `\non ${s.peer} (remote, via its own Henry daemon)` : s.host ? `\non ${s.host}` : ""}${i >= 0 && i < 9 ? `\n${MOD}${i + 1}` : ""}${on ? "\nright click: mark unread, remind me later" : ""}`}>
                   {on && claude && <Spark prompts={s.prompts} now={now} />}
-                  {claude ? <ClaudeMark on={on} activity={on ? s.activity : undefined} /> : <ShellMark on={on} />}
+                  {/* Idle greys Clawd only once the row has begun to fade: in your working set it is still your move. */}
+                  {claude ? <ClaudeMark on={on} activity={on ? (s.activity === "idle" && !fade ? "waiting" : s.activity) : undefined} /> : <ShellMark on={on} />}
                   {fresh && <span className="unseen-dot" aria-label="not seen yet" />}
                   <span className="title">{s.title}</span>
                   {s.title !== repo && showSub && <span className="sub" style={{ color: hueText(nameHue(repo)) }}>{repo}</span>}

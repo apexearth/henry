@@ -52,7 +52,7 @@ export function onSessionUpdate(s: Session, now = Date.now()): void {
   if (!n) return;
   // Work you walked away from is also work you have not seen yet (seen.ts clears it). Set
   // here rather than through seen.ts, which imports this file for reminders.
-  if (n.kind === "waiting" && s.unseenSince === undefined) sessions.setMarks(s.id, { unseenSince: now, remindAt: s.remindAt });
+  if (n.kind === "waiting" && s.unseenSince === undefined) sessions.setMarks(s.id, { unseenSince: now });
   emit({ type: "notify", notice: n });
 }
 
