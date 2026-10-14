@@ -4,7 +4,8 @@ import { RepoPicker } from "./RepoPicker";
 import { MOD, baseName, isMac } from "./platform";
 import { inShell, onMenu } from "./shell";
 import { hueText, nameHue } from "./theme";
-import { showSession } from "./dock";
+import { popOutSession, showSession } from "./dock";
+import { isPoppedOut, usePoppedOut } from "./popout";
 import { markUnread } from "./seen";
 import { activeRowIndex, answerAttention, duplicateSession, hiddenCount, hideSessions, isUnseen, killSession, markSeen, railGroups, railRows, remindSession, resumeSession, setActive, setGroupBy, showAllSessions, terminalHere, toggleMachine, toggleShowClosed, useStore, type GroupBy } from "./ws";
 
@@ -141,6 +142,7 @@ function RowMenu({ x, y, session, now, onClose }: { x: number; y: number; sessio
         {isUnseen(s)
           ? <button onClick={act(() => markSeen(s.id, true))}>mark as read</button>
           : <button onClick={act(() => markUnread(s.id))}>mark as unread</button>}
+        <button onClick={act(() => popOutSession(s.id))}>{isPoppedOut(s.id) ? "bring its window forward" : "open in its own window"}</button>
         <div className="menu-sep" />
         {REMIND.map(([label, at]) => (
           <button key={label} onClick={act(() => remindSession(s.id, at(Date.now())))} title="it leaves the unread pile now and comes back, with a notification, then">
@@ -222,6 +224,7 @@ function Rail({ onNew }: { onNew: () => void }) {
   const attention = useStore((s) => s.attention);
   const now = useNow(15000);
   const [menu, setMenu] = useState<{ x: number; y: number; session: Session } | null>(null);
+  const out = usePoppedOut();
 
   // The repo sub-label repeats the header under "by folder" / "by repo", so it only shows
   // where it is the row's only repo cue.
@@ -316,6 +319,11 @@ function Rail({ onNew }: { onNew: () => void }) {
                   {!on && s.claudeSessionId && !external && (
                     <button className="close" title="resume this Claude session in a new tab"
                       onClick={(e) => { e.stopPropagation(); resumeSession(s); }}>↻</button>
+                  )}
+                  {on && (
+                    <button className={"close popout" + (out.includes(s.id) ? " out" : "")}
+                      title={out.includes(s.id) ? "in its own window: bring that window forward" : "open in its own window; closing that window brings it back here"}
+                      onClick={(e) => { e.stopPropagation(); popOutSession(s.id); }}>⧉</button>
                   )}
                   <button className="close hide" title="hide this session from the rail; it keeps running"
                     onClick={(e) => { e.stopPropagation(); hideSessions([s.id]); }}>⊘</button>

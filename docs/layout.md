@@ -34,6 +34,17 @@ panels whose session is gone are dropped; new sessions join the active terminal 
 the empty centre pane). Drag handles are tab headers only: dragging panel bodies would
 fight xterm's mouse handling and text selection.
 
+**A session can leave the stage for a window of its own.** ⧉ on a rail row (or "open in its
+own window" in its right-click menu) opens `/?session=<id>`: a whole Henry client showing only
+that terminal under a one-line bar (title, repo, activity, any ask), not a dockview popout like
+a peek's, so it outlives the main window reloading on a UI build. Two windows drawing one PTY
+at two sizes fight over it, so while the session is out the main window has no tab for it, and
+its rail row keeps ⧉ lit and brings that window forward when clicked. Windows of the browser
+tell one another which sessions are out over a BroadcastChannel (a beat every 2 s, a goodbye on
+close), so a reloaded main window still knows; closing the session's window, or "back to the
+main window", returns the tab. The session's window leaves notices and the remembered session
+(`henry.active`) to the main one, and counts as looking at the session like any window.
+
 **The topbar carries the roll-up, and it is half about you.** Left of the buttons, one line
 of chips answers "what is happening" without the rail: any session that asked for you by name
 (first, and carrying its own sentence — see Henry's tools), sessions working / needing an

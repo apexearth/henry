@@ -11,8 +11,9 @@ What Henry is built on, how it is served, which ports it takes, and what differs
   no menu bar: wry turns WebView2's browser accelerators off, so the page's own bindings
   see every Ctrl chord and the bar would only cost a row. The webview cannot make a window
   by itself, so Rust answers every `window.open`: the page's own `/popout.html` (a
-  popped-out peek) gets a linked Tauri window built from the webview's features, so the
-  page keeps its handle on it; anything else, a `target="_blank"` link (the repo's ↗, a PR
+  popped-out peek) and `/?session=<id>` (a popped-out session) get a linked Tauri window
+  built from the webview's features, so the page keeps its handle on it, and that window
+  routes its own `window.open`s the same way; anything else, a `target="_blank"` link (the repo's ↗, a PR
   number), goes to the default browser.
   Both front ends run at once against the one daemon. `bun run dev` (scripts/dev.ts) runs daemon, Vite and the shell
   together: the shell is the debug cargo build with `HENRY_URL` on the Vite page so it

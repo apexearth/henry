@@ -29,7 +29,7 @@ fn henry_url() -> String {
 
 // A `target="_blank"` link (the repo's ↗, a PR number) asks the webview for a new window,
 // which it has no way to make on its own: without an answer the click does nothing. Other
-// than a popped-out peek, Henry's windows are not browsers, so the link goes to the default
+// than a popped-out peek or session, Henry's windows are not browsers, so the link goes to the default
 // browser instead. Only web URLs: the page
 // is trusted, but a stray file: or custom scheme should not launch anything.
 fn open_in_browser(url: &tauri::Url) {
@@ -60,12 +60,29 @@ fn open_in_browser(url: &tauri::Url) {
     let _ = cmd.spawn();
 }
 
-// A popped-out peek: the page opens its own origin's `/popout.html` and moves the panel into
-// it, which needs the real `window.open` result (same process, `opener` intact). WebKit and
+// Henry's own windows: a popped-out peek (`/popout.html`, the panel moves into it) and a
+// popped-out session (`/?session=<id>`, a whole client showing one terminal). Everything else
+// asking for a window is a link, and goes to the default browser.
+fn is_henry_window(url: &tauri::Url, henry: &tauri::Url) -> bool {
+    url.origin() == henry.origin()
+        && (url.path() == "/popout.html" || (url.path() == "/" && url.query_pairs().any(|(k, _)| k == "session")))
+}
+
+fn route_new_window(app: &tauri::AppHandle, henry: &tauri::Url, url: tauri::Url, features: tauri::webview::NewWindowFeatures) -> NewWindowResponse<Wry> {
+    if is_henry_window(&url, henry) {
+        return open_popout(app, henry.clone(), features);
+    }
+    open_in_browser(&url);
+    NewWindowResponse::Deny
+}
+
+// The page needs the real `window.open` result (same process, `opener` intact): a peek's panel
+// moves into it, and the main window focuses a session's window through it. WebKit and
 // WebView2 give that only to a webview made from the features they hand over.
-fn open_popout(app: &tauri::AppHandle, features: tauri::webview::NewWindowFeatures) -> NewWindowResponse<Wry> {
+fn open_popout(app: &tauri::AppHandle, henry: tauri::Url, features: tauri::webview::NewWindowFeatures) -> NewWindowResponse<Wry> {
     static NEXT: AtomicUsize = AtomicUsize::new(0);
     let label = format!("popout-{}", NEXT.fetch_add(1, Ordering::Relaxed));
+    let handle = app.clone();
     let built = WebviewWindowBuilder::new(app, label, WebviewUrl::External("about:blank".parse().unwrap()))
         .window_features(features)
         .title("Henry")
@@ -73,6 +90,8 @@ fn open_popout(app: &tauri::AppHandle, features: tauri::webview::NewWindowFeatur
         .on_document_title_changed(|w, title| {
             let _ = w.set_title(&title);
         })
+        // A session's window shows links (a repo's ↗) like the main one: same routing.
+        .on_new_window(move |url, features| route_new_window(&handle, &henry, url, features))
         .build();
     match built {
         Ok(window) => NewWindowResponse::Create { window },
@@ -99,7 +118,7 @@ fn main() {
     tauri::Builder::default()
         .setup(|app| {
             let url: tauri::Url = henry_url().parse()?;
-            let origin = url.origin();
+            let henry = url.clone();
             let handle = app.handle().clone();
             WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
                 .title("Henry")
@@ -109,13 +128,7 @@ fn main() {
                 // target, which eats the HTML5 drag events dockview needs to move panels.
                 // Henry accepts no dropped files, so nothing is lost by turning it off.
                 .disable_drag_drop_handler()
-                .on_new_window(move |url, features| {
-                    if url.origin() == origin && url.path() == "/popout.html" {
-                        return open_popout(&handle, features);
-                    }
-                    open_in_browser(&url);
-                    NewWindowResponse::Deny
-                })
+                .on_new_window(move |url, features| route_new_window(&handle, &henry, url, features))
                 .build()?;
             #[cfg(not(target_os = "windows"))]
             app.set_menu(build_menu(app)?)?;

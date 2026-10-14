@@ -18,7 +18,9 @@ import { Settings } from "./Settings";
 import { Keys } from "./Keys";
 import { TopActivity } from "./TopActivity";
 import { StatusBar } from "./StatusBar";
-import { closePeek, getDockApi, isFilePanel, resetLayout, showSession, stageStep } from "./dock";
+import { closePeek, getDockApi, isFilePanel, resetLayout, showSession, stageStep, startPopouts } from "./dock";
+import { soloSessionId } from "./popout";
+import { Solo } from "./Solo";
 import { MOD, arrowMod, isMac, mod } from "./platform";
 import { inShell, onMenu } from "./shell";
 import { activeRowIndex, getState, railRows, setActive, subscribeNotices, unseenRows, useStore, type RailRow } from "./ws";
@@ -30,9 +32,11 @@ import { activeRowIndex, getState, railRows, setActive, subscribeNotices, unseen
  */
 export function App({ access, onRetry }: { access: Access; onRetry: () => void }) {
   const mobile = useMobile();
-  // Both shapes: a phone with a Henry tab open in the background is told the same way.
-  useEffect(() => subscribeNotices(onNotice), []);
+  // Both shapes: a phone with a Henry tab open in the background is told the same way. A
+  // session's own window leaves it to the main one, which knows every session.
+  useEffect(() => (soloSessionId ? undefined : subscribeNotices(onNotice)), []);
   if (!access.ok) return <Gate error={access.error} onRetry={onRetry} />;
+  if (soloSessionId) return <Solo sessionId={soloSessionId} />;
   return mobile ? <MobileApp /> : <DesktopApp />;
 }
 
@@ -49,6 +53,7 @@ function DesktopApp() {
   const [keys, setKeys] = useState(false);
 
   useEffect(() => onMenu("reset-layout", resetLayout), []);
+  useEffect(startPopouts, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

@@ -2,6 +2,7 @@
 // Terminal components subscribe per session via subscribePty.
 import { useSyncExternalStore } from "react";
 import { baseName } from "./platform";
+import { soloSessionId } from "./popout";
 import { nameHue } from "./theme";
 import { isClaudeSession, type Attention, type ClientMessage, type Flag, type HenryConfig, type HenryEvent, type Notice, type PeerStatus, type PlaybookEntry, type RepoState, type ServerMessage, type Session, type SessionKind, type Usage } from "@henry/shared";
 
@@ -68,7 +69,7 @@ let state: UiState = {
   firstRun: false,
   host: null,
   peers: [],
-  activeSessionId: readLastActive()?.id ?? null,
+  activeSessionId: soloSessionId ?? readLastActive()?.id ?? null,
   activeGroup: null,
   showClosed: readShowClosed(),
   groupBy: readGroupBy(),
@@ -132,6 +133,8 @@ function readLastActive(): LastActive | null {
 let lastActive = readLastActive();
 
 function rememberActive(id: string | null): void {
+  // A session's own window is not where you were: the main window's memory stays its own.
+  if (soloSessionId) return;
   // The cwd is only known once sessions have arrived; keep the stored one until then.
   const cwd = state.sessions.find((s) => s.id === id)?.cwd ?? (id === lastActive?.id ? lastActive.cwd : "");
   if (lastActive?.id === id && lastActive.cwd === cwd) return;
@@ -208,6 +211,7 @@ function noteUiBuild(build: string | undefined): void {
 }
 
 function pickActive(sessions: Session[], current: string | null): string | null {
+  if (soloSessionId) return soloSessionId;
   if (current && sessions.some((s) => s.id === current)) return current;
   // The remembered session is gone (killed while away, or a restart): stay in its repo if we can.
   const inRepo = lastActive?.cwd ? sessions.filter((s) => s.cwd === lastActive!.cwd) : [];

@@ -10,7 +10,8 @@ import { FilesPane } from "./FilesPane";
 import { BoundFlags, BoundHistory, BoundPlaybook, BoundUsage, useSessionFlags } from "./panels/bound";
 import { VoicePanel } from "./panels/Voice";
 import { setActive, useStore } from "./ws";
-import { buildDefaultLayout, ensureSessionPanel, henryTheme, isFilePanel, isTerminalGroup, loadLayout, migrateRestoredLayout, noteActivePanel, saveLayout, sessionTitle, setDockApi, styleTerminalGroup, TERM_PREFIX, termPanelId } from "./dock";
+import { usePoppedOut } from "./popout";
+import { buildDefaultLayout, dropPoppedPanels, ensureSessionPanel, henryTheme, isFilePanel, isTerminalGroup, loadLayout, migrateRestoredLayout, noteActivePanel, saveLayout, sessionTitle, setDockApi, styleTerminalGroup, TERM_PREFIX, termPanelId } from "./dock";
 
 function TerminalPanel({ api, params }: IDockviewPanelProps<{ sessionId: string }>) {
   const [visible, setVisible] = useState(api.isVisible);
@@ -168,6 +169,7 @@ export function Layout() {
       // Peeks are for the moment; they don't come back with the layout.
       if (isFilePanel(p.id) || (p.id.startsWith(TERM_PREFIX) && !live.has(p.id.slice(TERM_PREFIX.length)))) api.removePanel(p);
     }
+    dropPoppedPanels();
     for (const s of sessions) ensureSessionPanel(s);
     // Header visibility isn't serialized; re-apply it to every restored terminal group.
     for (const g of api.groups) if (isTerminalGroup(g)) styleTerminalGroup(g);
@@ -215,6 +217,12 @@ export function Layout() {
       known.current.add(s.id);
     }
   }, [api, sessions, hydrated]);
+
+  // A session that went out to its own window (here or from another window) leaves the dock.
+  const popped = usePoppedOut();
+  useEffect(() => {
+    if (api && restored.current) dropPoppedPanels();
+  }, [api, popped, hydrated]);
 
   // Store → dock: rail clicks and ⌘N bring the session's tab forward.
   useEffect(() => {

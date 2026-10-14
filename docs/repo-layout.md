@@ -65,6 +65,8 @@ henry/
       src/seen.ts              # telling the daemon you looked at the session in view
       src/Layout.tsx           # Dockview root; wraps rail, terminals and tools as panels
       src/dock.ts              # default layout, localStorage persistence, open/focus helpers
+      src/popout.ts            # sessions out in their own window, tracked across windows
+      src/Solo.tsx             # a popped-out session's window: one bar and the terminal
       src/ws.ts                # client, reconnect, state store
       src/Terminal.tsx         # xterm + webgl addon
       src/PrsMenu.tsx          # topbar open-PR count + the list behind it

@@ -5,6 +5,7 @@ import type { Session } from "@henry/shared";
 import { isClaudeSession } from "@henry/shared";
 import { baseName } from "./platform";
 import { themeDocument } from "./theme";
+import { focusPopout, isPoppedOut, popOut, watchPopouts } from "./popout";
 import { getState } from "./ws";
 
 export type ToolId = "sessions" | "files" | "history" | "flags" | "playbook" | "usage" | "voice";
@@ -176,7 +177,8 @@ function terminalHome(): { referencePanel: string; direction: "left" | "right" }
 }
 
 export function ensureSessionPanel(s: Session, activate = false) {
-  if (!api) return;
+  // Out in its own window (popout.ts): one window per PTY, or they fight over its size.
+  if (!api || isPoppedOut(s.id)) return;
   const id = termPanelId(s.id);
   const existing = api.getPanel(id);
   if (existing) {
@@ -199,8 +201,33 @@ export function ensureSessionPanel(s: Session, activate = false) {
 
 /** Rail click / ⌘N: make sure the session has a tab and bring it forward. */
 export function showSession(sessionId: string) {
+  if (isPoppedOut(sessionId)) return focusPopout(sessionId);
   const s = getState().sessions.find((x) => x.id === sessionId);
   if (s) ensureSessionPanel(s, true);
+}
+
+/** Move a session's terminal out of the dock into a window of its own. */
+export function popOutSession(sessionId: string) {
+  if (isPoppedOut(sessionId)) return focusPopout(sessionId);
+  popOut(sessionId);
+  const p = api?.getPanel(termPanelId(sessionId));
+  if (p) api!.removePanel(p);
+}
+
+/** The main window's half of popout.ts: drop the tabs of sessions that are out (another window
+ * may have popped them, or this one before it reloaded), and give a tab back when one returns. */
+export function startPopouts() {
+  watchPopouts((id) => {
+    const s = getState().sessions.find((x) => x.id === id);
+    if (s) ensureSessionPanel(s, getState().activeSessionId === id);
+  });
+}
+
+/** A tab for a session that is out, restored with the layout or added before the window said so. */
+export function dropPoppedPanels() {
+  for (const p of api?.panels ?? []) {
+    if (p.id.startsWith(TERM_PREFIX) && isPoppedOut(p.id.slice(TERM_PREFIX.length))) api!.removePanel(p);
+  }
 }
 
 /** Topbar chips and the status strip: bring a tool forward, re-adding it if its tab is gone. */
