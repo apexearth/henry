@@ -16,6 +16,7 @@ import { getState, useStore } from "./ws";
 
 // CodeMirror is a third of the bundle and most peeks are never edited.
 const Editor = lazy(() => import("./Editor").then((m) => ({ default: m.Editor })));
+const Model = lazy(() => import("./Model").then((m) => ({ default: m.Model })));
 
 /** `path:line[:col]` → parts. Windows-style drive letters aren't a concern here. */
 export function splitLineRef(ref: string): { path: string; line?: number } {
@@ -246,7 +247,10 @@ export function FileView({ path, line, active, local = false, popped = false, ed
   const [saveState, setSaveState] = useState<{ busy?: boolean; error?: string; conflict?: boolean } | null>(null);
   const [nudge, setNudge] = useState(false);
   const editor = useRef<EditorHandle>(null);
-  const canEdit = editable && !!peek && !peek.binary && !peek.image && !peek.truncated
+  // An STL (binary, or ASCII text) is a 3D view, read from `/raw` like a PDF.
+  const isStl = !!peek && !peek.image && /\.stl$/i.test(path);
+  const stlServed = isStl && rawServed(local);
+  const canEdit = editable && !!peek && !peek.binary && !peek.image && !peek.truncated && !stlServed
     && !getState().sessions.find((x) => x.id === getState().activeSessionId)?.peer;
   // CodeMirror joins lines with LF whatever the file used; a CRLF file is compared and written
   // back in its own line ends, or it would read as edited on opening and come out changed.
@@ -491,6 +495,7 @@ export function FileView({ path, line, active, local = false, popped = false, ed
           {peek?.image
             ? `${peek.image.slice(6).replace("+xml", "").replace("x-icon", "ico")}${dims ? ` · ${dims.w}×${dims.h}` : ""} · ${fmtSize(peek.size)}`
             : peek?.pdf ? `pdf · ${fmtSize(peek.size)}`
+            : isStl && (stlServed || peek.binary) ? `stl · ${fmtSize(peek!.size)}`
             : peek ? `${lines.length} lines · ${fmtSize(peek.size)}${peek.truncated ? " · truncated" : ""}` : peek === null ? "not found" : "loading…"}
         </span>
         {imgSrc && dims && (
@@ -555,7 +560,15 @@ export function FileView({ path, line, active, local = false, popped = false, ed
           </div>
         )}
         {peek?.image && !imgSrc && <div className="peek-note">{peek.truncated ? `Image is ${fmtSize(peek.size)}, over what a peek carries.` : "Empty image file."}</div>}
-        {peek?.binary && !peek.image && !isPdf && <div className="peek-note">Binary file, nothing to show.</div>}
+        {peek?.binary && !peek.image && !isPdf && !isStl && <div className="peek-note">Binary file, nothing to show.</div>}
+        {isStl && !stlServed && peek!.binary && <div className="peek-note">3D models are shown only in a Henry window on the machine that holds them.</div>}
+        {stlServed && (
+          <div className="peek-pane peek-html">
+            <Suspense fallback={<div className="peek-note">loading the 3D view…</div>}>
+              <Model url={rawUrl(peek!.path)} name={name} />
+            </Suspense>
+          </div>
+        )}
         {isPdf && !pdfServed && <div className="peek-note">PDFs are shown only in a Henry window on the machine that holds them.</div>}
         {pdfServed && !pdfOpen && (
           <div className="peek-note">
@@ -575,7 +588,7 @@ export function FileView({ path, line, active, local = false, popped = false, ed
             </Suspense>
           </div>
         )}
-        {peek && !peek.binary && !peek.image && showSource && !editing && (
+        {peek && !peek.binary && !peek.image && !stlServed && showSource && !editing && (
           <pre className="peek-pane">
             {lines.map((t, i) => (
               <Line key={i} no={i + 1} text={t} html={html && i < html.length ? html[i] : undefined} hit={i + 1 === line}

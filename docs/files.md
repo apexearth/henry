@@ -94,6 +94,17 @@ and marks the matches with the CSS highlight API, and Henry only shows the count
 inside the frame never reach Henry, so the frame passes on ⌘F, ⌘K and Esc. Same limits as
 HTML: this machine's loopback only.
 
+**An STL is a 3D view.** A file named `.stl`, binary or ASCII, opens as a part you can turn
+(`ui/Model.tsx`, three.js, a chunk loaded only when one is shown): drag turns, right-drag
+pans, the wheel zooms toward the cursor, and a double-click on the part makes that point the
+centre of turning, which is how you get close to a detail. Iso, top, front and right views
+(CAD's Z-up) each fit the part to the pane; feature edges (creases past 30°) are outlined unless
+the part has more than 500k triangles; "wire" shows the mesh. Normals are recomputed from the
+triangles, since exporters often write zeros. The corner gives the triangle count and the
+bounding box in the file's own units. STL is triangles only, so it is parsed in Henry's page
+with no sandbox; the bytes come from `/raw` with the same limits as a PDF. STEP is not shown:
+it needs a CAD kernel (OpenCascade as WASM, several MB) to turn into triangles.
+
 The tree's marks are the exception: they are `git status`, against HEAD, so every session in
 a folder sees the same marks and a clean repo shows none. Before this they were vs baseline
 too, and a commit never cleared them: the tree said "uncommitted" next to a root card saying

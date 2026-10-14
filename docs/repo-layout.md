@@ -78,6 +78,7 @@ henry/
       src/match.ts             # fuzzy path matching + the glob box, shared by the tree and ⌘K
       src/FileView.tsx         # file peek (stage, with ⌘F find, edit + save) and the tree's preview
       src/Editor.tsx           # the peek's editor: CodeMirror 6 with the read view's colour classes
+      src/Model.tsx            # an STL peek: three.js, turn / pan / zoom, views, edges
       src/panels/{History,Flags,Playbook,Usage}.tsx
       src/panels/bound.tsx     # those four wired to the store, for both the dock and the phone's sheet
       src/history.ts           # GET /api/history + the hook that refetches a session's turns

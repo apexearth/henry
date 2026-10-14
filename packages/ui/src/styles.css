@@ -359,6 +359,19 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 .peek-body > .peek-html { height: 100%; overflow: hidden; }
 .peek-html iframe { display: block; width: 100%; height: 100%; border: 0; background: #fff; }
 
+/* An STL peek (Model.tsx): the canvas fills the pane, the controls float over it. */
+.model { position: relative; height: 100%; background: var(--bg); }
+.model-stage { position: absolute; inset: 0; }
+.model-stage canvas { display: block; touch-action: none; }
+.model-note { position: absolute; inset: 0; }
+.model-tools { position: absolute; top: 8px; right: 8px; display: flex; gap: 6px; align-items: center; padding: 3px 6px; background: var(--bg-2); border: 1px solid var(--border); border-radius: 5px; font-size: 11px; }
+.model-tools .peek-back.on { color: var(--accent); }
+.model-tools .peek-back:disabled { color: var(--fg-faint); }
+.model-info, .model-hint { position: absolute; bottom: 6px; font-size: 11px; color: var(--fg-dim); pointer-events: none; }
+.model-info { left: 10px; }
+.model-hint { right: 10px; color: var(--fg-faint); }
+@media (max-width: 700px) { .model-hint { display: none; } }
+
 /* Markdown as a page (Markdown.tsx): prose in a reading face, code in the app's mono. */
 .md { padding: 16px 24px 48px; font: 14px/1.55 -apple-system, "Segoe UI", system-ui, sans-serif; color: var(--fg); overflow-wrap: anywhere; }
 .md > :first-child { margin-top: 0; }
