@@ -89,14 +89,38 @@ export function speakSpec(text: string, out: string, voice?: string): { command:
 }
 
 /**
- * How to show the folder `dir` in the OS file manager. Explorer and `xdg-open` open a folder
- * as a folder. macOS `open` launches a bundle (`X.app`) rather than showing it, so a folder
- * whose name has an extension is revealed in its parent (`-R`) instead.
+ * How to show `path` in the OS file manager: a folder opened as a folder, a file selected in
+ * the folder it sits in. Explorer and `xdg-open` open a folder as a folder. macOS `open`
+ * launches a bundle (`X.app`) rather than showing it, so a folder whose name has an extension
+ * is revealed in its parent (`-R`) instead. Explorer reads `/select,` and the quoted path as one
+ * argument, so that one is passed verbatim (`verbatim`) rather than requoted by the spawner.
  */
-export function revealSpec(dir: string): { command: string; args: string[] } {
-  if (isWindows) return { command: "explorer.exe", args: [dir] };
-  if (process.platform === "darwin") return { command: "open", args: /.\.[^.]+$/.test(basename(dir)) ? ["-R", dir] : [dir] };
-  return { command: "xdg-open", args: [dir] };
+export function revealSpec(path: string, isFile = false): { command: string; args: string[]; verbatim?: boolean } {
+  if (isWindows) return isFile ? { command: "explorer.exe", args: [`/select,"${path}"`], verbatim: true } : { command: "explorer.exe", args: [path] };
+  if (process.platform === "darwin") return { command: "open", args: isFile || /.\.[^.]+$/.test(basename(path)) ? ["-R", path] : [path] };
+  return { command: "xdg-open", args: [isFile ? dirname(path) : path] };
+}
+
+/**
+ * How to move `path` (a file or a folder) to the OS trash, so a delete from the files tree can
+ * be undone from there. Windows: the VisualBasic FileSystem API is the one that reaches the
+ * Recycle Bin without a shell window. macOS 15 ships `trash`; before it, Finder does it over
+ * AppleScript. Elsewhere, `gio trash`.
+ */
+export function trashSpec(path: string, isDir: boolean): { command: string; args: string[] } {
+  if (isWindows) {
+    const lit = `'${path.replace(/'/g, "''")}'`;
+    const fn = isDir ? "DeleteDirectory" : "DeleteFile";
+    const script = `$ErrorActionPreference='Stop'; Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::${fn}(${lit}, 'OnlyErrorDialogs', 'SendToRecycleBin')`;
+    const ps = Bun.which("pwsh") ?? Bun.which("powershell") ?? "powershell";
+    return { command: ps, args: ["-NoProfile", "-NonInteractive", "-Command", script] };
+  }
+  if (process.platform === "darwin") {
+    const trash = Bun.which("trash") ?? (existsSync("/usr/bin/trash") ? "/usr/bin/trash" : undefined);
+    if (trash) return { command: trash, args: [path] };
+    return { command: "osascript", args: ["-e", `tell application "Finder" to delete (POSIX file ${JSON.stringify(path)})`] };
+  }
+  return { command: "gio", args: ["trash", path] };
 }
 
 /** How to get whisper.cpp here. Homebrew has it; Windows has only the project's own zips. */

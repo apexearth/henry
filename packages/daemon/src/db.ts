@@ -141,6 +141,14 @@ if (!(db.prepare("PRAGMA table_info(playbook)").all() as { name: string }[]).som
   if (!cols.has("last_seen_at")) db.exec("ALTER TABLE sessions ADD COLUMN last_seen_at INTEGER");
 }
 
+// repo_baselines.touched_at / hidden_at: when the session last named a path in the repo, and
+// when you hid it from that session's files tree. A repo touched since it was hidden comes back.
+{
+  const cols = new Set((db.prepare("PRAGMA table_info(repo_baselines)").all() as { name: string }[]).map((c) => c.name));
+  if (!cols.has("touched_at")) db.exec("ALTER TABLE repo_baselines ADD COLUMN touched_at INTEGER");
+  if (!cols.has("hidden_at")) db.exec("ALTER TABLE repo_baselines ADD COLUMN hidden_at INTEGER");
+}
+
 // ---- sessions ----
 
 interface SessionRow {
@@ -436,23 +444,40 @@ export function listPlaybook(sessionId?: string | null, limit = 200): PlaybookEn
 
 // ---- repo baselines ----
 
-export interface RepoBaseline { sessionId: string; repoPath: string; baselineSha: string; firstSeen: number }
+export interface RepoBaseline { sessionId: string; repoPath: string; baselineSha: string; firstSeen: number; touchedAt?: number; hiddenAt?: number }
+
+interface BaselineRow { session_id: string; repo_path: string; baseline_sha: string; first_seen: number; touched_at: number | null; hidden_at: number | null }
+
+function toBaseline(r: BaselineRow): RepoBaseline {
+  const b: RepoBaseline = { sessionId: r.session_id, repoPath: r.repo_path, baselineSha: r.baseline_sha, firstSeen: r.first_seen };
+  if (r.touched_at != null) b.touchedAt = r.touched_at;
+  if (r.hidden_at != null) b.hiddenAt = r.hidden_at;
+  return b;
+}
 
 export function upsertBaseline(b: RepoBaseline): void {
-  db.prepare("INSERT OR IGNORE INTO repo_baselines (session_id, repo_path, baseline_sha, first_seen) VALUES (?, ?, ?, ?)")
-    .run(b.sessionId, b.repoPath, b.baselineSha, b.firstSeen);
+  db.prepare("INSERT OR IGNORE INTO repo_baselines (session_id, repo_path, baseline_sha, first_seen, touched_at) VALUES (?, ?, ?, ?, ?)")
+    .run(b.sessionId, b.repoPath, b.baselineSha, b.firstSeen, b.touchedAt ?? b.firstSeen);
 }
 
 export function getBaseline(sessionId: string, repoPath: string): RepoBaseline | undefined {
-  const r = db.prepare("SELECT * FROM repo_baselines WHERE session_id = ? AND repo_path = ?").get(sessionId, repoPath) as
-    | { session_id: string; repo_path: string; baseline_sha: string; first_seen: number } | null;
-  return r ? { sessionId: r.session_id, repoPath: r.repo_path, baselineSha: r.baseline_sha, firstSeen: r.first_seen } : undefined;
+  const r = db.prepare("SELECT * FROM repo_baselines WHERE session_id = ? AND repo_path = ?").get(sessionId, repoPath) as BaselineRow | null;
+  return r ? toBaseline(r) : undefined;
+}
+
+/** The session named a path in this repo at `ts`. */
+export function touchBaseline(sessionId: string, repoPath: string, ts: number): void {
+  db.prepare("UPDATE repo_baselines SET touched_at = ? WHERE session_id = ? AND repo_path = ?").run(ts, sessionId, repoPath);
+}
+
+/** Hide the repo from this session's files tree until the session touches it again. */
+export function hideBaseline(sessionId: string, repoPath: string, ts: number): void {
+  db.prepare("UPDATE repo_baselines SET hidden_at = ? WHERE session_id = ? AND repo_path = ?").run(ts, sessionId, repoPath);
 }
 
 export function listBaselines(sessionId: string): RepoBaseline[] {
-  const rows = db.prepare("SELECT * FROM repo_baselines WHERE session_id = ? ORDER BY first_seen").all(sessionId) as
-    { session_id: string; repo_path: string; baseline_sha: string; first_seen: number }[];
-  return rows.map((r) => ({ sessionId: r.session_id, repoPath: r.repo_path, baselineSha: r.baseline_sha, firstSeen: r.first_seen }));
+  const rows = db.prepare("SELECT * FROM repo_baselines WHERE session_id = ? ORDER BY first_seen").all(sessionId) as BaselineRow[];
+  return rows.map(toBaseline);
 }
 
 /**
@@ -466,8 +491,8 @@ export function listLiveBaselines(): RepoBaseline[] {
     .prepare(`SELECT b.* FROM repo_baselines b JOIN sessions s ON s.id = b.session_id
               WHERE s.dismissed_at IS NULL AND (s.status != 'exited' OR s.created_at >= ?)
               ORDER BY b.first_seen`)
-    .all(Date.now() - SESSION_RESTORE_WINDOW_MS) as { session_id: string; repo_path: string; baseline_sha: string; first_seen: number }[];
-  return rows.map((r) => ({ sessionId: r.session_id, repoPath: r.repo_path, baselineSha: r.baseline_sha, firstSeen: r.first_seen }));
+    .all(Date.now() - SESSION_RESTORE_WINDOW_MS) as BaselineRow[];
+  return rows.map(toBaseline);
 }
 
 // ---- usage ----

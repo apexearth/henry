@@ -2,7 +2,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 
 const tmp = realpathSync(mkdtempSync(join(tmpdir(), "henry-files-test-")));
 process.env.HENRY_HOME = join(tmp, "home");
@@ -118,6 +118,51 @@ describe("writeFile", () => {
   test("relative paths and missing files are refused", () => {
     expect("error" in files.writeFile("relative.md", "", { create: true })).toBe(true);
     expect(files.writeFile(join(root, "gone.md"), "", {})).toEqual({ error: "no longer exists", status: 404 });
+  });
+});
+
+describe("the tree's file operations", () => {
+  const ops = join(tmp, "ops");
+
+  beforeAll(() => {
+    mkdirSync(join(ops, "src"), { recursive: true });
+    writeFileSync(join(ops, "src", "a.ts"), "a\n");
+    writeFileSync(join(ops, "b.md"), "b\n");
+  });
+
+  test("makeDir makes a folder and its parents, and refuses one that exists", () => {
+    expect(files.makeDir(join(ops, "docs", "specs"))).toEqual({ ok: true, path: join(ops, "docs", "specs") });
+    expect(files.makeDir(join(ops, "docs"))).toEqual({ error: "already exists", status: 409 });
+    expect("error" in files.makeDir("relative")).toBe(true);
+  });
+
+  test("movePath renames and moves, makes the target's folders, and never overwrites", () => {
+    expect(files.movePath(join(ops, "b.md"), join(ops, "notes", "b2.md"))).toEqual({ ok: true, path: join(ops, "notes", "b2.md") });
+    expect(files.readPeek(join(ops, "notes", "b2.md"))!.content).toBe("b\n");
+    writeFileSync(join(ops, "c.md"), "c\n");
+    expect(files.movePath(join(ops, "c.md"), join(ops, "notes", "b2.md"))).toEqual({ error: "already exists", status: 409 });
+    expect(files.movePath(join(ops, "gone.md"), join(ops, "x.md"))).toEqual({ error: "no longer exists", status: 404 });
+    expect(files.movePath(join(ops, "src"), join(ops, "src", "deeper", "src"))).toEqual({ error: "cannot move a folder into itself", status: 400 });
+    expect(files.movePath(join(ops, "src"), join(ops, "lib"))).toEqual({ ok: true, path: join(ops, "lib") });
+    expect(files.readPeek(join(ops, "lib", "a.ts"))!.content).toBe("a\n");
+  });
+
+  test("a case-only rename goes through where names ignore case", () => {
+    if (process.platform === "linux") return;
+    expect(files.movePath(join(ops, "c.md"), join(ops, "C.md"))).toEqual({ ok: true, path: join(ops, "C.md") });
+    expect(files.listDir(ops)!.files).toContain("C.md");
+  });
+
+  test("listDir lists one folder, folders apart from files", () => {
+    const l = files.listDir(ops)!;
+    expect(l.dirs).toEqual(["docs", "lib", "notes"]);
+    expect(l.files.map((f) => f.toLowerCase())).toEqual(["c.md"]);
+    expect(files.listDir(join(ops, "nope"))).toBeUndefined();
+  });
+
+  test("trashPath refuses what is not there and what is too big to trash", async () => {
+    expect(await files.trashPath(join(ops, "nope"))).toEqual({ error: "no longer exists", status: 404 });
+    expect(await files.trashPath(tmpdir().slice(0, tmpdir().indexOf(sep) + 1))).toEqual({ error: "not that one", status: 400 });
   });
 });
 

@@ -10,8 +10,9 @@
 // imported by tests without starting the server. server.ts wires it in startServer().
 import { existsSync, readFileSync, readdirSync, statSync, realpathSync, watch, type FSWatcher } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
-import type { ChangedFile, FileDiff, GrepHit, GrepOptions, GrepResult, HenryEvent, RepoPickerEntry, RepoPrs, RepoState, ServerMessage, SessionFiles } from "@henry/shared";
+import type { ChangedFile, FileDiff, GrepHit, GrepOptions, GrepResult, HenryEvent, RepoFiles, RepoPickerEntry, RepoPrs, RepoState, ServerMessage, SessionFiles } from "@henry/shared";
 import * as db from "./db";
+import * as filewatch from "./filewatch";
 import { isWindows } from "./platform";
 import * as prs from "./prs";
 import * as rules from "./rules";
@@ -94,6 +95,8 @@ const bases = new Map<string, RepoBase>();
 const inflight = new Map<string, Promise<RepoBase | undefined>>();
 const sessionRepos = new Map<string, Set<string>>();
 const repoSessions = new Map<string, Set<string>>();
+/** `${session}\0${repo}` → when the session last named a path there; the DB copy lags by a minute. */
+const touched = new Map<string, { at: number; saved: number }>();
 /** `${repo}\0${baseline}\0${head}` → commits since baseline. Immutable per key. */
 const sinceCache = new Map<string, number>();
 /** commonDir → known worktree paths (for "new worktree" events). */
@@ -656,6 +659,7 @@ export function noteSessionPath(sessionId: string, absPath: string): void {
         const sha = code === 0 ? out.trim() : "";
         if (sha) db.upsertBaseline({ sessionId, repoPath: info.path, baselineSha: sha, firstSeen: Date.now() });
       }
+      noteTouch(sessionId, info.path);
       const before = bases.get(info.path);
       const stale = !before || Date.now() - before.at >= HOOK_REFRESH_MS;
       const after = fresh || stale ? await refresh(info, false) : before;
@@ -665,6 +669,37 @@ export function noteSessionPath(sessionId: string, absPath: string): void {
       console.error(`[git] noteSessionPath ${info.path}:`, e);
     }
   })();
+}
+
+const TOUCH_SAVE_MS = 60_000;
+
+/** Every hook names the cwd, so this runs constantly: memory always, the DB once a minute. */
+function noteTouch(sessionId: string, repoPath: string): void {
+  const key = `${sessionId}\0${repoPath}`;
+  const now = Date.now();
+  const t = touched.get(key);
+  if (t && now - t.saved < TOUCH_SAVE_MS) {
+    t.at = now;
+    return;
+  }
+  touched.set(key, { at: now, saved: now });
+  db.touchBaseline(sessionId, repoPath, now);
+}
+
+/** A checkout that is gone from disk (a removed worktree): forget it everywhere, so no tree or
+ *  card keeps listing it, and tell the sessions that had it. */
+function dropGone(path: string): void {
+  const sids = [...(repoSessions.get(path) ?? [])];
+  for (const sid of sids) sessionRepos.get(sid)?.delete(path);
+  repoSessions.delete(path);
+  for (const [dir, info] of dirCache) if (info.path === path) dirCache.delete(dir);
+  repos.delete(path);
+  bases.delete(path);
+  indexCache.delete(path);
+  ignoredCache.delete(path);
+  for (const w of watchers.get(path) ?? []) w.close();
+  watchers.delete(path);
+  for (const sid of sids) broadcastSession(sid);
 }
 
 /** Repos this session has touched, with live state. */
@@ -887,38 +922,119 @@ export async function recentCommits(repoPath: string, limit = 3): Promise<LogEnt
   return commits;
 }
 
-/** Changed files for every repo the session touched, plus the repo its cwd sits in. */
+/** A repo the session has not named a path in for this long is "earlier": listed on request. */
+export const EARLIER_MS = 8 * 3600_000;
+
+/**
+ * Changed files for every repo the session touched, plus the repo its cwd sits in. A checkout
+ * that has gone from disk is dropped for good; one not touched for EARLIER_MS, or hidden since
+ * it was last touched, is marked `earlier`: a long session's worktree from days ago is history,
+ * not where it works. The cwd's repo never is.
+ */
 export async function sessionFiles(sessionId: string): Promise<SessionFiles> {
   const paths = new Set<string>(sessionRepos.get(sessionId) ?? []);
   const cwdRepo = resolveRepo(db.getSession(sessionId)?.cwd ?? "");
-  if (cwdRepo) paths.add(cwdRepo.path);
+  if (cwdRepo && existsSync(cwdRepo.path)) paths.add(cwdRepo.path);
   const repos: SessionFiles["repos"] = [];
+  const now = Date.now();
   for (const path of paths) {
+    if (!existsSync(path)) {
+      dropGone(path);
+      continue;
+    }
     const info = resolveRepo(path);
     if (!info) continue;
-    repos.push({ path: info.path, name: info.name, baseline: await baselineFor(sessionId, info), files: await changedFiles(sessionId, info.path) });
+    const b = db.getBaseline(sessionId, info.path);
+    const touchedAt = touched.get(`${sessionId}\0${info.path}`)?.at ?? b?.touchedAt ?? b?.firstSeen;
+    const row: SessionFiles["repos"][number] = { path: info.path, name: info.name, baseline: await baselineFor(sessionId, info), files: await changedFiles(sessionId, info.path) };
+    if (touchedAt) row.touchedAt = touchedAt;
+    const hidden = b?.hiddenAt !== undefined && (!touchedAt || b.hiddenAt >= touchedAt);
+    if (info.path === cwdRepo?.path) row.here = true;
+    else if (hidden || !touchedAt || now - touchedAt > EARLIER_MS) row.earlier = true;
+    repos.push(row);
   }
   return { sessionId, repos };
 }
 
-const indexCache = new Map<string, { at: number; files: string[] }>();
+/** "Hide from this session": the repo is earlier until the session touches it again. */
+export function hideSessionRepo(sessionId: string, repoPath: string): boolean {
+  const info = resolveRepo(repoPath);
+  if (!info || !db.getBaseline(sessionId, info.path)) return false;
+  // Stamped past the latest touch, so the touch the hide raced with does not undo it.
+  const t = touched.get(`${sessionId}\0${info.path}`);
+  db.hideBaseline(sessionId, info.path, Math.max(Date.now(), (t?.at ?? 0) + 1));
+  return true;
+}
 
-/** Every tracked and untracked (not ignored) path under the repo, for ⌘K. Cached briefly. */
+const indexCache = new Map<string, { at: number; files: string[] }>();
+const ignoredCache = new Map<string, { at: number; ignored: string[]; empty: string[] }>();
+const IGNORED_CAP = 5000;
+
+/** A listing is good until its TTL, or for as long as the working tree is watched: then the
+ *  watcher drops it the moment anything under the root moves. */
+const listingFresh = (root: string, at: number) => filewatch.watched(root) || Date.now() - at < INDEX_TTL_MS;
+
+/** Every tracked and untracked (not ignored) path under the repo, for ⌘K and the tree. */
 export async function listFiles(anyPath: string): Promise<string[]> {
   const info = resolveRepo(anyPath);
   if (!info) return [];
   const hit = indexCache.get(info.path);
-  if (hit && Date.now() - hit.at < INDEX_TTL_MS) return hit.files;
+  if (hit && listingFresh(info.path, hit.at)) return hit.files;
   const r = await run(info.path, ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], { maxBytes: INDEX_CAP_BYTES });
   const files = r.code === 0 ? r.out.split("\0").filter(Boolean) : [];
   indexCache.set(info.path, { at: Date.now(), files });
   return files;
 }
 
-/** Drop the cached file list of the repo holding `anyPath`: a file was just made there. */
+/**
+ * The files tree's listing: what `listFiles` has, plus what .gitignore hides, with a wholly
+ * ignored folder as one "dir/" entry (node_modules is one row, not a hundred thousand). Asking
+ * for it is what keeps the working tree watched (filewatch.ts), with the ignored folders as the
+ * places whose churn is no news.
+ */
+export async function repoFiles(anyPath: string): Promise<RepoFiles | undefined> {
+  const info = resolveRepo(anyPath);
+  if (!info) return undefined;
+  // Watch first, then list: a listing read before the watcher existed could miss a file made in
+  // between and, being "watched", would never be read again.
+  if (!filewatch.watched(info.path)) {
+    filewatch.interest(info.path);
+    indexCache.delete(info.path);
+    ignoredCache.delete(info.path);
+  }
+  const files = await listFiles(info.path);
+  let hit = ignoredCache.get(info.path);
+  if (!hit || !listingFresh(info.path, hit.at)) {
+    const [ign, dirs] = await Promise.all([
+      run(info.path, ["ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory"], { maxBytes: INDEX_CAP_BYTES }),
+      // Untracked folders, one entry each; the ones no listed file is under are empty.
+      run(info.path, ["ls-files", "-z", "--others", "--exclude-standard", "--directory"], { maxBytes: INDEX_CAP_BYTES }),
+    ]);
+    const ignored = ign.code === 0 ? ign.out.split("\0").filter(Boolean).slice(0, IGNORED_CAP) : [];
+    const holding = new Set<string>();
+    for (const f of files) for (let at = f.indexOf("/"); at > 0; at = f.indexOf("/", at + 1)) holding.add(f.slice(0, at));
+    const empty = dirs.code === 0 ? dirs.out.split("\0").filter((p) => p.endsWith("/") && !holding.has(p.slice(0, -1))).map((p) => p.slice(0, -1)).slice(0, IGNORED_CAP) : [];
+    ignoredCache.set(info.path, (hit = { at: Date.now(), ignored, empty }));
+  }
+  filewatch.interest(info.path, hit.ignored.filter((p) => p.endsWith("/")));
+  return { root: info.path, files, ignored: hit.ignored, empty: hit.empty };
+}
+
+/** Drop the cached listings of the repo holding `anyPath`: something was made or moved there. */
 export function forgetFiles(anyPath: string): void {
   const info = resolveRepo(anyPath);
-  if (info) indexCache.delete(info.path);
+  if (!info) return;
+  indexCache.delete(info.path);
+  ignoredCache.delete(info.path);
+}
+
+/** The working-tree watcher saw `root` change: drop its listings, and re-read the repo's state
+ *  (the dirty count, the tree's marks) if a session is in it. */
+export function filesChanged(root: string): void {
+  indexCache.delete(root);
+  ignoredCache.delete(root);
+  const info = repos.get(root);
+  if (info && repoSessions.get(root)?.size) scheduleRefresh(info.commonDir);
 }
 
 const GREP_CAP_HITS = 500;
@@ -1245,7 +1361,11 @@ export function start(): void {
       const info = resolveRepo(b.repoPath);
       // A checkout that is gone resolves to an ancestor repo (or to nothing): only its own
       // path counts, and one unreadable path must not stop the rest of the rehydrate.
-      if (info && info.path === safeReal(b.repoPath)) associate(b.sessionId, info);
+      if (info && info.path === safeReal(b.repoPath)) {
+        associate(b.sessionId, info);
+        const at = b.touchedAt ?? b.firstSeen;
+        touched.set(`${b.sessionId}\0${info.path}`, { at, saved: at });
+      }
     } catch (e) {
       console.error(`[git] rehydrate ${b.repoPath}:`, e);
     }
@@ -1276,6 +1396,7 @@ export function stats(): Record<string, number> {
     gitNegCache: negCache.size,
     gitSinceCache: sinceCache.size,
     gitIndexCache: indexCache.size,
+    gitIgnoredCache: ignoredCache.size,
   };
 }
 

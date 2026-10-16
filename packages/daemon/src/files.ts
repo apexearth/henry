@@ -1,12 +1,14 @@
 // File peeks: read one file for the UI to show over the terminal, and write one back when the
 // peek was edited. Loopback-only, the user's own machine, so any readable regular file is fair
 // game; size is capped so a stray click on a log never ships megabytes.
-import { openSync, readSync, closeSync, existsSync, mkdirSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { openSync, readSync, closeSync, existsSync, mkdirSync, readdirSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, parse, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { DirIndex, FilePeek } from "@henry/shared";
+import type { DirIndex, DirListing, FilePeek } from "@henry/shared";
 import { expandHome } from "./config";
+import * as filewatch from "./filewatch";
 import * as git from "./git";
+import { trashSpec } from "./platform";
 
 const CAP_BYTES = 1024 * 1024;
 /** Pictures go out whole or not at all (a cut PNG is nothing), so they get a larger cap. A
@@ -108,12 +110,111 @@ export function writeFile(raw: string, content: string, opts: { create?: boolean
     return { error: (e as Error).message, status: 500 };
   }
   // A new file is not in any 10 s index yet; the tree asks again right away.
-  if (opts.create) {
-    git.forgetFiles(path);
-    dirCache.clear();
-  }
+  if (opts.create) forgetListings(path);
   const peek = readPeek(path);
   return peek ? { peek } : { error: "written, but could not be read back", status: 500 };
+}
+
+// ---- what the tree changes: folders, renames, the trash ----
+// The tree's right-click menu, on this machine's files: never a peer's (server.ts refuses a
+// peer's POST). Each refuses rather than overwrites, and a delete goes to the OS trash, where
+// it can be taken back; nothing here removes a file for good.
+
+export type FsResult = { ok: true; path: string } | { error: string; status: number };
+
+function absolute(raw: string): string | undefined {
+  const p = expandHome(raw.trim());
+  return p && isAbsolute(p) ? resolve(p) : undefined;
+}
+
+/** A path that is a drive or filesystem root, or the home folder: never renamed or trashed. */
+function tooBig(p: string): boolean {
+  return parse(p).root === p || resolve(expandHome("~")) === p;
+}
+
+function forgetListings(path: string): void {
+  git.forgetFiles(path);
+  dirCache.clear();
+}
+
+export function makeDir(raw: string): FsResult {
+  const path = absolute(raw);
+  if (!path) return { error: "absolute path required", status: 400 };
+  if (existsSync(path)) return { error: "already exists", status: 409 };
+  try {
+    mkdirSync(path, { recursive: true });
+  } catch (e) {
+    return { error: (e as Error).message, status: 500 };
+  }
+  forgetListings(path);
+  return { ok: true, path };
+}
+
+/** Rename or move a file or folder. The target's folders are made; an existing target is refused. */
+export function movePath(rawFrom: string, rawTo: string): FsResult {
+  const from = absolute(rawFrom);
+  const to = absolute(rawTo);
+  if (!from || !to) return { error: "absolute paths required", status: 400 };
+  if (!existsSync(from)) return { error: "no longer exists", status: 404 };
+  if (tooBig(from)) return { error: "not that one", status: 400 };
+  // A case-only rename on Windows or macOS names the same file: allowed, it is what was asked.
+  const sameFile = process.platform !== "linux" && from.toLowerCase() === to.toLowerCase() && from !== to;
+  if (existsSync(to) && !sameFile) return { error: "already exists", status: 409 };
+  if ((to + "/").startsWith(from + "/") || (to + "\\").startsWith(from + "\\")) return { error: "cannot move a folder into itself", status: 400 };
+  try {
+    mkdirSync(dirname(to), { recursive: true });
+    renameSync(from, to);
+  } catch (e) {
+    return { error: (e as Error).message, status: 500 };
+  }
+  forgetListings(from);
+  forgetListings(to);
+  return { ok: true, path: to };
+}
+
+/** Move a file or folder to the OS trash (platform.ts). */
+export async function trashPath(raw: string): Promise<FsResult> {
+  const path = absolute(raw);
+  if (!path) return { error: "absolute path required", status: 400 };
+  let isDir: boolean;
+  try {
+    isDir = statSync(path).isDirectory();
+  } catch {
+    return { error: "no longer exists", status: 404 };
+  }
+  if (tooBig(path)) return { error: "not that one", status: 400 };
+  const { command, args } = trashSpec(path, isDir);
+  try {
+    const proc = Bun.spawn([command, ...args], { stdin: "ignore", stdout: "ignore", stderr: "pipe" });
+    const killer = setTimeout(() => proc.kill(), 20_000);
+    const [err, code] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);
+    clearTimeout(killer);
+    if (code !== 0 || existsSync(path)) return { error: err.trim().split(/\r?\n/)[0] || `could not move it to the trash (${command} exited ${code})`, status: 500 };
+  } catch (e) {
+    return { error: (e as Error).message, status: 500 };
+  }
+  forgetListings(path);
+  return { ok: true, path };
+}
+
+/** One folder's entries by name, folders and files apart: how a git-ignored folder opens. */
+export function listDir(raw: string): DirListing | undefined {
+  const path = absolute(raw);
+  if (!path) return undefined;
+  let entries;
+  try {
+    entries = readdirSync(path, { withFileTypes: true });
+  } catch {
+    return undefined;
+  }
+  const dirs: string[] = [];
+  const files: string[] = [];
+  for (const e of entries.slice(0, DIR_CAP_FILES)) {
+    if (e.isDirectory()) dirs.push(e.name);
+    else if (e.isFile() || e.isSymbolicLink()) files.push(e.name);
+  }
+  const by = (a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: "base" });
+  return { dirs: dirs.sort(by), files: files.sort(by) };
 }
 
 // ---- the files pane's tree, for roots that are not git repos ----
@@ -143,8 +244,13 @@ export function readDirIndex(raw: string): DirIndex | undefined {
   } catch {
     return undefined;
   }
+  // Watched while a window keeps asking (filewatch.ts): the listing then holds until it changes.
+  // A listing read before the watcher existed is read again, or a file made in between would
+  // stay missing for as long as nothing else changed.
+  if (!filewatch.watched(root)) dirCache.delete(root);
+  filewatch.interest(root);
   const hit = dirCache.get(root);
-  if (hit && Date.now() - hit.at < DIR_TTL_MS) return hit.index;
+  if (hit && (filewatch.watched(root) || Date.now() - hit.at < DIR_TTL_MS)) return hit.index;
 
   const files: string[] = [];
   let truncated = false;
@@ -175,6 +281,11 @@ export function readDirIndex(raw: string): DirIndex | undefined {
   const index: DirIndex = { path: root, files, truncated };
   dirCache.set(root, { at: Date.now(), index });
   return index;
+}
+
+/** The watcher saw `root` change. */
+export function forgetDir(root: string): void {
+  dirCache.delete(root);
 }
 
 /** For GET /api/debug/memory. */

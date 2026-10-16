@@ -58,12 +58,30 @@ one refused. Esc,
 points at `save` / `discard`. Clean, Esc leaves the editor and the next Esc closes the peek. Not on the phone,
 and never for a peer's file: peers read (`federation.md`).
 
-**The tree makes files.** Right-click a root, a folder, or a file (for the folder it is in)
-and `new file in …` puts a name row under that folder; a name with slashes makes the folders
-in between, `..` is refused, an existing name is refused by the daemon. The file is created
-empty (`create: true` on the same `POST`) and opens straight in the editor, and the tree
-re-reads its index at once rather than waiting out the 10 s cache. That is the whole of what
-the tree changes: no rename, no delete, no folders on their own.
+**The tree changes files.** Right-click a root, a folder, or a file (for the folder it is in):
+`new file` and `new folder` put a name row under that folder (a name with slashes makes the
+folders in between, `..` is refused, an existing name is refused by the daemon); a new file is
+created empty (`create: true` on the same `POST`) and opens straight in the editor. On a file
+or folder, `rename` (F2 from the filter) edits the name in place, the extension left out of
+the selection; slashes in it move the thing within the root, and the daemon refuses an
+existing target rather than overwrite it. `delete` asks, then moves it to the Recycle Bin or
+Trash (`platform.trashSpec`), never past it. `copy path`, `copy relative path`, and `show in
+Explorer/Finder` (a file is selected in its folder) round it out. `POST /api/fs/mkdir`,
+`/api/fs/move` and `/api/fs/trash`; peers never, like a save.
+
+**The tree follows the disk.** Asking for a root's listing (`GET /api/repo/files?ignored=1`, or
+`/api/fs/tree` for a plain folder) has the daemon watch that working tree for a few minutes
+(`filewatch.ts`, `cost.md`); anything made, changed, moved or removed there is a `files:changed`
+to the windows a beat later, which drops both sides' cached listing and re-reads it, and the
+session's marks with it. The pane asks again once a minute while it is visible, which keeps
+the watch alive, and on window focus. A peer's tree has no watcher reaching this window and
+lives on those two.
+
+**What .gitignore hides is there, dimmed.** The listing carries `git ls-files --ignored
+--directory` beside the files, so an ignored file is a dim row and a wholly ignored folder
+(`node_modules`, `.claude`) is one dim folder that reads its contents (`GET /api/fs/list`, one
+level) when opened. `⊘` leaves them out. Empty folders, which git lists nowhere, come from the
+same pass over untracked folders. `⊟` closes every folder.
 
 **HTML opens as a running page.** An `.html` peek is an iframe on `/raw/<path>`, which serves
 the file from disk, so its relative CSS, scripts and pictures load the way they would from
@@ -125,14 +143,18 @@ in the terminal.
 then recent peeks (per browser, last 40), then, once you type, every file in that session's
 repos (the one its cwd is in first) and finally other sessions' repos, fuzzy-matched on the
 path with a bias to file-name hits. `GET /api/repo/files?repo=` is `git ls-files` incl.
-untracked, cached 10 s. ⌃K works too, except in the terminal where it stays kill-line.
+untracked, cached 10 s, or until it changes while a files pane is watching the repo. ⌃K works too, except in the terminal where it stays kill-line.
 
 **⌘F is a folder tree, so Zed stays closed.** ⌘K is for a file you can name; ⌘F is for
 looking around, and looking around means seeing the shape of the thing. The pane's **roots**
 are the repos of the session you are in — read from `GET /api/session/files`, not the git
 watcher's session→repo map, because that map is built from hook events and a plain terminal
 fires none, so a shell sitting in a repo would otherwise show an empty tree; that endpoint
-falls back to the repo the cwd is in and returns each file's status in the same answer.
+falls back to the repo the cwd is in and returns each file's status in the same answer. A
+repo the session has not named a path in for 8 hours, or that you hid from it (the root's
+right-click menu), is **earlier**: folded under an "n earlier repos" row at the bottom, back
+on its own once the session works there again. The cwd's repo never is. A checkout gone from
+disk (a removed worktree) is dropped from the session for good.
 Under each root, `GET /api/repo/files` (`git ls-files`, .gitignore for free) is nested into a
 tree client-side (`ui/tree.ts`), with single-child directory chains collapsed onto one row —
 `packages/ui/src` as one line is the difference between a readable tree and eight rows of
@@ -176,7 +198,7 @@ peek. Anywhere else ⌘F opens the files tree with the keyboard in its filter. �
 content search regardless, carrying the peek's find term along, so "this word, but everywhere"
 is one key. ⌃F works outside the terminal, where it stays forward-char.
 
-**The Files tab** is the folder tree of every repo this session has touched (⌘F above), where
+**The Files tab** is the folder tree of the repos this session works in (⌘F above), where
 each repo's root row is also its card, on one line: name, branch, `↑n ↓n` against the upstream (only the non-zero side; `↑∅` when there is no upstream),
 `+n` commits since the session baseline (click: the log unfolds under the row), the
 open-PR count when there is one (click: the list unfolds), then the icons — `±n` is the
@@ -184,9 +206,9 @@ dirty count and opens the uncommitted diff (unified/split), the graph mark opens
 graph of every branch as `git log --graph --all` draws it (`GET /api/repo/tree`, capped at
 400 commits), `↗` opens the upstream remote's web page (scp/ssh/https git URLs become
 https), and the folder mark opens the root in Explorer or Finder (a pinned folder has it too;
-so does any folder, from the tree's right-click menu). Only for a window on this machine: not
+so does any folder or file, from the tree's right-click menu). Only for a window on this machine: not
 for a peer's session or on the phone, and the daemon takes `POST /api/reveal` only from
-loopback and only for a folder.
+loopback and only for a folder or file that exists.
 The path, the last commit and a worktree's parent live in the row's tooltip; a
 worktree carries a `wt` tag. Any commit hash (tree rows, the log, a commit's parents) opens
 that commit: metadata, message and its patch vs the first parent (`GET /api/repo/commit`).

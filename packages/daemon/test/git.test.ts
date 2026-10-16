@@ -1,7 +1,7 @@
 // Milestone 3 tests: real git repos in a temp dir, HENRY_HOME pointed at a scratch home.
 // Run: cd packages/daemon && bun test test/git.test.ts
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync, appendFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync, appendFileSync, rmdirSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { HenryEvent, RepoState, ServerMessage } from "@henry/shared";
@@ -420,5 +420,78 @@ describe("git", () => {
     // The rehydrated cards reach the windows without waiting for a hook.
     const upd = await nextMsg("repos:update", (m) => m.sessionId === "s3");
     expect(upd.repos[0].path).toBe(repo);
+  }, 20_000);
+
+  test("repoFiles lists what .gitignore hides and empty folders, and the tree's watcher sees a new file", async () => {
+    const filewatch = await import("../src/filewatch");
+    const changed: string[] = [];
+    filewatch.setOnChange((r) => {
+      git.filesChanged(r);
+      changed.push(r);
+    });
+    writeFileSync(join(repo, "ignored.txt"), "x\n");
+    mkdirSync(join(repo, "empty-dir"));
+    const first = (await git.repoFiles(join(repo, "a.txt")))!;
+    expect(first.root).toBe(repo);
+    expect(first.ignored).toContain("ignored.txt");
+    expect(first.files).not.toContain("ignored.txt");
+    expect(first.empty).toEqual(["empty-dir"]);
+    // Asking for the tree's listing is what keeps the working tree watched.
+    expect(filewatch.watched(repo)).toBe(true);
+
+    writeFileSync(join(repo, "empty-dir", "made.txt"), "m\n");
+    await waitFor("files:changed", () => (changed.includes(repo) ? true : undefined));
+    const after = (await git.repoFiles(repo))!;
+    expect(after.files).toContain("empty-dir/made.txt");
+    expect(after.empty).toEqual([]);
+    // Nothing under .git is news to the tree.
+    changed.length = 0;
+    g(repo, "update-ref", "refs/heads/scratch-ref", "HEAD");
+    await Bun.sleep(600);
+    expect(changed).toEqual([]);
+    g(repo, "update-ref", "-d", "refs/heads/scratch-ref");
+
+    unlinkSync(join(repo, "empty-dir", "made.txt"));
+    rmdirSync(join(repo, "empty-dir"));
+    unlinkSync(join(repo, "ignored.txt"));
+    filewatch.stop();
+  }, 20_000);
+
+  test("sessionFiles: the cwd's repo is here, an old or hidden one is earlier, a removed worktree is gone", async () => {
+    const old = join(root, "app-worktrees", "old");
+    g(repo, "worktree", "add", "-q", "-b", "old-work", old, "HEAD");
+    db.insertSession({ id: "s6", cwd: repo, title: "app", createdAt: Date.now(), status: "running", command: "claude", host: "test" });
+    git.noteSessionPath("s6", join(repo, "a.txt"));
+    git.noteSessionPath("s6", join(old, "a.txt"));
+    await waitFor("baselines", () => (db.getBaseline("s6", repo) && db.getBaseline("s6", old) ? true : undefined));
+    const rows = async () => new Map((await git.sessionFiles("s6")).repos.map((r) => [r.path, r] as const));
+
+    let now = await rows();
+    expect(now.get(repo)?.here).toBe(true);
+    expect(now.get(old)?.earlier).toBeUndefined();
+
+    // Hidden: earlier until the session works there again.
+    expect(git.hideSessionRepo("s6", old)).toBe(true);
+    expect((await rows()).get(old)?.earlier).toBe(true);
+    await Bun.sleep(5);
+    git.noteSessionPath("s6", join(old, "a.txt"));
+    await waitFor("touch", async () => ((await rows()).get(old)?.earlier ? undefined : true));
+    // The cwd's repo is never hidden.
+    expect(git.hideSessionRepo("s6", repo)).toBe(true);
+    expect((await rows()).get(repo)?.earlier).toBeUndefined();
+
+    // Not touched for longer than EARLIER_MS (as a restart reads it back): earlier.
+    db.touchBaseline("s6", old, Date.now() - git.EARLIER_MS - 60_000);
+    git.stop();
+    git.start();
+    now = await rows();
+    expect(now.get(old)?.earlier).toBe(true);
+    expect(now.get(repo)?.earlier).toBeUndefined();
+
+    // Removed from disk: dropped from the tree and the cards, not resolved to its parent.
+    g(repo, "worktree", "remove", "--force", old);
+    now = await rows();
+    expect(now.has(old)).toBe(false);
+    expect(git.getSessionRepos("s6").map((r) => r.path)).toEqual([repo]);
   }, 20_000);
 });

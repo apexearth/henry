@@ -90,7 +90,9 @@ export type ServerMessage =
   | { type: "repo:diff"; sessionId: string; repoPath: string; diff: string; baseline: string }
   /** ui/dist was rebuilt; windows served from the daemon reload themselves. */
   | { type: "ui:build"; build: string }
-  | { type: "peers:update"; peers: PeerStatus[] };
+  | { type: "peers:update"; peers: PeerStatus[] }
+  /** Something under a folder a files pane is showing was made, changed, moved or removed. */
+  | { type: "files:changed"; root: string };
 
 export type ServerMessageOf<T extends ServerMessage["type"]> = Extract<ServerMessage, { type: T }>;
 export type ClientMessageOf<T extends ClientMessage["type"]> = Extract<ClientMessage, { type: T }>;

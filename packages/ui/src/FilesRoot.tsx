@@ -22,6 +22,8 @@ export interface FilesRootProps {
   path: string;
   name: string;
   pinned: boolean;
+  /** A repo the session worked in long ago, listed because "earlier" is open. */
+  earlier?: boolean;
   /** The session's card for this root; absent for a pinned folder or before the watcher reports. */
   repo?: RepoState;
   sessionId: string | null;
@@ -60,7 +62,7 @@ function TreeIcon({ size = 11 }: { size?: number }) {
 
 const stop = (e: React.SyntheticEvent) => e.stopPropagation();
 
-export function FilesRoot({ path, name, pinned, repo, sessionId, local, open, sel, style, index, onHover, onToggle, onUnpin }: FilesRootProps) {
+export function FilesRoot({ path, name, pinned, earlier, repo, sessionId, local, open, sel, style, index, onHover, onToggle, onUnpin }: FilesRootProps) {
   const [showDiff, setShowDiff] = useState(false);
   const [showTree, setShowTree] = useState(false);
   const [commit, setCommit] = useState<string | null>(null);
@@ -124,7 +126,7 @@ export function FilesRoot({ path, name, pinned, repo, sessionId, local, open, se
     : path;
   return (
     <>
-      <div className={"files-row files-root" + (sel ? " sel" : "")} style={style} title={tip} data-row={index} onMouseEnter={onHover} onClick={onToggle}>
+      <div className={"files-row files-root" + (earlier ? " earlier" : "") + (sel ? " sel" : "")} style={style} title={tip} data-row={index} onMouseEnter={onHover} onClick={onToggle}>
         <span className="fold" aria-hidden>{open ? "▾" : "▸"}</span>
         <span className="title" style={{ color: hueText(nameHue(name)) }}>{name}</span>
         {repo && (

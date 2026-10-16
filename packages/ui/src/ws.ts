@@ -165,6 +165,13 @@ export function subscribeNotices(cb: (n: Notice) => void): () => void {
   return () => void noticeListeners.delete(cb);
 }
 
+/** `files:changed`: a folder some files pane shows moved on disk (FilesPane, ⌘K's index). */
+const filesListeners = new Set<(root: string) => void>();
+export function onFilesChanged(cb: (root: string) => void): () => void {
+  filesListeners.add(cb);
+  return () => void filesListeners.delete(cb);
+}
+
 const ptyListeners = new Map<string, Set<(m: PtyMessage) => void>>();
 export function subscribePty(sessionId: string, cb: (m: PtyMessage) => void): () => void {
   let set = ptyListeners.get(sessionId);
@@ -293,6 +300,9 @@ function handle(m: ServerMessage): void {
       return;
     case "peers:update":
       setState({ peers: m.peers });
+      return;
+    case "files:changed":
+      filesListeners.forEach((cb) => cb(m.root));
       return;
   }
 }

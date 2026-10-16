@@ -3,10 +3,15 @@
 The daemon watches and polls continuously, so every recurring cost has a ceiling and every
 unbounded input is trimmed at the door.
 
-- **Watchers cover `.git`, never the working tree**, and only for repos with a live session.
-  A refresh is ~5 git processes behind a 300ms debounce, coalesced per common dir;
-  `GIT_OPTIONAL_LOCKS=0` keeps our own `status` from rewriting the index and waking the
-  watcher we just fired.
+- **The git watchers cover `.git`** of repos with a live session. A refresh is ~5 git
+  processes behind a 300ms debounce, coalesced per common dir; `GIT_OPTIONAL_LOCKS=0` keeps
+  our own `status` from rewriting the index and waking the watcher we just fired.
+- **A working tree is watched only while a files pane shows it** (`filewatch.ts`): one
+  recursive watch per root, leased for 3 minutes and renewed by each listing the pane asks
+  for (it asks once a minute while visible), at most 12 roots. Changes under `.git` and
+  under git-ignored folders are dropped at the watcher, a burst is one `files:changed` after
+  250ms of quiet (2s at most while it keeps going), and that drops the cached listing and
+  schedules the repo's usual debounced refresh.
 - **The 10s poll is a floor, not a promise.** A common dir whose refresh takes ≥250ms drops
   to 30s and ≥1s to 60s (`git.pollIntervalFor`): `status --untracked-files=all` is
   proportional to the untracked tree, and a big un-ignored build dir must not hold the whole

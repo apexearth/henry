@@ -33,6 +33,17 @@ describe("buildTree", () => {
     expect(shape(buildTree(["src/only.ts"]))).toEqual([{ "src/": ["only.ts"] }]);
   });
 
+  test("named folders show with nothing in them, and never fold into a chain", () => {
+    expect(shape(buildTree(["src/a.ts"], ["node_modules", "src/empty"]))).toEqual([
+      { "node_modules/": [] },
+      { "src/": [{ "empty/": [] }, "a.ts"] },
+    ]);
+    // `.claude` holds only `worktrees`, but both were named: two rows, so the one you opened keeps its key.
+    expect(shape(buildTree([".claude/worktrees/x/f.ts"], [".claude", ".claude/worktrees"]))).toEqual([
+      { ".claude/": [{ "worktrees/": [{ "x/": ["f.ts"] }] }] },
+    ]);
+  });
+
   test("a name that is both a file and a directory keeps both", () => {
     expect(shape(buildTree(["x", "x/y.ts"]))).toEqual([{ "x/": ["y.ts"] }]);
   });

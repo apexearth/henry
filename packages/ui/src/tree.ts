@@ -14,6 +14,8 @@ interface Building {
   name: string;
   children: Map<string, Building>;
   isFile: boolean;
+  /** Named as a folder in its own right (`dirs`): shown even with nothing listed in it. */
+  isDir?: boolean;
 }
 
 /**
@@ -22,21 +24,30 @@ interface Building {
  * A directory with exactly one child directory and nothing else is collapsed into it
  * ("packages/ui/src" on one row), which is the difference between a readable tree and eight
  * rows of scaffolding in a 220px rail. Collapsing stops at anything that forks.
+ *
+ * `dirs` are folders shown whether or not anything under them is listed: a git-ignored folder,
+ * whose contents are read only when it is opened. They never take part in a collapse, so the
+ * row you opened keeps its key once its contents arrive.
  */
-export function buildTree(paths: string[]): TreeNode[] {
+export function buildTree(paths: string[], dirs: Iterable<string> = []): TreeNode[] {
   const root: Building = { name: "", children: new Map(), isFile: false };
-  for (const p of paths) {
+  const add = (p: string, dir: boolean) => {
     const parts = p.split("/").filter(Boolean);
-    if (!parts.length) continue;
+    if (!parts.length) return;
     let node = root;
     for (let i = 0; i < parts.length; i++) {
       const seg = parts[i];
       let next = node.children.get(seg);
       if (!next) node.children.set(seg, (next = { name: seg, children: new Map(), isFile: false }));
-      if (i === parts.length - 1) next.isFile = true;
+      if (i === parts.length - 1) {
+        if (dir) next.isDir = true;
+        else next.isFile = true;
+      }
       node = next;
     }
-  }
+  };
+  for (const p of paths) add(p, false);
+  for (const d of dirs) add(d, true);
   return finish(root, "");
 }
 
@@ -44,20 +55,21 @@ function finish(node: Building, prefix: string): TreeNode[] {
   const out: TreeNode[] = [];
   for (const child of node.children.values()) {
     const rel = prefix ? `${prefix}/${child.name}` : child.name;
-    // A leaf that was never marked a file is an empty directory; it has nothing to show.
-    if (child.isFile && !child.children.size) {
+    // A leaf that was never marked a file is an empty directory; it has nothing to show,
+    // unless it was named as a folder.
+    if (child.isFile && !child.children.size && !child.isDir) {
       out.push({ rel, name: child.name, dir: false, children: [] });
       continue;
     }
-    if (!child.children.size) continue;
+    if (!child.children.size && !child.isDir) continue;
     let label = child.name;
     let here = child;
     let hereRel = rel;
     // Collapse single-child directory chains: one row, one path.
-    while (here.children.size === 1 && !here.isFile) {
+    while (here.children.size === 1 && !here.isFile && !here.isDir) {
       const only = [...here.children.values()][0];
       if (only.isFile && !only.children.size) break;
-      if (!only.children.size) break;
+      if (!only.children.size || only.isDir) break;
       label += `/${only.name}`;
       hereRel = `${hereRel}/${only.name}`;
       here = only;

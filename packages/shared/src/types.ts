@@ -486,7 +486,36 @@ export interface ChangedFile {
 /** GET /api/session/files: every repo the session touched (plus the one its cwd is in). */
 export interface SessionFiles {
   sessionId: string;
-  repos: { path: string; name: string; baseline: string; files: ChangedFile[] }[];
+  repos: {
+    path: string;
+    name: string;
+    baseline: string;
+    files: ChangedFile[];
+    /** Last time the session's hooks named a path in it, ms. */
+    touchedAt?: number;
+    /** Not touched lately, or hidden since it was: the tree lists it only on request. */
+    earlier?: true;
+    /** The session's cwd is in it: always listed, never hidden. */
+    here?: true;
+  }[];
+}
+
+/** GET /api/repo/files?ignored=1: the tree's listing. Without `ignored=1` it is a bare string[]. */
+export interface RepoFiles {
+  /** The checkout's root as the daemon names it, which is what `files:changed` carries. */
+  root: string;
+  /** Tracked and untracked, relative, forward slashes. */
+  files: string[];
+  /** What .gitignore hides: files, and folders ending in "/" standing for everything in them. */
+  ignored: string[];
+  /** Folders with nothing in them (git lists none; an IDE shows them), relative, no "/". */
+  empty?: string[];
+}
+
+/** GET /api/fs/list?path=: one folder's entries, by name, for opening a git-ignored folder. */
+export interface DirListing {
+  dirs: string[];
+  files: string[];
 }
 
 /** GET /api/file/diff: one file, working tree vs the session baseline (unified diff, may be empty). */

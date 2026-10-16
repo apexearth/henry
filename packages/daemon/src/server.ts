@@ -17,6 +17,7 @@ import type { Client } from "./federation";
 import type { FedState, PeerLink } from "./fed-peer";
 import * as git from "./git";
 import * as files from "./files";
+import * as filewatch from "./filewatch";
 import { readHistory } from "./history";
 import { backfillPresence, humanStats, notePresence } from "./human";
 import * as hooks from "./hooks";
@@ -479,6 +480,12 @@ export async function startServer(): Promise<void> {
   syncAliasListeners();
   git.setBroadcast(broadcast);
   git.start();
+  // A folder a files pane shows changed on disk: drop its listings and tell the windows.
+  filewatch.setOnChange((root) => {
+    git.filesChanged(root);
+    files.forgetDir(root);
+    broadcast({ type: "files:changed", root });
+  });
   federation.init({ handleMessage, localState: peerState, handleApi: (req, fromPeer) => handleApi(req, new URL(req.url), fromPeer ? "peer" : "local"), toWindows, publishSession, buildState });
   federation.start();
   // After federation: the phone listener resolves the tailnet address the same way it does.
@@ -514,15 +521,17 @@ export async function handleApi(req: Request, url: URL, origin: ApiOrigin): Prom
   // What this process holds. For the person at this machine only: never proxied, never a
   // peer's or a phone's business, and a heap snapshot has every secret in memory in it.
   if (pathname.startsWith("/api/debug/")) return origin === "local" ? debugApi(req, pathname) : json({ error: "forbidden" }, 403);
-  // A folder opened in this machine's file manager, so only a window at this machine may ask.
-  // JSON only, so a page on another site cannot send it without a preflight the daemon never answers.
+  // A folder opened, or a file selected, in this machine's file manager, so only a window at
+  // this machine may ask. JSON only, so a page on another site cannot send it without a
+  // preflight the daemon never answers.
   if (pathname === "/api/reveal") {
     if (origin !== "local" || req.method !== "POST" || !req.headers.get("content-type")?.startsWith("application/json")) return json({ error: "forbidden" }, 403);
     const body = (await readJson(req)) as { path?: unknown };
-    const dir = typeof body?.path === "string" && isAbsolute(body.path) ? normalize(body.path) : "";
-    if (!dir || !statSync(dir, { throwIfNoEntry: false })?.isDirectory()) return json({ error: "not a folder" }, 404);
-    const { command, args } = revealSpec(dir);
-    Bun.spawn([command, ...args], { stdio: ["ignore", "ignore", "ignore"] });
+    const path = typeof body?.path === "string" && isAbsolute(body.path) ? normalize(body.path) : "";
+    const st = path ? statSync(path, { throwIfNoEntry: false }) : undefined;
+    if (!st || (!st.isDirectory() && !st.isFile())) return json({ error: "not found" }, 404);
+    const { command, args, verbatim } = revealSpec(path, st.isFile());
+    Bun.spawn([command, ...args], { stdio: ["ignore", "ignore", "ignore"], windowsVerbatimArguments: verbatim });
     return json({ ok: true });
   }
   if (pathname.startsWith("/api/federation/")) return fromPeer ? json({ error: "forbidden" }, 403) : federationApi(req, url);
@@ -674,7 +683,19 @@ export async function handleApi(req: Request, url: URL, origin: ApiOrigin): Prom
         return c ? json(c) : json({ error: "no such commit" }, 404);
       }
       if (pathname === "/api/session/files") return json(await git.sessionFiles(url.searchParams.get("sessionId") ?? ""));
-      if (pathname === "/api/repo/files") return json(await git.listFiles(url.searchParams.get("repo") ?? ""));
+      // A bare list for ⌘K; with `ignored=1` the tree's listing, which also keeps the folder
+      // watched while a window keeps asking (filewatch.ts).
+      if (pathname === "/api/repo/files") {
+        const repo = url.searchParams.get("repo") ?? "";
+        if (url.searchParams.get("ignored") !== "1") return json(await git.listFiles(repo));
+        return json((await git.repoFiles(repo)) ?? { root: repo, files: [], ignored: [] });
+      }
+      // "Hide from this session" on a root of the files tree: it stays listed under "earlier".
+      if (req.method === "POST" && pathname === "/api/session/repo/hide") {
+        const body = (await readJson(req)) as { sessionId?: unknown; repoPath?: unknown };
+        if (typeof body?.sessionId !== "string" || typeof body.repoPath !== "string") return json({ error: "sessionId and repoPath required" }, 400);
+        return git.hideSessionRepo(body.sessionId, body.repoPath) ? json({ ok: true }) : json({ error: "not a repo of that session" }, 404);
+      }
       // Text search for the files pane: the named roots (repeat `repo=`), or every checkout
       // under the repos root when none is named. The flags are the pane's Aa / .* / ab| / glob.
       if (pathname === "/api/repo/grep") {
@@ -687,6 +708,20 @@ export async function handleApi(req: Request, url: URL, origin: ApiOrigin): Prom
           glob: url.searchParams.get("glob") || undefined,
         };
         return json(repos.length ? await git.grepMany(repos, q, opts) : await git.grepRepos(config.reposRoot, q, opts));
+      }
+      // One folder's entries: how the tree opens a folder .gitignore hides.
+      if (pathname === "/api/fs/list") {
+        const l = files.listDir(url.searchParams.get("path") ?? "");
+        return l ? json(l) : json({ error: "not a directory" }, 404);
+      }
+      // The tree's right-click menu. Like a save, never a peer's: the method check above.
+      if (req.method === "POST" && (pathname === "/api/fs/mkdir" || pathname === "/api/fs/move" || pathname === "/api/fs/trash")) {
+        const body = (await readJson(req)) as { path?: unknown; from?: unknown; to?: unknown };
+        const r = pathname === "/api/fs/move"
+          ? typeof body?.from === "string" && typeof body.to === "string" ? files.movePath(body.from, body.to) : { error: "from and to required", status: 400 }
+          : typeof body?.path !== "string" ? { error: "path required", status: 400 }
+            : pathname === "/api/fs/mkdir" ? files.makeDir(body.path) : await files.trashPath(body.path);
+        return "ok" in r ? json(r) : json({ error: r.error }, r.status);
       }
       // The files pane's tree for a pinned root that holds no repo; a repo uses /api/repo/files.
       if (pathname === "/api/fs/tree") {
@@ -808,6 +843,7 @@ export function stopServer(): void {
   attention.stop();
   notify.stop();
   git.stop();
+  filewatch.stop();
   sessions.shutdown();
   server?.stop(true);
 }

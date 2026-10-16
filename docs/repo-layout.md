@@ -29,7 +29,8 @@ henry/
       src/transcript.ts        # tail ~/.claude/projects/**/<session>.jsonl
       src/git.ts               # repo discovery, worktrees, status, ahead/behind, diff, grep
       src/attachments.ts       # images a phone sent: written under ~/.henry/attachments, swept with history
-      src/files.ts             # GET /api/file (one file, capped) and /api/fs/tree (a plain folder)
+      src/files.ts             # GET /api/file (one file, capped), /api/fs/tree (a plain folder), the tree's mkdir/move/trash
+      src/filewatch.ts         # working-tree watchers for the folders a files pane shows, leased
       src/prs.ts               # open PRs per checkout via `gh pr list`, cached and best-effort
       src/rules.ts             # ~/.henry/config.json rules → classify events
       src/mcp.ts               # POST /mcp: Henry's tools; henry_activity + henry_attention for hosted sessions

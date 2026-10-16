@@ -13,6 +13,7 @@ import { henryDir } from "./config";
 import * as engagement from "./engagement";
 import * as federation from "./federation";
 import * as files from "./files";
+import * as filewatch from "./filewatch";
 import * as git from "./git";
 import { screens } from "./screen";
 import { sessions } from "./sessions";
@@ -44,6 +45,7 @@ export function memoryReport(extra: Record<string, number> = {}): Record<string,
       ...transcript.stats(),
       ...git.stats(),
       ...files.stats(),
+      ...filewatch.stats(),
       ...federation.stats(),
       ...attention.stats(),
       ...engagement.stats(),
