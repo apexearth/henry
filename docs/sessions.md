@@ -57,6 +57,11 @@ Where a session lives, how a window sees it, and what Henry spawns it with.
 
 - **Shift+Enter is a newline in Claude Code.** The terminal sends ESC CR (what
   `/terminal-setup` binds) when the session is running Claude; a plain shell gets Enter.
+- **The wheel pages a backgrounded Claude.** After `/bg` the PTY shows Claude Code's attach
+  view: alternate screen, mouse tracking off. There xterm would send arrow keys, which Claude
+  reads as prompt history, so in a Claude session on an untracked alternate screen the wheel
+  sends PageUp/PageDown instead, one per third of a screen of travel. Ctrl+End jumps back to
+  the bottom. Shells on an alternate screen (less, vim) keep the arrows.
 - **Sessions outlive the daemon, terminal included.** After a daemon restart the
   sessions sessiond still holds are running in the rail with their scrollback; only
   sessions from before the last sessiond (last 24h) come back as exited with their

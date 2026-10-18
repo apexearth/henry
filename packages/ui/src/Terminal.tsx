@@ -303,6 +303,29 @@ export function TerminalView({ sessionId, visible, focused, fontSize }: Props) {
     screen?.addEventListener("touchend", onTouchEnd);
     screen?.addEventListener("touchcancel", onTouchEnd);
 
+    // A Claude session sent to the background (/bg) is drawn by Claude Code's attach view: the
+    // alternate screen with mouse tracking off. There xterm turns the wheel into arrow keys,
+    // which Claude Code reads as prompt history, not scrolling; its view scrolls on PageUp and
+    // PageDown. So the wheel (and a drag, which arrives as wheel) pages instead, a key per
+    // third of a screen of travel.
+    let pageCarry = 0;
+    t.attachCustomWheelEventHandler((ev) => {
+      if (ev.ctrlKey || t.modes.mouseTrackingMode !== "none" || t.buffer.active.type !== "alternate") return true;
+      const s = getState().sessions.find((x) => x.id === sessionId);
+      if (!s || !isClaudeSession(s)) return true;
+      ev.preventDefault();
+      const cell = (screen?.clientHeight ?? 0) / t.rows || (t.options.fontSize ?? DEFAULT_FONT_SIZE);
+      const lines = ev.deltaMode === 2 ? ev.deltaY * t.rows : ev.deltaMode === 1 ? ev.deltaY : ev.deltaY / cell;
+      if (Math.sign(lines) !== Math.sign(pageCarry)) pageCarry = 0;
+      pageCarry += lines;
+      const page = Math.max(1, t.rows / 3);
+      while (Math.abs(pageCarry) >= page) {
+        send({ type: "pty:input", sessionId, data: pageCarry < 0 ? "\x1b[5~" : "\x1b[6~" });
+        pageCarry -= Math.sign(pageCarry) * page;
+      }
+      return false;
+    });
+
     // ⌘-click a path in the output to peek at it (a tap on a phone). Relative paths resolve
     // against the session's cwd.
     t.registerLinkProvider({

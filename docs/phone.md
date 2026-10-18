@@ -53,7 +53,8 @@ through that machine's peers, so one phone reaches every Henry the desk reaches.
   was unreachable on a phone, with no wheel to fall back on. Henry turns a drag on the screen into
   wheel events at the terminal, a notch per line of travel, and lets a flick coast. Going through
   the wheel and not `scrollLines` is the point: touch then does whatever the wheel already does
-  here — reported to an app that asked for it, arrow keys on an alt screen, the viewport otherwise
+  here — reported to an app that asked for it, arrow keys on an alt screen (pages in a
+  backgrounded Claude, see `sessions.md`), the viewport otherwise
   — rather than being a second scrolling story to keep true. A tap that never crosses six pixels
   is still a tap, and still reaches the app as a click.
 - **A file peek is a sheet, and a tap opens it.** There is no dock on a phone, so `peekFile`
