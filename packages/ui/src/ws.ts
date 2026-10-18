@@ -392,6 +392,9 @@ function machineGroups(order: Session[], s: UiState): RailGroup[] {
  * running session: an exited row restored from an old run may still carry the mark. */
 export const isUnseen = (s: Session): boolean => s.status === "running" && s.unseenSince !== undefined;
 
+/** Not your move yet: a turn is running, or it ended waiting on work it left running. */
+export const busy = (s: Session): boolean => s.activity === "working" || s.activity === "background";
+
 /** Running Claude sessions split into "asking for you" (a session that raised an ask, which
  * beats everything), "not seen yet" (oldest finish first), "your move" (sorted by how long you
  * have left them: oldest input first) and "working", then terminals, then whatever closed rows
@@ -406,7 +409,7 @@ function attentionGroups(order: Session[], s: UiState): RailGroup[] {
     if (isUnseen(x) && !s.attention.some((a) => a.sessionId === x.id)) fresh.push(x);
     else if (x.status !== "running" || !isClaudeSession(x)) rest.push(x);
     else if (s.attention.some((a) => a.sessionId === x.id)) asking.push(x);
-    else if (x.activity === "working") working.push(x);
+    else if (busy(x)) working.push(x);
     else yours.push(x);
   }
   fresh.sort((a, b) => a.unseenSince! - b.unseenSince!);
@@ -415,7 +418,7 @@ function attentionGroups(order: Session[], s: UiState): RailGroup[] {
   if (asking.length) groups.push({ key: "asking", label: "asking for you", title: "these sessions asked you to come, and said why", sessions: asking });
   if (fresh.length) groups.push({ key: "unseen", label: "not seen yet", title: "finished since you last looked, marked unread, or a reminder came due; longest waiting first", sessions: fresh });
   if (yours.length) groups.push({ key: "yours", label: "your move", title: "the turn ended or Claude is asking; longest since you typed first", sessions: yours });
-  if (working.length) groups.push({ key: "working", label: "working", title: "a turn is running", sessions: working });
+  if (working.length) groups.push({ key: "working", label: "working", title: "a turn is running, or Claude is waiting on work it left running", sessions: working });
   if (rest.length) groups.push({ key: "rest", label: "other", title: "terminals and closed sessions", sessions: rest });
   return groups;
 }

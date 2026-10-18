@@ -5,10 +5,11 @@ export type FlagSeverity = Exclude<Severity, "info">;
 export type SessionStatus = "running" | "exited";
 /**
  * What a Claude session is doing right now, derived from the hook stream (see daemon/activity.ts):
- * `working` a turn is running, `needsInput` it is blocked on a permission prompt, `waiting` the
+ * `working` a turn is running, `needsInput` it is blocked on a permission prompt or a question,
+ * `background` the turn ended but work it started is still running and will wake it, `waiting` the
  * turn ended and the next move is yours, `idle` it has been waiting a while.
  */
-export type SessionActivity = "working" | "needsInput" | "waiting" | "idle";
+export type SessionActivity = "working" | "needsInput" | "background" | "waiting" | "idle";
 /** What Henry launched in the PTY: Claude Code, or the user's shell. */
 export type SessionKind = "claude" | "shell";
 

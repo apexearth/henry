@@ -132,6 +132,13 @@ export function stopTailing(sessionId: string): void {
   tails.delete(sessionId);
 }
 
+/** Read what has been written so far. The Stop hook calls this first, so a task backgrounded
+ * just before the turn ended is known when the turn's end is read (activity.ts). */
+export function catchUp(sessionId: string): void {
+  const tail = tails.get(sessionId);
+  if (tail) tick(tail);
+}
+
 export function isTailing(sessionId: string): boolean {
   return tails.has(sessionId);
 }
@@ -333,6 +340,12 @@ interface TranscriptLine {
   /** {type:"system"} lines carry a subtype; "compact_boundary" is the one that matters here. */
   subtype?: string;
   compactMetadata?: { postTokens?: number };
+  timestamp?: string;
+  /** {type:"queue-operation"} lines: what Claude Code queued for the model, task notifications included. */
+  operation?: string;
+  content?: unknown;
+  /** Claude Code's own account of a tool call, beside the tool_result. */
+  toolUseResult?: { backgroundTaskId?: unknown; status?: unknown };
   message?: {
     id?: string;
     model?: string;
@@ -359,6 +372,7 @@ function handleLine(tail: Tail, raw: string): boolean {
   noteSidechain(tail, line);
   if (line.type === "custom-title" && typeof line.customTitle === "string") sessions.setTitle(tail.sessionId, line.customTitle);
   if (line.type === "user") noteToolResults(tail, line);
+  if (line.type === "queue-operation" && line.operation === "enqueue" && typeof line.content === "string") noteTaskEnded(tail, line);
   // A compaction rewrites the window without making an API call, so the reading below would
   // stay at the pre-compact high until the next turn. postTokens is the size afterwards.
   if (line.type === "system" && line.subtype === "compact_boundary" && line.isSidechain !== true) {
@@ -387,14 +401,34 @@ function handleLine(tail: Tail, raw: string): boolean {
   return true;
 }
 
-/** A denied tool call fires no PostToolUse; its tool_result here is the only word that it is over. */
+const lineTime = (line: TranscriptLine): number => Date.parse(line.timestamp ?? "") || Date.now();
+
+/**
+ * A denied tool call fires no PostToolUse; its tool_result here is the only word that it is over.
+ * A call that left work running (a backgrounded or moved-to-background command, an async agent
+ * or workflow) says so beside its result, and Claude Code wakes the main thread when it ends.
+ */
 function noteToolResults(tail: Tail, line: TranscriptLine): void {
   const content = line.message?.content;
   if (!Array.isArray(content)) return;
+  const r = line.toolUseResult;
+  const backgrounded = line.isSidechain !== true && !!r && (typeof r.backgroundTaskId === "string" || r.status === "async_launched");
   for (const block of content) {
     if (block && typeof block === "object" && block.type === "tool_result" && typeof block.tool_use_id === "string") {
       activity.toolResult(tail.sessionId, block.tool_use_id);
+      if (backgrounded) activity.backgroundStarted(tail.sessionId, block.tool_use_id, lineTime(line));
     }
+  }
+}
+
+const TASK_END = /<tool-use-id>([^<]+)<\/tool-use-id>[\s\S]*?<status>([a-z_]+)<\/status>/g;
+
+/** `<task-notification>` queued for the model: completed, failed, killed or stopped. */
+function noteTaskEnded(tail: Tail, line: TranscriptLine): void {
+  const text = line.content as string;
+  if (!text.includes("<task-notification>")) return;
+  for (const [, id, status] of text.matchAll(TASK_END)) {
+    if (status !== "running") activity.backgroundEnded(tail.sessionId, id!, lineTime(line));
   }
 }
 

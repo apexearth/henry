@@ -201,6 +201,78 @@ describe("activity", () => {
     expect(s.activity).toBeUndefined();
   });
 
+  test("AskUserQuestion and ExitPlanMode wait on the user from the call; the answer resumes", () => {
+    const t0 = Date.now();
+    for (const tool_name of ["AskUserQuestion", "ExitPlanMode"]) {
+      activity.note(s.id, "PreToolUse", { tool_name, tool_use_id: tool_name }, t0);
+      expect(s.activity).toBe("needsInput");
+      activity.note(s.id, "PostToolUse", { tool_name, tool_use_id: tool_name }, t0 + 1);
+      expect(s.activity).toBe("working");
+    }
+  });
+
+  test("a turn that ends with its own work still running is background until that work ends", () => {
+    const t0 = Date.now();
+    activity.note(s.id, "PreToolUse", { tool_name: "Bash", tool_use_id: "build" }, t0);
+    activity.note(s.id, "PostToolUse", { tool_name: "Bash", tool_use_id: "build" }, t0 + 1);
+    activity.backgroundStarted(s.id, "build", t0 + 1);
+    expect(s.activity).toBe("working");
+    activity.note(s.id, "Stop", {}, t0 + 2);
+    expect(s.activity).toBe("background");
+    // The idle nudge does not hand it back either.
+    activity.note(s.id, "Notification", { message: "Claude is waiting for your input" }, t0 + 3);
+    expect(s.activity).toBe("background");
+    // It ended: Claude Code wakes the model, which gets a grace to show up before it is my move.
+    activity.backgroundEnded(s.id, "build", Date.now());
+    expect(s.activity).toBe("background");
+    activity.note(s.id, "PreToolUse", { tool_name: "Read", tool_use_id: "r" }, t0 + 4);
+    expect(s.activity).toBe("working");
+    activity.note(s.id, "Stop", {}, t0 + 5);
+    expect(s.activity).toBe("waiting");
+  });
+
+  test("a wake-up turn that never shows lets the session go after the grace", () => {
+    const now = Date.now();
+    activity.backgroundStarted(s.id, "t", now - MIN);
+    activity.note(s.id, "Stop", {}, now - MIN + 1);
+    activity.backgroundEnded(s.id, "t", now);
+    activity.age(now + activity.WAKE_GRACE_MS - 1);
+    expect(s.activity).toBe("background");
+    activity.age(now + activity.WAKE_GRACE_MS);
+    expect(s.activity).toBe("waiting");
+  });
+
+  test("work that never reports back (a dev server) stops holding the session", () => {
+    const now = Date.now();
+    activity.backgroundStarted(s.id, "server", now);
+    activity.note(s.id, "Stop", {}, now + 1);
+    expect(s.activity).toBe("background");
+    activity.age(now + activity.BACKGROUND_HOLD_MS - 1);
+    expect(s.activity).toBe("background");
+    activity.age(now + activity.BACKGROUND_HOLD_MS);
+    expect(s.activity).toBe("waiting");
+  });
+
+  test("background work that ended mid-turn does not hold the next Stop", () => {
+    const t0 = Date.now();
+    activity.backgroundStarted(s.id, "t", t0);
+    activity.note(s.id, "PreToolUse", { tool_name: "Bash", tool_use_id: "x" }, t0 + 1);
+    activity.backgroundEnded(s.id, "t", t0 + 2);
+    activity.note(s.id, "Stop", {}, t0 + 3);
+    expect(s.activity).toBe("waiting");
+  });
+
+  test("background work learned after the Stop (a restart's replay) still holds the session", () => {
+    const now = Date.now();
+    activity.note(s.id, "Stop", {}, now - MIN);
+    expect(s.activity).toBe("waiting");
+    activity.backgroundStarted(s.id, "t", now - 2 * MIN);
+    expect(s.activity).toBe("background");
+    // An old notification read back from the transcript leaves no grace behind.
+    activity.backgroundEnded(s.id, "t", now - 30 * MIN);
+    expect(s.activity).toBe("waiting");
+  });
+
   test("activitySince only moves when the state does", () => {
     const t0 = Date.now() - 5 * MIN;
     activity.note(s.id, "PreToolUse", {}, t0);

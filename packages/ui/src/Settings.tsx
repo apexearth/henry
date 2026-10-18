@@ -144,7 +144,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
           <Section title="notifications">
             <NotifyToggle id="notify-settings" />
             <div style={{ ...st.note, marginLeft: 0, paddingTop: 4 }}>
-              An OS notification from this browser when a session opens a permission prompt, ends a turn after real work, or asks for you by name — never for the session you are looking at. Sessions on paired machines included. Per browser, and on as soon as you tick it.
+              An OS notification from this browser when a session opens a permission prompt or asks a question, ends a turn after real work, or asks for you by name — never for the session you are looking at. Sessions on paired machines included. Per browser, and on as soon as you tick it.
             </div>
           </Section>
 

@@ -134,8 +134,9 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 .mark.claude:not(.on) .body, .mark.claude:not(.on) .leg { fill: none; stroke: var(--mark); stroke-width: 1; }
 .mark.claude:not(.on) .eye { fill: var(--mark); }
 
-/* Activity (daemon/activity.ts): orange pulsing = running a turn, amber = blocked on an
-   answer, green = turn over and it is your move, dim = waiting a long while. */
+/* Activity (daemon/activity.ts): orange pulsing = running a turn, steady orange = turn over but
+   waiting on its own background work, amber = blocked on an answer, green = turn over and it is
+   your move, dim = waiting a long while. */
 .mark.claude.act-working { animation: mark-pulse 1.8s ease-in-out infinite; }
 .mark.claude.act-needsInput { --mark: var(--warn); animation: mark-blink 1s steps(1, end) infinite; }
 .mark.claude.act-waiting { --mark: var(--ok); }
@@ -666,6 +667,7 @@ html:not([data-platform="mac"]) ::-webkit-scrollbar-button { display: none; widt
 .m-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
 .m-dot.off { background: var(--alarm); }
 .m-dot.act-working { background: var(--claude); animation: mark-pulse 1.8s ease-in-out infinite; }
+.m-dot.act-background { background: var(--claude); }
 .m-dot.act-needsInput { background: var(--warn); }
 .m-dot.act-idle { background: var(--fg-faint); }
 .m-zoom { color: var(--fg-faint); font-size: 11px; min-width: 16px; text-align: center; }

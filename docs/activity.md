@@ -3,11 +3,13 @@
 What Claude is doing in a session, and whether you have been showing up to it.
 
 - **Activity is derived, never polled.** Every Claude session carries `activity`:
-  `working` (a turn is running), `needsInput` (blocked on a permission prompt), `waiting`
-  (the turn ended, the next move is mine) or `idle` (waiting >10 min, or silent >15 min
+  `working` (a turn is running), `needsInput` (blocked on a permission prompt or a question),
+  `background` (the turn ended but work it started is still running), `waiting` (the turn
+  ended, the next move is mine) or `idle` (waiting >10 min, or silent >15 min
   mid-turn). It falls out of the hook stream Henry already ingests — `UserPromptSubmit` /
   `Pre|PostToolUse` mean working, a plain `Stop` means waiting, a `Notification` says which
-  kind — so it costs one switch per event plus a 10 s tick, with the statusline POST as the
+  kind, and an `AskUserQuestion` or `ExitPlanMode` call is a question from its `PreToolUse`
+  until its `PostToolUse` — so it costs one switch per event plus a 10 s tick, with the statusline POST as the
   heartbeat that keeps a long tool call from ageing out. `SubagentStop` and `PreCompact` are
   heartbeats only: Claude Code fires SubagentStop for background agents that finish minutes
   after the turn ended (its "away summary"), and reading that as working pinned finished
@@ -23,9 +25,21 @@ What Claude is doing in a session, and whether you have been showing up to it.
   `tool_result`, and a thread's next `PreToolUse` releases what it was blocked on. It is not
   persisted: a restarted daemon replays each running session's last hook events in order,
   because a session waiting for me sends nothing until I type. The rail says it on Clawd: orange pulsing =
-  working, amber = wants an answer, green = my move, dim = idle and its row has begun to fade
+  working, steady orange = background, amber = wants an answer, green = my move, dim = idle and its row has begun to fade
   (an idle session I was with this past hour is still green). The time beside it is
   time-in-state while working and time since I last typed otherwise (see the engagement bullet).
+- **Background is a finished turn that is not my move yet.** Claude backgrounds a build, a test
+  run or an agent, ends its turn, and Claude Code wakes it when that work ends. Both ends are in
+  the transcript, not the hooks: the tool result carries `backgroundTaskId` (a backgrounded or
+  moved-to-background command) or `status: "async_launched"` (an agent, a workflow), and a
+  queued `<task-notification>` names the same `tool-use-id` with its final status. The tailer
+  reads the transcript up to date before a `Stop` is read, so a task started just before the
+  turn ended counts. A `Stop` with such work open is `background`; when the last of it ends,
+  the wake-up turn has a minute to send a hook before the session is my move. Work that never
+  reports back, a dev server above all, stops holding the session 20 minutes after it started.
+  A subagent's own background work is not counted: it wakes the subagent, not the session.
+  Background sits with working everywhere: it never fades, groups under "working", and counts
+  in the top bar's working chip.
 - **Engagement is my side of the same coin.** `activity` says what Claude is doing;
   `lastInputAt` and `prompts` (daemon/engagement.ts) say whether I have been showing up,
   which is what tells a session I parked from one I forgot. Prompts come from the
@@ -58,8 +72,9 @@ What Claude is doing in a session, and whether you have been showing up to it.
   the row shows ⏰ meanwhile, with the time in its tooltip. An exited session drops both marks.
 - **A notice is a session stopping and needing me, said outside the window.** `daemon/notify.ts`
   reads it off the activity transitions and asks the daemon already has, once, so every delivery
-  says the same things: a permission prompt opening, always; a turn ending after at least 10 s
-  of work (a quicker turn was an answer, not work I walked away from); an ask, in its own words;
+  says the same things: a permission prompt or a question opening, always; a turn ending after at least 10 s
+  of work (a quicker turn was an answer, not work I walked away from), where a turn that waited on
+  its background work and the turn that read the result are one stretch; an ask, in its own words;
   a reminder I set coming due.
   Reaching `waiting` any other way — startup, `/clear`, a resume, an approved prompt — says
   nothing, and nor does a daemon restart: the replayed activity is the baseline, not a

@@ -23,7 +23,7 @@ import {
 import { showSession, showTool } from "./dock";
 import { isHere } from "./presence";
 import { useAskTitle } from "./title";
-import { answerAttention, setActive, useStore } from "./ws";
+import { answerAttention, busy as notYourMove, setActive, useStore } from "./ws";
 
 /** The cadence sparkline: 10-minute buckets over the last four hours. */
 const BUCKET_MS = 10 * 60_000;
@@ -126,7 +126,7 @@ export function TopActivity() {
   }, [lastPrompt, Math.floor(now / 60_000)]);
 
   const running = sessions.filter((s) => s.status === "running");
-  const working = running.filter((s) => s.activity === "working");
+  const working = running.filter(notYourMove);
   const needs = running.filter((s) => s.activity === "needsInput");
   const waiting = running.filter((s) => s.activity === "waiting");
   // Repos are tracked per session, so the same checkout under two sessions must count once.

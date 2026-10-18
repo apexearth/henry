@@ -8,7 +8,7 @@ import { ContextSky } from "./ContextSky";
 import { TerminalView } from "./Terminal";
 import { useStore } from "./ws";
 
-const ACTIVITY_TEXT = { working: "working", needsInput: "needs your answer", waiting: "your move", idle: "idle" } as const;
+const ACTIVITY_TEXT = { working: "working", needsInput: "needs your answer", background: "waiting on its background work", waiting: "your move", idle: "idle" } as const;
 
 export function Solo({ sessionId }: { sessionId: string }) {
   const session = useStore((s) => s.sessions.find((x) => x.id === sessionId));

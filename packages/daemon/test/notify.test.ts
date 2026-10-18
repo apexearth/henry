@@ -31,6 +31,16 @@ describe("decide", () => {
     expect(quick).toBeUndefined();
   });
 
+  test("a turn that waited on its own background work, then read the result, is one stretch", () => {
+    // Waiting on a build says nothing: it is not your move yet.
+    expect(decide({ activity: "working", activitySince: T }, session("background", T + 2_000), T + 2_000)).toBeUndefined();
+    // A two-second wake-up turn ending is news, because the stretch began with the first turn.
+    const woke = decide({ activity: "working", activitySince: T + 300_000, busySince: T }, session("waiting", T + 302_000), T + 302_000);
+    expect(woke?.kind).toBe("waiting");
+    // So is the hold running out on work that never reports back.
+    expect(decide({ activity: "background", activitySince: T }, session("waiting", T + 1_200_000), T + 1_200_000)?.kind).toBe("waiting");
+  });
+
   test("waiting reached any other way says nothing", () => {
     // Startup, /clear, a resume: Claude is sitting at the prompt and nobody walked away.
     expect(decide({ activity: undefined }, session("waiting"), T)).toBeUndefined();

@@ -16,8 +16,14 @@ export function setBroadcast(fn: (msg: ServerMessage) => void): void {
   emit = fn;
 }
 
+/** What a session was doing, and since when it has been busy: a turn that backgrounded a build
+ * and a short one that read its result are one stretch of work. */
+type Seen = Pick<Session, "activity" | "activitySince"> & { busySince?: number };
+
+const busy = (a: Session["activity"]) => a === "working" || a === "background";
+
 /** The last activity seen per session, so an update can be read as a transition. */
-const last = new Map<string, Pick<Session, "activity" | "activitySince">>();
+const last = new Map<string, Seen>();
 
 const notice = (s: Session, kind: Notice["kind"], body: string, ts: number): Notice => ({
   id: crypto.randomUUID().slice(0, 8),
@@ -31,10 +37,10 @@ const notice = (s: Session, kind: Notice["kind"], body: string, ts: number): Not
 
 /** Pure: what `next` says given what the session was doing before. A session first seen in a
  * state is not a transition. */
-export function decide(prev: Pick<Session, "activity" | "activitySince"> | undefined, next: Session, now = Date.now()): Notice | undefined {
+export function decide(prev: Seen | undefined, next: Session, now = Date.now()): Notice | undefined {
   if (!prev || next.status !== "running" || prev.activity === next.activity) return undefined;
-  if (next.activity === "needsInput") return notice(next, "needsInput", "needs your permission", now);
-  if (next.activity === "waiting" && prev.activity === "working" && now - (prev.activitySince ?? now) >= MIN_WORKED_MS) {
+  if (next.activity === "needsInput") return notice(next, "needsInput", "needs your answer", now);
+  if (next.activity === "waiting" && busy(prev.activity) && now - (prev.busySince ?? prev.activitySince ?? now) >= MIN_WORKED_MS) {
     return notice(next, "waiting", "finished — your move", now);
   }
   return undefined;
@@ -47,7 +53,8 @@ export function onSessionUpdate(s: Session, now = Date.now()): void {
     last.delete(s.id);
     return;
   }
-  last.set(s.id, { activity: s.activity, activitySince: s.activitySince });
+  const busySince = busy(s.activity) ? (prev && busy(prev.activity) ? prev.busySince ?? prev.activitySince : s.activitySince) : undefined;
+  last.set(s.id, { activity: s.activity, activitySince: s.activitySince, busySince });
   const n = decide(prev, s, now);
   if (!n) return;
   // Work you walked away from is also work you have not seen yet (seen.ts clears it). Set

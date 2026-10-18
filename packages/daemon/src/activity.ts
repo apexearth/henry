@@ -1,5 +1,7 @@
 // Is this session working, blocked on me, or idle? Derived from the hook stream hooks.ts
-// already ingests: one switch per event, no polling and no PTY scraping. The only timer is
+// already ingests: one switch per event, no polling and no PTY scraping. Background work that
+// outlives a turn comes from the transcript instead, the one place both its ends are written.
+// The only timer is
 // a slow tick that ages a waiting session into idle and gives up on one that went silent
 // mid-turn. Never persisted: restore() re-derives it from the event log after a restart.
 import type { SessionActivity } from "@henry/shared";
@@ -20,6 +22,16 @@ const PERMISSION = /permission|approve|confirm/i;
 
 /** Tools that run long and never open a permission prompt themselves. */
 const NEVER_PROMPTS = new Set(["Agent", "Task"]);
+
+/** Tools whose call is itself a question to the user, answered without a PermissionRequest. */
+const ASKS_USER = new Set(["AskUserQuestion", "ExitPlanMode"]);
+
+/** Background work younger than this holds a finished turn out of "your move": long enough for a
+ * build or a test run, short enough that a dev server left running reads as your move soon. */
+export const BACKGROUND_HOLD_MS = 20 * 60_000;
+/** The last background task ended after the turn did: Claude Code wakes the model to read it,
+ * and this is how long that turn has to send a hook before the session reads as your move. */
+export const WAKE_GRACE_MS = 60_000;
 
 interface Payload {
   stop_hook_active?: boolean;
@@ -90,6 +102,11 @@ export function nextActivity(hookEvent: string, payload: Payload = {}, turn: Tur
       for (const b of pendingOf(turn, (k, e) => e.thread === thread && turn.blocked.has(k))) turn.blocked.delete(b);
       if (id && !NEVER_PROMPTS.has(payload.tool_name ?? "")) turn.pending.set(id, { thread, sig: signature(payload) });
       turn.last = thread;
+      // The question is up the moment the call starts; its PostToolUse is the answer.
+      if (id && ASKS_USER.has(payload.tool_name ?? "")) {
+        turn.blocked.add(id);
+        return "needsInput";
+      }
       // Another thread carrying on while a prompt is up is a heartbeat.
       return turn.blocked.size ? undefined : "working";
     case "PostToolUse":
@@ -139,15 +156,60 @@ const turnOf = (sessionId: string): Turn => {
 /** Last hook or statusline seen per session; only the tick reads it. */
 const lastSeen = new Map<string, number>();
 
+/**
+ * Work a session left running past its turn: tool_use_id -> when it started. The transcript is
+ * the only place both ends are written (transcript.ts), so it alone opens and closes them; a
+ * task whose end never shows up stops counting at BACKGROUND_HOLD_MS.
+ */
+const background = new Map<string, Map<string, number>>();
+/** When a session's last background task ended with its turn already over. */
+const woke = new Map<string, number>();
+
 export function stats(): Record<string, number> {
-  return { activityTurns: turns.size, activityLastSeen: lastSeen.size };
+  let tasks = 0;
+  for (const m of background.values()) tasks += m.size;
+  return { activityTurns: turns.size, activityLastSeen: lastSeen.size, activityBackground: tasks };
+}
+
+function holding(sessionId: string, now: number): boolean {
+  for (const started of background.get(sessionId)?.values() ?? []) if (now - started < BACKGROUND_HOLD_MS) return true;
+  return now - (woke.get(sessionId) ?? -Infinity) < WAKE_GRACE_MS;
+}
+
+/** A finished turn is `background` while work it started is still running, and your move after. */
+function settle(sessionId: string, now: number): void {
+  const s = sessions.get(sessionId);
+  if (!s || s.status !== "running") return;
+  if (s.activity !== "waiting" && s.activity !== "idle" && s.activity !== "background") return;
+  const hold = holding(sessionId, now);
+  if (hold && s.activity !== "background") sessions.setActivity(sessionId, "background", now);
+  else if (!hold && s.activity === "background") sessions.setActivity(sessionId, "waiting", now);
 }
 
 export function note(sessionId: string, hookEvent: string, payload: unknown, ts = Date.now()): void {
   if (hookEvent === "SessionEnd") return clear(sessionId);
   lastSeen.set(sessionId, ts);
-  const next = nextActivity(hookEvent, (payload ?? {}) as Payload, turnOf(sessionId));
+  let next = nextActivity(hookEvent, (payload ?? {}) as Payload, turnOf(sessionId));
+  if (next === "working") woke.delete(sessionId);
+  if (next === "waiting" && holding(sessionId, ts)) next = "background";
   if (next) sessions.setActivity(sessionId, next, ts);
+}
+
+/** The transcript says a tool call left work running (a backgrounded command, an async agent). */
+export function backgroundStarted(sessionId: string, toolUseId: string, ts: number): void {
+  let open = background.get(sessionId);
+  if (!open) background.set(sessionId, (open = new Map()));
+  open.set(toolUseId, ts);
+  settle(sessionId, Date.now());
+}
+
+/** The transcript carries that work's <task-notification>: it finished, failed or was killed. */
+export function backgroundEnded(sessionId: string, toolUseId: string, ts: number): void {
+  const open = background.get(sessionId);
+  if (!open?.delete(toolUseId)) return;
+  if (!open.size) background.delete(sessionId);
+  if (sessions.get(sessionId)?.activity === "background") woke.set(sessionId, ts);
+  settle(sessionId, Date.now());
 }
 
 /** The transcript answered a tool call (transcript.ts). Denials come only this way; a prune, never a state change. */
@@ -166,11 +228,18 @@ export function seen(sessionId: string, ts = Date.now()): void {
 export function clear(sessionId: string): void {
   lastSeen.delete(sessionId);
   turns.delete(sessionId);
+  background.delete(sessionId);
+  woke.delete(sessionId);
   sessions.setActivity(sessionId, undefined);
 }
 
 /** Move stale states on. Takes `now` so tests can jump time. */
 export function age(now = Date.now()): void {
+  for (const [id, open] of background) {
+    for (const [k, started] of open) if (now - started >= BACKGROUND_HOLD_MS) open.delete(k);
+    if (!open.size) background.delete(id);
+  }
+  for (const s of sessions.list()) settle(s.id, now);
   for (const s of sessions.list()) {
     if (!s.activity || s.activity === "idle" || s.status !== "running") continue;
     const since = s.activitySince ?? now;
@@ -208,4 +277,6 @@ export function stop(): void {
   timer = undefined;
   lastSeen.clear();
   turns.clear();
+  background.clear();
+  woke.clear();
 }

@@ -178,7 +178,9 @@ function activityPhrase(s: Session, now: number): string {
     case "working":
       return `working${since}`;
     case "needsInput":
-      return `stopped at a permission prompt${since}`;
+      return `stopped at a prompt for the human${since}`;
+    case "background":
+      return `turn over, waiting on its own background work${since}`;
     case "waiting":
       return `waiting on the human${since}`;
     case "idle":

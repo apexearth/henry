@@ -7,7 +7,7 @@ import { hueText, nameHue } from "./theme";
 import { popOutSession, showSession } from "./dock";
 import { isPoppedOut, usePoppedOut } from "./popout";
 import { markUnread } from "./seen";
-import { activeRowIndex, answerAttention, duplicateSession, hiddenCount, hideSessions, isUnseen, killSession, markSeen, railGroups, railRows, remindSession, resumeSession, setActive, setGroupBy, showAllSessions, terminalHere, toggleMachine, toggleShowClosed, useStore, type GroupBy } from "./ws";
+import { activeRowIndex, answerAttention, busy, duplicateSession, hiddenCount, hideSessions, isUnseen, killSession, markSeen, railGroups, railRows, remindSession, resumeSession, setActive, setGroupBy, showAllSessions, terminalHere, toggleMachine, toggleShowClosed, useStore, type GroupBy } from "./ws";
 
 const base = baseName;
 
@@ -31,6 +31,7 @@ function ShellMark({ on }: { on: boolean }) {
 const ACTIVITY_TEXT: Record<SessionActivity, string> = {
   working: "working",
   needsInput: "needs your answer",
+  background: "waiting on its background work",
   waiting: "waiting for you",
   idle: "idle",
 };
@@ -78,7 +79,7 @@ const lastWith = (s: Session): number | undefined => Math.max(s.lastInputAt ?? 0
  * have been with this past hour are your working set, answered or not, and stay bright. */
 function neglect(s: Session, now: number): 0 | 1 | 2 | 3 {
   // Unseen work stays bright: fading is for what you have seen and left, not what you missed.
-  if (s.status !== "running" || !s.activity || s.activity === "working" || isUnseen(s)) return 0;
+  if (s.status !== "running" || !s.activity || busy(s) || isUnseen(s)) return 0;
   const since = now - (lastWith(s) ?? s.activitySince ?? now);
   return since >= 8 * 60 * 60_000 ? 3 : since >= 3 * 60 * 60_000 ? 2 : since >= 60 * 60_000 ? 1 : 0;
 }
@@ -239,7 +240,7 @@ function Rail({ onNew }: { onNew: () => void }) {
   const running = sessions.filter((s) => s.status === "running").length;
   const closed = sessions.length - running;
   const needsInput = sessions.filter((s) => s.activity === "needsInput" && s.status === "running").length;
-  const working = sessions.filter((s) => s.activity === "working" && s.status === "running").length;
+  const working = sessions.filter((s) => busy(s) && s.status === "running").length;
 
   return (
     <div className="rail">
@@ -284,7 +285,7 @@ function Rail({ onNew }: { onNew: () => void }) {
               const what = external ? "Claude Code, started outside Henry" : s.kind === "shell" ? (claude ? "terminal, Claude Code running in it" : "terminal") : "Claude Code";
               const state = on ? "running" : `exited${s.exitCode !== undefined ? ` (${s.exitCode})` : ""}${s.endedAt ? ` ${new Date(s.endedAt).toLocaleString()}` : ""}`;
               // Working: time in state. Waiting on you: time since you typed, which is what neglect is.
-              const ago = on && s.activity ? since(s.activity === "working" ? s.activitySince : s.lastInputAt ?? s.activitySince, now) : "";
+              const ago = on && s.activity ? since(busy(s) ? s.activitySince : s.lastInputAt ?? s.activitySince, now) : "";
               const typed = on && claude ? since(s.lastInputAt, now) : "";
               const nPrompts = on && claude ? bucketPrompts(s.prompts, now).reduce((a, b) => a + b, 0) : 0;
               const yours = on && claude ? `\nyou: ${nPrompts} prompt${nPrompts === 1 ? "" : "s"} in the last 4 h${typed ? `, last typed ${typed} ago` : s.lastInputAt ? ", typing now" : ""}${s.lastSeenAt ? `, last looked ${since(s.lastSeenAt, now) ? `${since(s.lastSeenAt, now)} ago` : "just now"}` : ""}` : "";
@@ -299,7 +300,7 @@ function Rail({ onNew }: { onNew: () => void }) {
                     e.preventDefault();
                     setMenu({ x: e.clientX, y: e.clientY, session: s });
                   }}
-                  title={`${ask.map((a) => `asking you: ${a.message} (${until(a.deadline, now)})\n`).join("")}${fresh ? `not seen yet${since(s.unseenSince, now) ? `, for ${since(s.unseenSince, now)}` : ""}\n` : ""}${remindAt ? `reminder at ${clock(remindAt, now)}\n` : ""}${what}, ${state}${on && s.activity ? ` — ${ACTIVITY_TEXT[s.activity]}${ago && s.activity === "working" ? ` for ${ago}` : ""}` : ""}${yours}\n${s.cwd}${s.peer ? `\non ${s.peer} (remote, via its own Henry daemon)` : s.host ? `\non ${s.host}` : ""}${i >= 0 && i < 9 ? `\n${MOD}${i + 1}` : ""}${on ? "\nright click: mark unread, remind me later" : ""}`}>
+                  title={`${ask.map((a) => `asking you: ${a.message} (${until(a.deadline, now)})\n`).join("")}${fresh ? `not seen yet${since(s.unseenSince, now) ? `, for ${since(s.unseenSince, now)}` : ""}\n` : ""}${remindAt ? `reminder at ${clock(remindAt, now)}\n` : ""}${what}, ${state}${on && s.activity ? ` — ${ACTIVITY_TEXT[s.activity]}${ago && busy(s) ? ` for ${ago}` : ""}` : ""}${yours}\n${s.cwd}${s.peer ? `\non ${s.peer} (remote, via its own Henry daemon)` : s.host ? `\non ${s.host}` : ""}${i >= 0 && i < 9 ? `\n${MOD}${i + 1}` : ""}${on ? "\nright click: mark unread, remind me later" : ""}`}>
                   {on && claude && <Spark prompts={s.prompts} now={now} />}
                   {/* Idle greys Clawd only once the row has begun to fade: in your working set it is still your move. */}
                   {claude ? <ClaudeMark on={on} activity={on ? (s.activity === "idle" && !fade ? "waiting" : s.activity) : undefined} /> : <ShellMark on={on} />}

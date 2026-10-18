@@ -2,6 +2,7 @@
 // private HENRY_HOME (set by the parent). Prints "TAIL PASS" and exits 0 on success.
 import { appendFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import * as activity from "../src/activity";
 import * as transcript from "../src/transcript";
 import * as db from "../src/db";
 
@@ -79,6 +80,22 @@ const path2 = join(home, "t2.jsonl");
 writeFileSync(path2, line("n1", { input_tokens: 100, output_tokens: 0 }) + "\n");
 transcript.startTailing(session, path2);
 await waitFor("carried-over totals", () => db.listSessionUsage()[sid]?.inputTokens === 121);
+
+// background work: opened by the tool result's metadata, closed by its <task-notification>
+const tasks = () => activity.stats().activityBackground;
+const result = (id: string, toolUseResult: unknown, isSidechain = false) =>
+  JSON.stringify({ type: "user", isSidechain, timestamp: new Date().toISOString(), message: { role: "user", content: [{ type: "tool_result", tool_use_id: id, content: "x" }] }, toolUseResult });
+const notification = (id: string, status: string) =>
+  JSON.stringify({ type: "queue-operation", operation: "enqueue", timestamp: new Date().toISOString(), content: `<task-notification>\n<task-id>b1</task-id>\n<tool-use-id>${id}</tool-use-id>\n<status>${status}</status>\n</task-notification>` });
+appendFileSync(path2, result("bash", { stdout: "", backgroundTaskId: "b1" }) + "\n");
+appendFileSync(path2, result("agent", { isAsync: true, status: "async_launched", agentId: "a1" }) + "\n");
+appendFileSync(path2, result("sub", { backgroundTaskId: "b2" }, true) + "\n"); // a subagent's: it wakes no one here
+appendFileSync(path2, result("plain", { stdout: "ok" }) + "\n");
+await waitFor("two background tasks open", () => tasks() === 2);
+appendFileSync(path2, notification("bash", "running") + "\n"); // still going
+appendFileSync(path2, notification("bash", "completed") + "\n");
+appendFileSync(path2, notification("agent", "killed") + "\n");
+await waitFor("both closed", () => tasks() === 0);
 
 transcript.stopTailing(sid);
 assert(!transcript.isTailing(sid), "isTailing after stop");

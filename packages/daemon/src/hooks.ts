@@ -140,6 +140,7 @@ function ingestHookInner(body: HookBody): IngestResult {
 
   db.insertEvent(event);
   broadcast({ type: "event", event });
+  if (hookEvent === "Stop") transcript.catchUp(session.id);
   activity.note(session.id, hookEvent, payload, event.ts);
   engagement.note(session.id, hookEvent, event.ts, str(payload.prompt));
   const result: IngestResult = { event };
