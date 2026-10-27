@@ -47,7 +47,7 @@ export interface ThemeChoice {
   lat: number;
   lon: number;
 }
-const DEFAULT: ThemeChoice = { tone: "slate", highlight: "blue", shade: "dark", sky: "soft", scene: "life", focus: "sharp", glow: "off", span: "pane", ...guessPlace() };
+const DEFAULT: ThemeChoice = { tone: "slate", highlight: "blue", shade: "dark", sky: "soft", scene: "life", focus: "sharp", glow: "off", span: "window", ...guessPlace() };
 const KEY = "henry.theme";
 
 // OKLCH -> sRGB hex. Chroma is pulled in until the color fits the gamut.

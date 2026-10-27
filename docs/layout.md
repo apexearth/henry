@@ -77,12 +77,13 @@ xterm's own. A cell painted in the theme background — every dim run, since dim
 to xterm — is drawn fully clear over the context backdrop rather than as a slab of it. On a phone
 the same rows sit in the ⚙ tab of the ⋮ sheet.
 
-**The context backdrop.** Behind every session pane is a canvas that gets busier as the
+**The context backdrop.** Behind Henry's window is a canvas that gets busier as the active
 session's context window fills, in one of three scenes, all reading the Usage panel's context
 fraction. It sits under xterm, whose background is transparent whenever the backdrop is on; a
 theme choice (`backdrop`: off, faint, soft, bold) sets how hard it paints, and "off" makes the
-terminal background opaque again. `span` sets where it is drawn: `pane` puts one behind each
-session pane, and `window` draws the active session's scene once behind the whole window. In
+terminal background opaque again. `span` sets where it is drawn: `window` (the default) draws the
+active session's scene once behind the whole window, and `pane` puts one behind each session
+pane instead. In
 `window`, the terminal goes clear, the rail and panels take a light tint of their background
 and the bars and sticky headers a heavier one, so the scene reads through the chrome too. The tint has no
 `backdrop-filter` blur because that would make the topbar a stacking context and trap its
