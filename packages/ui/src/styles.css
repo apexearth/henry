@@ -249,6 +249,7 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 .theme-num:focus { outline: none; border-color: var(--accent); }
 .theme-btn { padding: 1px 6px; font-size: 11px; color: var(--fg-dim); }
 .theme-btn:hover { color: var(--fg); }
+.theme-btn.sel { color: var(--fg); border-color: var(--fg-dim); }
 .theme-note { color: var(--fg-faint); font-size: 11px; padding: 1px 0 2px calc(12ch + 10px); }
 
 /* Dockview theme: Henry palette on top of the stock variable set (mirrors the abyss theme). */

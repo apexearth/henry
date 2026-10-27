@@ -17,7 +17,7 @@ A changed decision edits the sentence that is now wrong; nothing here is a histo
 - [federation.md](federation.md) — daemon-to-daemon links over the tailnet, pairing, keys, trust
 - [phone.md](phone.md) — the phone listener, invites, the mobile shape, touch and the composer
 - [voice.md](voice.md) — push-to-talk questions, directives, TTS, what voice may and may not do
-- [layout.md](layout.md) — the dock, the stage, the topbar, the theme and the context wall
+- [layout.md](layout.md) — the dock, the stage, the topbar, the theme and the context backdrop
 - [files.md](files.md) — peeks, diffs, the folder tree, ⌘K, ⌘F and search
 - [history.md](history.md) — a session's conversation, read from its transcript
 - [hours.md](hours.md) — your time in Henry, in whole minutes

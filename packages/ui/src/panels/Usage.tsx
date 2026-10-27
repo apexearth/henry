@@ -22,6 +22,14 @@ export function contextFraction(u: SessionUsage | undefined): number | undefined
   return u.contextTokens / (u.contextWindow || DEFAULT_CONTEXT_WINDOW);
 }
 
+/** The same thresholds as hues, for the context backdrops: green to amber, amber to red. */
+export function heatHue(t: number): number {
+  const lerp = (a: number, b: number, x: number) => a + (b - a) * Math.min(1, Math.max(0, x));
+  if (t < AMBER) return lerp(145, 100, t / AMBER);
+  if (t < RED) return lerp(100, 60, (t - AMBER) / (RED - AMBER));
+  return lerp(60, 25, (t - RED) / (1 - RED));
+}
+
 export function barColor(u: number): string {
   return u >= RED ? "var(--alarm)" : u >= AMBER ? "var(--warn)" : "var(--ok)";
 }

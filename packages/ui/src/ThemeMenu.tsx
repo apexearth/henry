@@ -5,7 +5,7 @@
 import { useState } from "react";
 import { clampLat, clampLon } from "./place";
 import { riseSet, skyState } from "./solar";
-import { HIGHLIGHTS, SHADES, SKIES, TONES, isLight, oklch, setTheme, useTheme, type ThemeChoice } from "./theme";
+import { HIGHLIGHTS, SCENES, SHADES, SKIES, TONES, isLight, oklch, setTheme, useTheme, type ThemeChoice } from "./theme";
 
 const hhmm = (d: Date) => d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
@@ -65,9 +65,9 @@ function Place() {
 /** The choices themselves: the topbar popover on a desk, a fold in the ☰ drawer on a phone. */
 export function ThemeRows() {
   const t = useTheme();
-  const row = <K extends "tone" | "highlight" | "shade" | "sky">(key: K, names: string[], color: (n: string) => string) => (
+  const row = <K extends "tone" | "highlight" | "shade" | "sky">(key: K, names: string[], color: (n: string) => string, label: string = key) => (
     <div className="theme-row">
-      <span className="theme-label">{key} · {t[key]}</span>
+      <span className="theme-label">{label} · {t[key]}</span>
       <span className="theme-swatches">
         {names.map((n) => (
           <button key={n} className={"swatch" + (t[key] === n ? " sel" : "")} title={n}
@@ -81,12 +81,25 @@ export function ThemeRows() {
       {row("tone", Object.keys(TONES), (n) => { const c = TONES[n as keyof typeof TONES]; return oklch(0.4, c.c * 2, c.h); })}
       {row("highlight", Object.keys(HIGHLIGHTS), (n) => oklch(0.76, 0.13, HIGHLIGHTS[n as keyof typeof HIGHLIGHTS]))}
       {row("shade", Object.keys(SHADES), (n) => oklch(SHADES[n as keyof typeof SHADES], TONES[t.tone].c, TONES[t.tone].h))}
-      {/* The context wall (ContextSky), from off to bold; the swatches are the wall's own colour. */}
+      {/* The context backdrop (ContextSky), from off to bold; the swatches are its own colour. */}
       {row("sky", Object.keys(SKIES), (n) => {
         const v = SKIES[n as keyof typeof SKIES];
         return oklch(SHADES[t.shade] + (isLight(t.shade) ? -0.13 : 0.13) * v, 0.055 * v, 130);
-      })}
-      {SKIES[t.sky] > 0 && <Place />}
+      }, "backdrop")}
+      {SKIES[t.sky] > 0 && (
+        <div className="theme-row">
+          <span className="theme-label">scene · {t.scene}</span>
+          <span className="theme-swatches">
+            {SCENES.map((s) => (
+              <button key={s} className={"theme-btn" + (t.scene === s ? " sel" : "")} onClick={() => setTheme({ scene: s })}
+                title={s === "life" ? "glyph Life fed by rain; busier as the context fills" : "a wall rising under the real sun and moon"}>
+                {s}
+              </button>
+            ))}
+          </span>
+        </div>
+      )}
+      {SKIES[t.sky] > 0 && t.scene === "sky" && <Place />}
     </>
   );
 }

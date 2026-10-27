@@ -20,6 +20,8 @@ export const SHADES = { black: 0.11, dark: 0.18, dim: 0.24, light: 0.93, white: 
 export const isLight = (shade: keyof typeof SHADES = current.shade): boolean => SHADES[shade] > 0.5;
 /** How strongly the context wall paints behind the terminal (ContextSky); off hides it. */
 export const SKIES = { off: 0, faint: 0.3, soft: 0.55, bold: 0.85 } as const;
+/** What the backdrop draws: glyph Life fed by rain (ContextLife), or the wall under the real sky. */
+export const SCENES = ["life", "sky"] as const;
 
 export interface ThemeChoice {
   tone: keyof typeof TONES;
@@ -27,12 +29,13 @@ export interface ThemeChoice {
   shade: keyof typeof SHADES;
   /** The context wall behind the terminal (ContextSky). "off" makes xterm's background opaque again. */
   sky: keyof typeof SKIES;
+  scene: (typeof SCENES)[number];
   /** Where the sky is drawn from, in degrees north and east: it sets where the sun and moon are
    * and how long the day is. Seeded from the time zone, corrected by hand in the theme menu. */
   lat: number;
   lon: number;
 }
-const DEFAULT: ThemeChoice = { tone: "slate", highlight: "blue", shade: "dark", sky: "soft", ...guessPlace() };
+const DEFAULT: ThemeChoice = { tone: "slate", highlight: "blue", shade: "dark", sky: "soft", scene: "life", ...guessPlace() };
 const KEY = "henry.theme";
 
 // OKLCH -> sRGB hex. Chroma is pulled in until the color fits the gamut.
@@ -94,6 +97,7 @@ function load(): ThemeChoice {
       highlight: raw.highlight && raw.highlight in HIGHLIGHTS ? raw.highlight : DEFAULT.highlight,
       shade: raw.shade && raw.shade in SHADES ? raw.shade : DEFAULT.shade,
       sky: raw.sky && raw.sky in SKIES ? raw.sky : DEFAULT.sky,
+      scene: SCENES.includes(raw.scene!) ? raw.scene! : DEFAULT.scene,
       lat: typeof raw.lat === "number" ? clampLat(raw.lat) : DEFAULT.lat,
       lon: typeof raw.lon === "number" ? clampLon(raw.lon) : DEFAULT.lon,
     };

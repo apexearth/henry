@@ -1,4 +1,4 @@
-// The session pane's backdrop: a brick wall that rises from the bottom as the session's context
+// The session pane's backdrop, one of two scenes (the other, "life", is ContextLife). This one: a brick wall that rises from the bottom as the session's context
 // window fills, in front of the sky that is actually outside. The sun and moon are where they
 // really are over the user's latitude and longitude (solar.ts does the arithmetic, place.ts
 // guesses the place from the time zone), so the day is as long as today's day, the winter sun
@@ -7,7 +7,8 @@
 // sits under live terminal text. The fraction is the Usage panel's context bar, so the crest and
 // the bar always agree, and a /compact drops the wall back down.
 import { useEffect, useRef } from "react";
-import { contextFraction } from "./panels/Usage";
+import { ContextLife } from "./ContextLife";
+import { contextFraction, heatHue } from "./panels/Usage";
 import { skyState, type Body, type Sky } from "./solar";
 import { SHADES, SKIES, oklch, useTheme } from "./theme";
 import { useStore } from "./ws";
@@ -31,13 +32,6 @@ function hash(n: number): number {
   let h = Math.imul(n ^ 0x9e3779b9, 0x85ebca6b);
   h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
-}
-
-/** Green up to 70%, amber to 90%, red above: the Usage panel's thresholds, as hues. */
-function heatHue(t: number): number {
-  if (t < 0.7) return lerp(145, 100, t / 0.7);
-  if (t < 0.9) return lerp(100, 60, (t - 0.7) / 0.2);
-  return lerp(60, 25, clamp01((t - 0.9) / 0.1));
 }
 
 /** A body on the canvas: across by the hours from its own transit, up by how high it really is.
@@ -184,7 +178,13 @@ function draw(ctx: CanvasRenderingContext2D, w: number, h: number, f: number, L0
   ctx.globalAlpha = 1;
 }
 
+/** The pane's backdrop, in whichever scene the theme picks. */
 export function ContextSky({ sessionId }: { sessionId: string }) {
+  const scene = useTheme().scene;
+  return scene === "life" ? <ContextLife key={sessionId} sessionId={sessionId} /> : <SkyWall sessionId={sessionId} />;
+}
+
+function SkyWall({ sessionId }: { sessionId: string }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const theme = useTheme();
   const frac = useStore((s) => contextFraction(s.usage.perSession[sessionId]));

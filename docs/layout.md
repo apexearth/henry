@@ -1,6 +1,6 @@
 # Layout
 
-The dock, the stage, the status strip, the topbar and the sky behind the terminal.
+The dock, the stage, the status strip, the topbar and the backdrop behind the terminal.
 
 ```
 ┌──────────┬──────────────────────────────────────┬──────────────────────┐
@@ -74,26 +74,42 @@ darkens only what falls short, and its dim text — half of what Claude Code say
 xterm at half opacity — is instead coloured at full strength and pulled 30% toward the
 background, opaque: a step down, still legible. On dark shades the floor is off and dim is
 xterm's own. A cell painted in the theme background — every dim run, since dim is a background flag
-to xterm — is drawn fully clear over the context wall rather than as a slab of it. On a phone
+to xterm — is drawn fully clear over the context backdrop rather than as a slab of it. On a phone
 the same rows sit in the ⚙ tab of the ⋮ sheet.
 
-**The context wall.** Behind every session pane is a brick wall that rises from the bottom as
-the session's context window fills, in front of the sky that is actually outside: the sun and
+**The context backdrop.** Behind every session pane is a canvas that gets busier as the
+session's context window fills, in one of two scenes. Both read the Usage panel's context
+fraction and colour by its green/amber/red thresholds. It sits under xterm, whose background
+is transparent whenever the backdrop is on; a theme choice (`backdrop`: off, faint, soft,
+bold) sets how hard it paints, and "off" makes the terminal background opaque again.
+Decoration only: no session state is readable from it that a panel does not also state.
+
+`life` (the default) is Conway's Life written in dim, mirrored half-width katakana on cells
+larger than the terminal's, so it never reads as text. Life alone settles into a few percent
+of still ash, so `life.ts` holds the density with a controller instead: a target set by the
+context fraction (near empty at the start of a session, a churning soup near the end), a
+shortfall that becomes Matrix rain falling down a column and planting a seed where it lands,
+and a surplus that is culled. Rain lands in the bottom quarter of the pane when the window is
+fresh and anywhere when it is full, so the activity rises from the bottom. Dead cells fade like
+phosphor rather than blinking out, and old still life erodes so the board never freezes. Each
+tool call fires a glider in from an edge, a working session runs at about twice the tempo of an
+idle one, and a drop of more than 8 points in the fraction (a `/compact`, a `/clear`) turns every
+living cell into a drop that pours off the bottom. It pauses with the tab and, under reduced
+motion, is a still frame redrawn when the fraction moves.
+
+`sky` is a brick wall that rises from the bottom as
+the window fills, in front of the sky that is actually outside: the sun and
 moon stand where they really stand over the user's latitude and longitude, so the day is as
 long as today's day is, the winter sun stays low, the moon keeps its own hours and its real
 phase, and the stars come out through twilight. Two readings in one picture — how full the
 window is, and how late it has got — and a wall tall enough to blot out the sky is telling you
-something. The wall is the Usage panel's context
-fraction, brick by brick (one brick is ~2.5k tokens of a 200k window), coloured by the same
-green/amber/red thresholds, so a `/compact` visibly drops it. It is a canvas under xterm, whose
-background is transparent whenever the wall is on; a fourth theme choice (`sky`: off, faint,
-soft, bold) sets how hard it paints, and "off" makes the terminal background opaque again.
-Decoration only: no session state is readable from it that a panel does not also state.
+something. The wall is the context fraction brick by brick (one brick is ~2.5k tokens of a
+200k window), so a `/compact` visibly drops it.
 
 The sky's arithmetic is local (`solar.ts`, the standard low-precision solar and lunar series,
 good to a fraction of a degree): no weather or almanac API, so it works offline and on a
 plane, and nothing about the user leaves the machine. The place is guessed from the browser's
 time zone (`place.ts`), which needs no geolocation prompt and is right to within a few
-hundred kilometres — minutes of sunset. When the sky is on, the theme popover shows the
+hundred kilometres — minutes of sunset. When the sky scene is on, the theme popover shows the
 latitude and longitude with today's sunrise and sunset under them; both are editable, and a
 `locate` button asks the browser for something exact only when the user clicks it.
