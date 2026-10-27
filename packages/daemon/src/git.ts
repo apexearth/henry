@@ -101,6 +101,8 @@ const touched = new Map<string, { at: number; saved: number }>();
 const sinceCache = new Map<string, number>();
 /** commonDir → known worktree paths (for "new worktree" events). */
 const knownWorktrees = new Map<string, Set<string>>();
+/** commonDir → mtime of its `worktrees` folder when it was last listed: unchanged, nothing to list. */
+const worktreesStamp = new Map<string, number>();
 const watchers = new Map<string, FSWatcher[]>();
 const debounces = new Map<string, ReturnType<typeof setTimeout>>();
 /** Per common dir: when the poll may sweep it again, and the interval it earned. */
@@ -156,9 +158,11 @@ const short = (sha: string) => sha.slice(0, 7);
 
 // ---- repo resolution ----
 
+// The native realpath: one system call. The default is a JS walk that lstats every segment,
+// which on Windows was most of the daemon's time in a repo with dozens of worktrees.
 function safeReal(p: string): string {
   try {
-    return realpathSync(p);
+    return realpathSync.native(p);
   } catch {
     return p;
   }
@@ -501,7 +505,6 @@ async function refresh(info: RepoInfo, force: boolean): Promise<RepoBase | undef
           if (b) await commitsSince(info, b.baselineSha, next.head);
         }
       }
-      await checkWorktrees(info);
     }
     return next;
   })().finally(() => inflight.delete(info.path));
@@ -586,19 +589,45 @@ async function detectEvents(info: RepoInfo, prev: RepoBase, next: RepoBase): Pro
   }
 }
 
+/**
+ * "new worktree" events, once per common dir per refresh. A worktree added or removed is an
+ * entry made or deleted in `<commonDir>/worktrees`, so while that folder's mtime holds there
+ * is nothing to list: a repo with fifty worktrees used to list and realpath all of them for
+ * every checkout on every refresh.
+ */
 async function checkWorktrees(info: RepoInfo): Promise<void> {
+  let stamp = -1;
+  try {
+    stamp = statSync(join(info.commonDir, "worktrees")).mtimeMs;
+  } catch {
+    /* no worktrees folder: none were ever added */
+  }
+  if (knownWorktrees.has(info.commonDir) && worktreesStamp.get(info.commonDir) === stamp) return;
+  const all = await listWorktrees(info.path);
   // The watcher fires while `git worktree add` is still writing the new checkout; one still
-  // settling is left unknown so the next refresh reports it complete with its branch.
-  const list = (await listWorktrees(info.path)).filter((w) => !w.settling);
-  const paths = new Set(list.map((w) => safeReal(w.path)));
+  // settling is left unknown, and the folder unstamped, so the next refresh reports it complete
+  // with its branch.
+  const list = all.filter((w) => !w.settling).map((w) => ({ ...w, real: safeReal(w.path) }));
+  if (list.length === all.length) worktreesStamp.set(info.commonDir, stamp);
+  else worktreesStamp.delete(info.commonDir);
   const known = knownWorktrees.get(info.commonDir);
-  knownWorktrees.set(info.commonDir, paths);
+  knownWorktrees.set(info.commonDir, new Set(list.map((w) => w.real)));
   if (!known) return;
   for (const wt of list) {
-    const real = safeReal(wt.path);
-    if (known.has(real) || real === info.path) continue;
-    recordGitEvent(info, `new worktree ${real}${wt.branch ? ` on ${wt.branch}` : ""}`, { action: "worktree", path: real, branch: wt.branch });
+    if (known.has(wt.real) || wt.real === info.path) continue;
+    recordGitEvent(info, `new worktree ${wt.real}${wt.branch ? ` on ${wt.branch}` : ""}`, { action: "worktree", path: wt.real, branch: wt.branch });
   }
+}
+
+/** Some session worked in this checkout lately, or sits in it: worth keeping its card live. */
+function current(path: string): boolean {
+  const now = Date.now();
+  for (const sid of repoSessions.get(path) ?? []) {
+    const at = touched.get(`${sid}\0${path}`)?.at;
+    if (at !== undefined && now - at <= EARLIER_MS) return true;
+    if (resolveRepo(db.getSession(sid)?.cwd ?? "")?.path === path) return true;
+  }
+  return false;
 }
 
 // ---- session association ----
@@ -1028,13 +1057,26 @@ export function forgetFiles(anyPath: string): void {
   ignoredCache.delete(info.path);
 }
 
-/** The working-tree watcher saw `root` change: drop its listings, and re-read the repo's state
- *  (the dirty count, the tree's marks) if a session is in it. */
+const ownRefresh = new Map<string, ReturnType<typeof setTimeout>>();
+
+/** The working-tree watcher saw `root` change: drop its listings, and re-read that checkout's
+ *  state (the dirty count, the tree's marks) if a session is in it. That checkout only: its
+ *  worktrees did not move, and a repo's shared refresh is the expensive one. */
 export function filesChanged(root: string): void {
   indexCache.delete(root);
   ignoredCache.delete(root);
   const info = repos.get(root);
-  if (info && repoSessions.get(root)?.size) scheduleRefresh(info.commonDir);
+  if (!info || !repoSessions.get(root)?.size || ownRefresh.has(root)) return;
+  ownRefresh.set(root, setTimeout(async () => {
+    ownRefresh.delete(root);
+    const before = bases.get(root);
+    try {
+      await refresh(info, true);
+    } catch (e) {
+      console.error(`[git] refresh ${root}:`, e);
+    }
+    if (baseChanged(before, bases.get(root))) for (const sid of repoSessions.get(root) ?? []) broadcastSession(sid);
+  }, 1000));
 }
 
 const GREP_CAP_HITS = 500;
@@ -1299,13 +1341,16 @@ function nextPollDelay(commonDir: string, took: number): number {
   return delay;
 }
 
-/** Refresh every touched checkout that shares this common dir, then broadcast what moved
- * (everything, when `announce`: a start has windows that know nothing yet). */
+/** Refresh every checkout sharing this common dir that a session is in now, then broadcast what
+ * moved (everything, when `announce`: a start has windows that know nothing yet). A checkout
+ * only touched long ago (an "earlier" repo) keeps the card it last had. */
 async function refreshShared(commonDir: string, announce = false): Promise<void> {
   const started = Date.now();
-  const touched = new Set<string>();
+  const moved = new Set<string>();
+  let first: RepoInfo | undefined;
   for (const [path, info] of repos) {
-    if (info.commonDir !== commonDir || !repoSessions.get(path)?.size) continue;
+    if (info.commonDir !== commonDir || !repoSessions.get(path)?.size || !current(path)) continue;
+    first ??= info;
     const before = bases.get(path);
     try {
       await refresh(info, true);
@@ -1313,11 +1358,12 @@ async function refreshShared(commonDir: string, announce = false): Promise<void>
       console.error(`[git] refresh ${path}:`, e);
     }
     if (!announce && !baseChanged(before, bases.get(path))) continue;
-    for (const sid of repoSessions.get(path) ?? []) touched.add(sid);
+    for (const sid of repoSessions.get(path) ?? []) moved.add(sid);
   }
+  if (first) await checkWorktrees(first).catch((e) => console.error(`[git] worktrees ${commonDir}:`, e));
   // A watcher-driven refresh re-arms the poll too: it just did the poll's job.
   pollDue.set(commonDir, Date.now() + nextPollDelay(commonDir, Date.now() - started));
-  for (const sid of touched) broadcastSession(sid);
+  for (const sid of moved) broadcastSession(sid);
 }
 
 function ensureWatch(info: RepoInfo): void {
@@ -1408,6 +1454,8 @@ export function stop(): void {
   debounces.clear();
   for (const t of pendingBroadcasts.values()) clearTimeout(t);
   pendingBroadcasts.clear();
+  for (const t of ownRefresh.values()) clearTimeout(t);
+  ownRefresh.clear();
   pollDue.clear();
   pollDelay.clear();
   for (const list of watchers.values()) for (const w of list) w.close();

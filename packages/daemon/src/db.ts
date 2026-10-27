@@ -44,6 +44,9 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE INDEX IF NOT EXISTS events_session_ts ON events(session_id, ts);
 -- Ordering and the retention sweep are both by ts alone, which (session_id, ts) cannot serve.
 CREATE INDEX IF NOT EXISTS events_ts ON events(ts);
+-- Your prompts alone (human.ts): the top bar asks for two weeks of them every minute, which
+-- read through every event in those two weeks, payloads and all, ~300 ms on a 600 MB log.
+CREATE INDEX IF NOT EXISTS events_prompts ON events(ts) WHERE hook_event = 'UserPromptSubmit';
 
 CREATE TABLE IF NOT EXISTS flags (
   id TEXT PRIMARY KEY,

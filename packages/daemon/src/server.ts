@@ -798,7 +798,7 @@ async function phoneApi(req: Request, url: URL, origin: ApiOrigin): Promise<Resp
 }
 
 /** Memory diagnostics (diag.ts). `?gc=1` collects first, so the numbers are what is retained. */
-function debugApi(req: Request, pathname: string): Response {
+async function debugApi(req: Request, pathname: string): Promise<Response> {
   if (pathname === "/api/debug/memory") {
     if (new URL(req.url).searchParams.get("gc") === "1") diag.collectGarbage();
     return json(diag.memoryReport({ windows: windowCount(), aliasListeners: aliasServers.size }));
@@ -806,6 +806,9 @@ function debugApi(req: Request, pathname: string): Response {
   if (req.method === "POST" && pathname === "/api/debug/heap-snapshot") {
     diag.collectGarbage();
     return json(diag.writeHeapSnapshot());
+  }
+  if (req.method === "POST" && pathname === "/api/debug/profile") {
+    return json(await diag.profile(Number(new URL(req.url).searchParams.get("seconds")) || 20));
   }
   return json({ error: "not found" }, 404);
 }

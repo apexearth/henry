@@ -11,7 +11,17 @@ unbounded input is trimmed at the door.
   for (it asks once a minute while visible), at most 12 roots. Changes under `.git` and
   under git-ignored folders are dropped at the watcher, a burst is one `files:changed` after
   250ms of quiet (2s at most while it keeps going), and that drops the cached listing and
-  schedules the repo's usual debounced refresh.
+  refreshes that one checkout a second later, never its siblings.
+- **A refresh skips what nobody is in.** A checkout no session has touched for 8 hours
+  (the files tree's "earlier") and that is no session's cwd keeps the card it last had; the
+  poll, the watchers and a start leave it alone. "New worktree" events are listed once per
+  common dir, and only when `<commonDir>/worktrees` has a new mtime, so a repo with dozens
+  of worktrees costs what one does.
+- **Real paths are native** (`realpathSync.native`): one call, where Node's JS walk lstats
+  every segment, ~3.5× slower on Windows.
+- **The top bar's prompt history is indexed** (`events_prompts`, partial on
+  `UserPromptSubmit`), so asking for two weeks of them reads those rows, not the log; every
+  window asks once a minute, and SQLite holds the loop while it answers.
 - **The 10s poll is a floor, not a promise.** A common dir whose refresh takes ≥250ms drops
   to 30s and ≥1s to 60s (`git.pollIntervalFor`): `status --untracked-files=all` is
   proportional to the untracked tree, and a big un-ignored build dir must not hold the whole

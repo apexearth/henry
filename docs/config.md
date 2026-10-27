@@ -27,6 +27,12 @@
   every `/hook` and `/statusline` request, 3.4 GB in a day of nine sessions; 1.4.2 holds
   flat over the same load, so 1.4.2 is the floor and the daemon warns at start when it is
   running on less. The transcript, PTY, git, federation and MCP paths all plateau.
+- **The daemon can say where its time goes.** `POST /api/debug/profile?seconds=9` (same
+  gate) runs JSC's sampling profiler for that long and answers the functions on top of the
+  stack and anywhere on it; a synchronous SQLite or fs call counts against its caller. Keep
+  it under 10 s, Bun's idle timeout for a silent request. JSC cannot stop the sampler, so it
+  stays on (a few percent) until the daemon restarts. Lag is stalls, so pair it with a loop
+  that times a trivial request every 20 ms and note which window the stalls fell in.
 
 ```json
 {
