@@ -12,6 +12,7 @@ import { FilePicker } from "./FilePicker";
 import { sendEsc, sendFind } from "./FileView";
 import { openFiles } from "./FilesPane";
 import { Layout } from "./Layout";
+import { WindowBackdrop } from "./ContextSky";
 import { Setup } from "./Setup";
 import { onNotice } from "./notify";
 import { Settings } from "./Settings";
@@ -154,6 +155,7 @@ function DesktopApp() {
 
   return (
     <div className="app">
+      <WindowBackdrop />
       <div className="topbar">
         <HenryMark />
         <span className="brand">henry</span>

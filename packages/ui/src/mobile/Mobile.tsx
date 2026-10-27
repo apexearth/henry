@@ -95,7 +95,7 @@ export function Mobile() {
       <main className="m-stage">
         {session ? (
           <>
-            <ContextSky sessionId={session.id} />
+            <ContextSky sessionId={session.id} place="always" />
             <TerminalView key={session.id} sessionId={session.id} visible={!drawer && !tab && !peek} focused={false} fontSize={fontSize} />
           </>
         ) : (

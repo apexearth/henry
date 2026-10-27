@@ -23,6 +23,9 @@ export const SKIES = { off: 0, faint: 0.3, soft: 0.55, bold: 0.85 } as const;
 /** What the backdrop draws: glyph Life fed by rain (ContextLife), the session woven as cloth
  * (ContextLoom), or the wall under the real sky. */
 export const SCENES = ["life", "loom", "sky"] as const;
+/** Where the backdrop paints: behind each terminal, or behind the whole window with the chrome
+ * turned to frosted glass over it (the active session's scene). */
+export const SPANS = ["pane", "window"] as const;
 /** How far the backdrop is thrown out of focus, in CSS pixels of blur: sharp lines read as
  * something to look at, soft ones as texture. */
 export const FOCUS = { sharp: 0, soft: 1, hazy: 2.2, dream: 4 } as const;
@@ -38,12 +41,13 @@ export interface ThemeChoice {
   scene: (typeof SCENES)[number];
   focus: keyof typeof FOCUS;
   glow: keyof typeof GLOWS;
+  span: (typeof SPANS)[number];
   /** Where the sky is drawn from, in degrees north and east: it sets where the sun and moon are
    * and how long the day is. Seeded from the time zone, corrected by hand in the theme menu. */
   lat: number;
   lon: number;
 }
-const DEFAULT: ThemeChoice = { tone: "slate", highlight: "blue", shade: "dark", sky: "soft", scene: "life", focus: "sharp", glow: "off", ...guessPlace() };
+const DEFAULT: ThemeChoice = { tone: "slate", highlight: "blue", shade: "dark", sky: "soft", scene: "life", focus: "sharp", glow: "off", span: "pane", ...guessPlace() };
 const KEY = "henry.theme";
 
 // OKLCH -> sRGB hex. Chroma is pulled in until the color fits the gamut.
@@ -108,6 +112,7 @@ function load(): ThemeChoice {
       scene: SCENES.includes(raw.scene!) ? raw.scene! : DEFAULT.scene,
       focus: raw.focus && raw.focus in FOCUS ? raw.focus : DEFAULT.focus,
       glow: raw.glow && raw.glow in GLOWS ? raw.glow : DEFAULT.glow,
+      span: SPANS.includes(raw.span!) ? raw.span! : DEFAULT.span,
       lat: typeof raw.lat === "number" ? clampLat(raw.lat) : DEFAULT.lat,
       lon: typeof raw.lon === "number" ? clampLon(raw.lon) : DEFAULT.lon,
     };
@@ -137,6 +142,8 @@ export function applyTheme() {
     // Native widgets (popups, scrollbars) and the hand-coloured bits of styles.css follow.
     root.colorScheme = isLight() ? "light" : "dark";
     doc.documentElement.classList.toggle("light", isLight());
+    // The chrome turns to glass only on the main window; a popped-out terminal keeps its pane.
+    doc.documentElement.classList.toggle("backdrop-wide", doc === document && current.span === "window" && SKIES[current.sky] > 0);
   }
 }
 export function setTheme(patch: Partial<ThemeChoice>) {

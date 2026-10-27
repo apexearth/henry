@@ -5,7 +5,7 @@
 import { useState } from "react";
 import { clampLat, clampLon } from "./place";
 import { riseSet, skyState } from "./solar";
-import { FOCUS, GLOWS, HIGHLIGHTS, SCENES, SHADES, SKIES, TONES, isLight, oklch, setTheme, useTheme, type ThemeChoice } from "./theme";
+import { FOCUS, GLOWS, HIGHLIGHTS, SCENES, SHADES, SPANS, SKIES, TONES, isLight, oklch, setTheme, useTheme, type ThemeChoice } from "./theme";
 
 const SCENE_TITLES: Record<(typeof SCENES)[number], string> = {
   life: "glyph Life fed by rain; busier as the context fills",
@@ -94,7 +94,7 @@ export function ThemeRows() {
     </div>
   );
   /** A row of named choices, for the ones a colour swatch cannot show. */
-  const words = <K extends "scene" | "focus" | "glow">(key: K, names: readonly ThemeChoice[K][], title: (n: ThemeChoice[K]) => string) => (
+  const words = <K extends "scene" | "focus" | "glow" | "span">(key: K, names: readonly ThemeChoice[K][], title: (n: ThemeChoice[K]) => string) => (
     <div className="theme-row">
       <span className="theme-label">{key} · {t[key]}</span>
       <span className="theme-swatches">
@@ -118,6 +118,7 @@ export function ThemeRows() {
         return oklch(SHADES[t.shade] + (isLight(t.shade) ? -0.13 : 0.13) * v, 0.055 * v, 130);
       }, "backdrop")}
       {SKIES[t.sky] > 0 && words("scene", SCENES, (s) => SCENE_TITLES[s])}
+      {SKIES[t.sky] > 0 && words("span", SPANS, (s) => (s === "pane" ? "behind each terminal" : "behind the whole window, the chrome turned to glass"))}
       {SKIES[t.sky] > 0 && words("focus", Object.keys(FOCUS) as (keyof typeof FOCUS)[], (s) => FOCUS_TITLES[s])}
       {SKIES[t.sky] > 0 && !isLight(t.shade) && words("glow", Object.keys(GLOWS) as (keyof typeof GLOWS)[], (s) => GLOW_TITLES[s])}
       {SKIES[t.sky] > 0 && t.scene === "sky" && <Place />}

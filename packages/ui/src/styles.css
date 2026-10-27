@@ -204,6 +204,23 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 /* The context wall (ContextSky), behind the terminal's transparent background. Held well below
    full strength: it is scenery under live text, not a panel. */
 .term-sky { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; filter: blur(var(--backdrop-blur, 0px)); }
+/* The backdrop spanning the window (theme span: window): fixed under everything, above the body's
+   own background. The terminal goes clear and the panels take only a light tint, so the scene
+   reads through them too; the bars and sticky headers, which text scrolls under, take a heavier
+   one. No backdrop-filter: it makes the topbar a stacking context and traps its popovers under
+   the dock. */
+.window-backdrop { position: fixed; inset: 0; z-index: -1; pointer-events: none; }
+html.backdrop-wide .term-host { background: transparent; }
+html.backdrop-wide :is(.rail, .dock-body, .peek) { background: color-mix(in srgb, var(--bg-2) 35%, transparent); }
+html.backdrop-wide :is(.topbar, .statusbar, .rail-group-h, .peek-head, .peek-find) { background: color-mix(in srgb, var(--bg-2) 70%, transparent); }
+html.backdrop-wide .dockview-theme-henry {
+  --dv-group-view-background-color: transparent;
+  --dv-tabs-and-actions-container-background-color: color-mix(in srgb, var(--bg) 65%, transparent);
+  --dv-activegroup-visiblepanel-tab-background-color: color-mix(in srgb, var(--bg-2) 75%, transparent);
+  --dv-inactivegroup-visiblepanel-tab-background-color: color-mix(in srgb, var(--bg-2) 75%, transparent);
+  --dv-activegroup-hiddenpanel-tab-background-color: transparent;
+  --dv-inactivegroup-hiddenpanel-tab-background-color: transparent;
+}
 /* The backdrop's bloom (Backdrop.tsx): a half-size copy, blurred wide and added as light. */
 .term-bloom { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none;
   filter: blur(calc(5px + var(--backdrop-blur, 0px))) brightness(2) saturate(1.7); mix-blend-mode: plus-lighter; }

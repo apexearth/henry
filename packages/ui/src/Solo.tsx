@@ -37,7 +37,7 @@ export function Solo({ sessionId }: { sessionId: string }) {
       <div className="term-host solo-stage">
         {session && (
           <>
-            <ContextSky sessionId={sessionId} />
+            <ContextSky sessionId={sessionId} place="always" />
             <TerminalView sessionId={sessionId} visible focused />
           </>
         )}

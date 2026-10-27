@@ -180,9 +180,20 @@ function draw(ctx: CanvasRenderingContext2D, w: number, h: number, f: number, L0
   ctx.globalAlpha = 1;
 }
 
-/** The pane's backdrop, in whichever scene the theme picks. */
-export function ContextSky({ sessionId }: { sessionId: string }) {
-  const scene = useTheme().scene;
+/** The window's backdrop when the theme spans it: the active session's scene, fixed behind
+ * everything, which the chrome shows through as glass. */
+export function WindowBackdrop() {
+  const active = useStore((s) => s.activeSessionId);
+  if (useTheme().span !== "window" || !active) return null;
+  return <div className="window-backdrop"><ContextSky sessionId={active} place="window" /></div>;
+}
+
+/** The pane's backdrop, in whichever scene the theme picks. `place` says which mount this is:
+ * a terminal pane steps aside when the backdrop spans the window; `always` (a popped-out or
+ * phone terminal, which has no chrome to see through) ignores the span. */
+export function ContextSky({ sessionId, place = "pane" }: { sessionId: string; place?: "pane" | "window" | "always" }) {
+  const { scene, span } = useTheme();
+  if ((place === "pane" && span === "window") || (place === "window" && span !== "window")) return null;
   if (scene === "life") return <ContextLife key={sessionId} sessionId={sessionId} />;
   if (scene === "loom") return <ContextLoom key={sessionId} sessionId={sessionId} />;
   return <SkyWall sessionId={sessionId} />;
