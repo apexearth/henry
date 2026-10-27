@@ -30,6 +30,8 @@ const RESIZE_SETTLE_MS = 120;
 // `name.ext`, optionally followed by `:line[:col]`. Loose on purpose: a ⌘-click on a non-file
 // simply finds nothing.
 const PATH_RE = /(?<![\w@:/.\\-])(?:[A-Za-z]:)?(?:~[\\/]|\.{1,2}[\\/]|[\\/])?[\w.@+-]+(?:[\\/][\w.@+-]+)+(?::\d+(?::\d+)?)?|(?<![\w@:/.\\-])[\w@+-]+(?:\.[\w@+-]+)*\.[A-Za-z]{2,5}(?::\d+(?::\d+)?)?/g;
+const URL_RE = /https?:\/\/[^\s<>"'`]+/g;
+const URL_TAIL_RE = /[.,;:!?'")\]}>]+$/;
 // Terminal-to-host reports: DA1/DA2/DSR/CPR, DECRQM, OSC and DCS replies, focus events.
 const REPORT_RE = /^\x1b(\[[?>]?[\d;]*[cRn]|\[\?[\d;]*\$y|\][^\x07\x1b]*(\x07|\x1b\\)|P[^\x1b]*\x1b\\|\[[IO])/;
 
@@ -109,6 +111,23 @@ function softenDim(webgl: WebglAddon): boolean {
   return true;
 }
 
+/** The rows a buffer row was soft-wrapped with, joined, and the 0-based row it starts on. Every
+ * row but the last is kept at full width, so an offset maps back to a cell by `cols`. */
+function logicalLine(t: Terminal, row: number): { text: string; top: number } {
+  const buf = t.buffer.active;
+  let top = row;
+  while (top > 0 && buf.getLine(top)?.isWrapped) top--;
+  let text = "";
+  for (let i = top; ; i++) {
+    const line = buf.getLine(i);
+    if (!line) break;
+    const more = !!buf.getLine(i + 1)?.isWrapped;
+    text += line.translateToString(!more);
+    if (!more) break;
+  }
+  return { text, top };
+}
+
 export function TerminalView({ sessionId, visible, focused, fontSize }: Props) {
   const box = useRef<HTMLDivElement>(null);
   const term = useRef<Terminal | null>(null);
@@ -131,6 +150,7 @@ export function TerminalView({ sessionId, visible, focused, fontSize }: Props) {
   const replaying = useRef(false);
 
   useEffect(() => {
+    let overUrl = false; // the pointer is over a URL, set by the link hovers below
     const t = new Terminal({
       cursorBlink: true,
       fontFamily: cssVar("--mono"),
@@ -142,6 +162,12 @@ export function TerminalView({ sessionId, visible, focused, fontSize }: Props) {
       theme: xtermTheme(),
       minimumContrastRatio: minContrast(),
       ...(winRef.current ? { windowsPty: { backend: "conpty" as const, buildNumber: winRef.current } } : {}),
+      // OSC 8 hyperlinks. xterm's default asks with a confirm() that blocks the page.
+      linkHandler: {
+        activate: (ev, uri) => openUrl(ev, uri),
+        hover: () => void (overUrl = true),
+        leave: () => void (overUrl = false),
+      },
     });
     const f = new FitAddon();
     t.loadAddon(f);
@@ -225,10 +251,13 @@ export function TerminalView({ sessionId, visible, focused, fontSize }: Props) {
     // itself — so one click peeked *and* jumped to Finder. Swallow the press on .xterm-screen:
     // the linkifier listens there and has already seen it, while the PTY report and the
     // selection start are bound on .xterm, one level up.
+    // A plain click on a URL is Henry's too while an app tracks the mouse: Claude Code opens
+    // the URL on the machine it runs on, which for a peer's session is not this one.
     const screen = box.current!.querySelector(".xterm-screen");
     const swallowModClick = (ev: Event) => {
       const e = ev as MouseEvent;
-      if (e.button !== 0 || (!e.metaKey && !e.ctrlKey)) return;
+      const urlClick = overUrl && tracking() && !e.shiftKey && !e.altKey;
+      if (e.button !== 0 || (!e.metaKey && !e.ctrlKey && !urlClick)) return;
       e.preventDefault();
       e.stopPropagation();
       t.focus(); // .xterm's handler would have done this
@@ -327,15 +356,46 @@ export function TerminalView({ sessionId, visible, focused, fontSize }: Props) {
       return false;
     });
 
+    // A URL opens in this machine's browser: a new window, which the native shell hands to the
+    // default browser. A click does it while an app tracks the mouse (as clicking it in Claude
+    // Code would); in a plain shell, where a click starts a selection, it takes ⌘ like a path.
+    function tracking() {
+      return t.modes.mouseTrackingMode !== "none";
+    }
+    function openUrl(ev: MouseEvent, url: string) {
+      if (ev.shiftKey || ev.altKey) return;
+      if (!ev.metaKey && !ev.ctrlKey && !tracking() && performance.now() - tapAt > TAP_CLICK_MS) return;
+      window.open(url, "_blank", "noopener");
+    }
+
     // ⌘-click a path in the output to peek at it (a tap on a phone). Relative paths resolve
     // against the session's cwd.
     t.registerLinkProvider({
       provideLinks(y, cb) {
-        const text = t.buffer.active.getLine(y - 1)?.translateToString(true) ?? "";
         const links = [];
+        // URLs match across xterm's soft wraps; paths stay per row.
+        const { text: whole, top } = logicalLine(t, y - 1);
+        const at = (o: number) => ({ x: (o % t.cols) + 1, y: top + Math.floor(o / t.cols) + 1 });
+        const urlCols: [number, number][] = [];
+        for (const m of whole.matchAll(URL_RE)) {
+          const url = m[0].replace(URL_TAIL_RE, "");
+          const start = at(m.index), end = at(m.index + url.length - 1);
+          if (end.y < y || start.y > y) continue;
+          urlCols.push([start.y === y ? start.x : 1, end.y === y ? end.x : t.cols]);
+          links.push({
+            range: { start, end },
+            text: url,
+            decorations: { underline: true, pointerCursor: true },
+            activate: openUrl,
+            hover: () => void (overUrl = true),
+            leave: () => void (overUrl = false),
+          });
+        }
+        const text = t.buffer.active.getLine(y - 1)?.translateToString(true) ?? "";
         for (const m of text.matchAll(PATH_RE)) {
           const raw = m[0].replace(/[.,;:'")\]}]+$/, "");
           if (!raw || raw.length < 3) continue;
+          if (urlCols.some(([a, b]) => m.index + 1 <= b && m.index + raw.length >= a)) continue;
           links.push({
             range: { start: { x: m.index + 1, y }, end: { x: m.index + raw.length, y } },
             text: raw,

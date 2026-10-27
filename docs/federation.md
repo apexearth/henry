@@ -64,6 +64,11 @@ until it is back. Two machines that both listen dial each other, so each window 
   the clipboard of the machine it runs on and also by OSC 52; the window's terminal takes
   the OSC 52 write into the browser's clipboard, so a peer session's copy pastes here. Clipboard
   reads by OSC 52 are never answered, and replayed scrollback does not copy again.
+- **A link opens on the machine you are sitting at.** Claude Code opens a clicked URL with
+  the browser of the machine it runs on, so the window's terminal takes the click while the
+  app tracks the mouse and opens the URL itself (a new window, which the native shell hands
+  to the default browser). URLs xterm soft-wrapped stay one link; OSC 8 hyperlinks open the
+  same way. In a plain shell, where a click selects, a URL takes ⌘/Ctrl-click like a path.
 - **Every machine's 5h/7d windows are shown, never added up.** A daemon meters the
   subscription it is signed in to and only that one, so one pair of bars was one machine's
   answer standing in for the rail's. `mergeUsage` therefore builds a `hosts` table — this
