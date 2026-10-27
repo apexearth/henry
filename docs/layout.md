@@ -81,7 +81,13 @@ the same rows sit in the ⚙ tab of the ⋮ sheet.
 session's context window fills, in one of three scenes, all reading the Usage panel's context
 fraction. It sits under xterm, whose background is transparent whenever the backdrop is on; a
 theme choice (`backdrop`: off, faint, soft, bold) sets how hard it paints, and "off" makes the
-terminal background opaque again. Two more soften or brighten it, for every scene: `focus`
+terminal background opaque again. `span` sets where it is drawn: `pane` puts one behind each
+session pane, and `window` draws the active session's scene once behind the whole window. In
+`window`, the terminal goes clear, the rail and panels take a light tint of their background
+and the bars and sticky headers a heavier one, so the scene reads through the chrome too. The tint has no
+`backdrop-filter` blur because that would make the topbar a stacking context and trap its
+popovers under the dock. A popped-out session window and the phone layout have no chrome
+around the terminal, so they keep the backdrop per pane under either setting. Two more soften or brighten it, for every scene: `focus`
 (sharp, soft, hazy, dream) blurs it, so lines become texture and then a wash of colour, and
 `glow` (off, soft, neon; dark shades only, since added light only washes paper out) blooms it
 — a half-size copy of each painted frame, blurred, brightened and added on top, so every line
