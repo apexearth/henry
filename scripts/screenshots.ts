@@ -1,10 +1,12 @@
 // Regenerate docs/screenshots from the UI's `?demo` mode (packages/ui/src/demo). Starts a
-// private Vite server, drives the installed Chrome at it headless, saves one PNG per scene, and
-// stops the server. Nothing touches the live daemon or ~/.henry.
+// private Vite server, drives the installed Chrome at it headless, saves one WebP per scene (and
+// a GIF of the loom drifting, where ffmpeg is installed), and stops the server. Nothing touches
+// the live daemon or ~/.henry.
 //
-//   bun scripts/screenshots.ts            # every scene
-//   bun scripts/screenshots.ts overview   # one
-import { mkdirSync } from "node:fs";
+//   bun scripts/screenshots.ts                        # every scene
+//   bun scripts/screenshots.ts overview               # one
+//   bun scripts/screenshots.ts backdrop-loom-motion   # the clip
+import { mkdirSync, rmSync } from "node:fs";
 import { createConnection } from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -120,11 +122,56 @@ async function openFolders(names: string[]) {
   }
 }
 
+/** Pick a rail row by its title. */
+const railPick = (title: string) => page.evaluate((t) => {
+  for (const row of document.querySelectorAll<HTMLElement>(".rail-item")) if (row.textContent?.includes(t)) return row.click();
+}, title);
+
+/** Theme choices, as the theme menu would set them (the demo keeps them in memory only). */
+const theme = (choice: Record<string, string>) =>
+  page.evaluate(async (c) => (await import("/src/theme.ts")).setTheme(c as never), choice);
+
+/** A few seconds of the terminal pane as a GIF, for the backdrops that move. Needs ffmpeg; a
+ * machine without it just skips the clip. */
+async function clip(name: string, seconds: number, prep: () => Promise<void>) {
+  const ffmpeg = Bun.which("ffmpeg");
+  if (!ffmpeg) return console.log(`skipped ${name}.gif: no ffmpeg`);
+  await stage(prep);
+  const box = await page.evaluate(() => {
+    const r = document.querySelector(".term-sky")?.parentElement?.getBoundingClientRect();
+    return r && { x: r.x, y: r.y, width: r.width, height: r.height };
+  });
+  if (!box) return;
+  const frames = path.join(out, `.${name}-frames`);
+  mkdirSync(frames, { recursive: true });
+  const fps = 10;
+  for (let i = 0; i < seconds * fps; i++) {
+    const t = Date.now();
+    await page.screenshot({ path: path.join(frames, `${String(i).padStart(3, "0")}.png`), clip: box });
+    await sleep(Math.max(0, 1000 / fps - (Date.now() - t)));
+  }
+  const file = path.join(out, `${name}.gif`);
+  const enc = Bun.spawnSync([ffmpeg, "-loglevel", "error", "-y", "-framerate", String(fps), "-i", path.join(frames, "%03d.png"),
+    "-vf", "scale=640:-2:flags=lanczos,split[a][b];[a]palettegen=max_colors=96:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4", "-loop", "0", file]);
+  rmSync(frames, { recursive: true, force: true });
+  if (enc.exitCode) return console.log(`ffmpeg failed on ${name}.gif`);
+  console.log("wrote", path.relative(root, file));
+}
+
 const railClick = (i: number) => page.evaluate((n) => document.querySelectorAll<HTMLElement>(".rail-item")[n]?.click(), i);
 
 /** The default layout, adjusted the way a person would: no Voice pane, a rail wide enough for
  * titles, tools wide enough for the tree, and the session's src folder open. */
 async function shot(name: string, prep?: () => Promise<void>) {
+  await stage(prep);
+  // WebP at 82 is a third of the PNG and reads the same at 2×; GitHub renders it inline.
+  const file = path.join(out, `${name}.webp`);
+  await page.screenshot({ path: file, type: "webp", quality: 82 });
+  console.log("wrote", path.relative(root, file));
+}
+
+/** The page as `shot` photographs it, ready for a still or a clip. */
+async function stage(prep?: () => Promise<void>) {
   await fresh();
   await page.goto(DEMO_URL, { waitUntil: "networkidle0" });
   await page.waitForSelector(".rail-item");
@@ -140,10 +187,6 @@ async function shot(name: string, prep?: () => Promise<void>) {
   await sleep(300);
   if (prep) await prep();
   await sleep(900);
-  // WebP at 82 is a third of the PNG and reads the same at 2×; GitHub renders it inline.
-  const file = path.join(out, `${name}.webp`);
-  await page.screenshot({ path: file, type: "webp", quality: 82 });
-  console.log("wrote", path.relative(root, file));
 }
 
 const want = (s: string) => !scenes.length || scenes.includes(s);
@@ -169,6 +212,19 @@ try {
   // Blocked on a permission prompt.
   if (want("needs")) await shot("needs", () => railClick(1));
   if (want("diff")) await shot("diff", () => page.evaluate(() => document.querySelector<HTMLElement>(".fr-diff")?.click()));
+  // The backdrops. Life on the session whose window is fullest, so the board is busy and amber.
+  if (want("backdrop-life")) await shot("backdrop-life", async () => {
+    await railPick("terraform");
+    await theme({ scene: "life", sky: "bold" });
+    await sleep(3000);
+  });
+  // The loom on the rate limiter's three turns, glowing, then the same cloth drifting.
+  const loom = async () => {
+    await theme({ scene: "loom", sky: "bold", glow: "neon" });
+    await sleep(3000);
+  };
+  if (want("backdrop-loom")) await shot("backdrop-loom", loom);
+  if (want("backdrop-loom-motion")) await clip("backdrop-loom", 5, loom);
 } finally {
   await shutdown();
 }

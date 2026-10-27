@@ -24,6 +24,8 @@ is waiting on you, and what the others changed. That is the whole problem it sol
 - ⌘K by filename, ⌘F to browse or `git grep` every repo, files open over the terminal;
   `edit` on a peek, or right-click → new file, when a spec is quicker typed than dictated.
 - 5h and 7d subscription usage, plus tokens, cost and context per session.
+- A backdrop behind each terminal that gets busier as that session's context window fills,
+  so a session close to its limit looks it.
 - Sessions survive daemon restarts, closed windows and crashed browsers.
 
 Skip it if you run one session at a time in one repo, or if tmux already does the job.
@@ -62,6 +64,30 @@ tab, so drag to split, stack or float, and "reset layout" puts back the picture 
     <td>The diff of everything a session did to a repo since it started, from the files tree.</td>
   </tr>
 </table>
+
+### Behind the terminal
+
+The terminal's background is a canvas that fills up with the session's context window. Pick
+the scene under `theme`.
+
+<table>
+  <tr>
+    <td><a href="docs/screenshots/backdrop-life.webp"><img src="docs/screenshots/backdrop-life.webp" alt="The life backdrop: dim mirrored katakana in a Game of Life, busy and amber behind a session at 76% context"></a></td>
+    <td><a href="docs/screenshots/backdrop-loom.webp"><img src="docs/screenshots/backdrop-loom.webp" alt="The loom backdrop: glowing threads, knots and zig-zags woven behind a session from its prompts and tool calls"></a></td>
+  </tr>
+  <tr>
+    <td><code>life</code>, the default. Conway's Life in dim, mirrored katakana. Rain plants new cells, and the board gets busier as the window fills, green to amber to red. Each tool call fires a glider, and a <code>/compact</code> pours the whole board off the bottom of the pane.</td>
+    <td><code>loom</code> weaves the session into cloth. Each prompt lays a thread in a new colour and each tool call leaves its own stroke. Reads are long lines, edits are knots, shell commands zig-zag and agents fan out. Older turns fade, and each compaction rolls up into a braid at the bottom.</td>
+  </tr>
+</table>
+
+![The loom backdrop drifting: threads at three depths in and out of focus, with motes, behind a Claude Code session](docs/screenshots/backdrop-loom.gif)
+
+The loom moves like a sample under a microscope. Its threads sit at three depths, in and out
+of focus, and drift in a slow current. When a tool call adds context, a swell pushes the
+nearby threads aside, and a big file read makes a bigger swell than a small edit. `focus`
+blurs any scene down to a wash of colour, and `glow` gives it neon bloom on the dark shades.
+The third scene, `sky`, is a brick wall rising under the sun and moon where you actually are.
 
 The pictures are the UI on scripted data: open `/?demo` on any Henry window (or the Vite dev
 server) to see the same thing with no daemon behind it. `bun scripts/screenshots.ts` regenerates

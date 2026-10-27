@@ -136,6 +136,19 @@ export const events: HenryEvent[] = [
     payload: { prompt: "Make Retry-After exact, not a round minute." }, summary: "Prompt: Make Retry-After exact, not a round minute." },
 ];
 
+// The rate limiter's working history, three turns of it, which the loom backdrop weaves: minutes
+// ago, then the prompt or the tool. Info only, so no flag and no panel row comes of it.
+const RATE_LIMITER: [number, string][] = [
+  [170, "prompt"], [169, "Grep"], [169, "Glob"], [168, "Read"], [168, "Read"], [167, "Read"], [166, "Agent"],
+  [160, "Read"], [158, "Write"], [155, "Edit"], [153, "Write"], [151, "Bash"], [149, "Edit"], [148, "Bash"],
+  [40, "prompt"], [39, "Read"], [38, "Grep"], [37, "Edit"], [35, "Edit"], [33, "Bash"], [31, "Read"], [30, "Bash"],
+  [2.5, "Read"], [2, "Grep"], [1, "Edit"],
+];
+events.push(...RATE_LIMITER.map(([min, what], i): HenryEvent => ({
+  id: `r${i}`, sessionId: "d1", ts: ago(min * MIN), kind: "hook", cwd: ATLAS, repo: ATLAS, severity: "info", payload: {},
+  ...(what === "prompt" ? { hookEvent: "UserPromptSubmit", summary: "Prompt" } : { hookEvent: "PostToolUse", toolName: what, summary: what }),
+})));
+
 export const flags: Flag[] = [
   { id: "f1", eventId: "e1", sessionId: "d3", ts: ago(26 * MIN), severity: "alarm", rule: "commit-on-protected", summary: '✓ Bash: git commit -am "pin aws provider to 5.62"', read: false },
   { id: "f2", eventId: "e2", sessionId: "d6", ts: ago(58 * MIN), severity: "notable", rule: "cross-repo-write", summary: `Write: ${ATLAS}/docs/rate-limits.md`, read: false },
