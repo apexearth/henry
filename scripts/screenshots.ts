@@ -158,7 +158,6 @@ async function clip(name: string, seconds: number, prep: () => Promise<void>) {
   console.log("wrote", path.relative(root, file));
 }
 
-const railClick = (i: number) => page.evaluate((n) => document.querySelectorAll<HTMLElement>(".rail-item")[n]?.click(), i);
 
 /** The default layout, adjusted the way a person would: no Voice pane, a rail wide enough for
  * titles, tools wide enough for the tree, and the session's src folder open. */
@@ -197,7 +196,7 @@ try {
   if (want("overview")) await shot("overview");
   // The session that asked for you, its alarm flag open, every session's flags listed.
   if (want("flags")) await shot("flags", async () => {
-    await railClick(2);
+    await railPick("terraform");
     await sleep(300);
     await clickTab("Flags");
     await sleep(300);
@@ -210,7 +209,7 @@ try {
   });
   if (want("playbook")) await shot("playbook", () => clickTab("Playbook"));
   // Blocked on a permission prompt.
-  if (want("needs")) await shot("needs", () => railClick(1));
+  if (want("needs")) await shot("needs", () => railPick("flaky e2e"));
   if (want("diff")) await shot("diff", () => page.evaluate(() => document.querySelector<HTMLElement>(".fr-diff")?.click()));
   // The backdrops. Life on the session whose window is fullest, so the board is busy and amber.
   if (want("backdrop-life")) await shot("backdrop-life", async () => {
