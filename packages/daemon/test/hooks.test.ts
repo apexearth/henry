@@ -110,6 +110,17 @@ describe("hook ingest", () => {
     expect(ev.event.hookEvent).toBe("SessionStart");
   });
 
+  test("a fork opens a new tab in the source's folder that names its parent", async () => {
+    // A command override stands in for claude; the daemon still resolves the source here.
+    sendMsg({ type: "session:create", cwd: home, fork: sessionId, command: testShell.command, args: testShell.args, requestId: "r-fork" });
+    const fork = (await next("session:update", (m) => m.requestId === "r-fork")).session;
+    expect(fork.parentSessionId).toBe(sessionId);
+    expect(fork.cwd).toBe(cwd);
+    expect((await state()).sessions.find((s) => s.id === sessionId)?.status).toBe("running");
+    sendMsg({ type: "session:kill", sessionId: fork.id });
+    await next("session:update", (m) => m.session.id === fork.id && m.session.status === "exited");
+  });
+
   test("a shell session turns into a Claude session while claude posts hooks from it", async () => {
     sendMsg({ type: "session:create", cwd, kind: "shell", command: testShell.command, args: testShell.args, requestId: "r-shell" });
     const created = (await next("session:update", (m) => m.requestId === "r-shell")).session;

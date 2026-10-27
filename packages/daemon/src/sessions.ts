@@ -26,6 +26,8 @@ export interface CreateOptions {
   args?: string[];
   /** Resume an existing Claude session id instead of starting a fresh one. */
   resume?: string;
+  /** Start from a copy of this Claude session id's conversation, under the new session's own id. */
+  fork?: string;
   cols?: number;
   rows?: number;
   parentSessionId?: string;
@@ -262,8 +264,10 @@ class SessionManager extends EventEmitter<SessionEvents> {
     const claudeId = opts.resume ?? id;
     // MCP is its own flag: Claude Code ignores `mcpServers` inside a --settings file.
     const mcpPath = isClaude ? syncLaunchMcp(henryDir) : undefined;
+    // A fork keeps the pin: Claude Code takes --session-id with --resume only beside --fork-session.
+    const idArgs = opts.fork ? ["--resume", opts.fork, "--fork-session", "--session-id", id] : [opts.resume ? "--resume" : "--session-id", claudeId];
     const henryArgs = isClaude
-      ? [opts.resume ? "--resume" : "--session-id", claudeId, "--settings", writeLaunchSettings(henryDir), ...(mcpPath ? ["--mcp-config", mcpPath] : [])]
+      ? [...idArgs, "--settings", writeLaunchSettings(henryDir), ...(mcpPath ? ["--mcp-config", mcpPath] : [])]
       : shell?.args ?? [];
     const args = opts.args ?? henryArgs;
     const session: Session = {

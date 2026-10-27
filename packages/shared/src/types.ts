@@ -24,6 +24,7 @@ export interface Session {
   exitCode?: number;
   /** When the process ended; orders closed sessions in the rail. */
   endedAt?: number;
+  /** The session this one was forked from (session:create `fork`). */
   parentSessionId?: string;
   /** Program spawned in the PTY. Defaults to "claude"; the smoke test passes a shell. */
   command?: string;

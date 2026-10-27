@@ -36,6 +36,13 @@ Where a session lives, how a window sees it, and what Henry spawns it with.
   hooks and statusline over the user's settings for that process only, and adds
   `~/.henry/attachments` to the folders it may read without asking. `henry install`
   is only needed for sessions started elsewhere (a terminal, Zed).
+- **A fork is a new tab, never a switch.** Claude Code's `/branch` moves the terminal it
+  runs in onto the copy and leaves the original behind, and its `/fork` is a background
+  subagent. For a tangent Henry forks instead: a new tab runs `claude --resume <source id>
+  --fork-session --session-id <henry id>` in the source's folder, on the source's daemon, so
+  the id pin holds and the original tab carries on untouched. The copy starts from what the
+  source has written to its transcript; a turn still running there is not in it.
+  `parentSessionId` names the source.
 - **Nothing Henry spawns inherits `CLAUDE_CODE_*` / `CLAUDECODE` env**: not sessiond,
   not the sessions it starts on the daemon's behalf (`sessions.ts` strips the
   environment for both). A daemon started from inside a Claude Code session would

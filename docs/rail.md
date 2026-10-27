@@ -15,7 +15,9 @@ One line per session on the left: titles, order, grouping, hiding.
   events, flags and playbook stay. `⌘1..9` (or `Ctrl`) and `⌘↑/↓` follow the rail order;
   `⌃N` (⌘N where the browser frees it) opens the "+ new" picker; `⌘D` duplicates the active
   tab, a new session of the same kind in its cwd, skipping the picker. No `⌃D`: that is EOF
-  in the terminal. `⌘\`` (`⌃\`` in a browser tab, which never sees macOS's window-cycling
+  in the terminal. `⌘⇧D` (Alt+Shift+D off macOS, where Ctrl+Shift+D duplicates) forks the
+  active Claude tab (sessions.md), as does the row's right-click menu; a fork shows ⑂ before
+  its title, and since it starts with its parent's title it sorts right after it. `⌘\`` (`⌃\`` in a browser tab, which never sees macOS's window-cycling
   chord) opens a terminal in the active tab's cwd on its machine, whatever kind that tab is.
 - **Grouping is a rail-footer choice, persisted per browser.** Off by default; "by folder"
   buckets sessions on `cwd`, "by repo" on the repos the git watcher has seen the session

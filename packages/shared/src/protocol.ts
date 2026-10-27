@@ -26,6 +26,9 @@ export type ClientMessage =
       args?: string[];
       /** Claude session id to resume (`claude --resume <id>`) instead of starting fresh. */
       resume?: string;
+      /** Henry session whose Claude conversation this one starts from as a copy under its own id
+       * (`--resume <its id> --fork-session`). The original keeps running untouched. */
+      fork?: string;
       /** Echoed back on the resulting session:update so the creator can select it. */
       requestId?: string;
       /** Start it on a paired machine (PeerStatus.name) instead of here. */

@@ -588,6 +588,20 @@ export function terminalHere(): void {
   if (s) createSession(s.cwd, undefined, "shell", s.peer);
 }
 
+/** A Claude session whose conversation can be copied into a new tab (forkSession). */
+export function canFork(s: Session): boolean {
+  return !!s.claudeSessionId && isClaudeSession(s);
+}
+
+/** A new tab that starts from a copy of this session's conversation, for a tangent; the original
+ * keeps going untouched. No session, or one with no conversation yet, opens nothing. */
+export function forkSession(s: Session | undefined = state.sessions.find((x) => x.id === state.activeSessionId)): void {
+  if (!s || !canFork(s)) return;
+  const requestId = crypto.randomUUID();
+  pendingCreates.set(requestId, () => {});
+  send({ type: "session:create", cwd: s.cwd, title: s.title, fork: s.id, requestId, peer: s.peer });
+}
+
 /** Start a new tab that resumes an exited session's Claude conversation, and drop the old tab. */
 export function resumeSession(s: Session): void {
   if (!s.claudeSessionId) return;

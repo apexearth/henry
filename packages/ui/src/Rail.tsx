@@ -7,7 +7,7 @@ import { hueText, nameHue } from "./theme";
 import { popOutSession, showSession } from "./dock";
 import { isPoppedOut, usePoppedOut } from "./popout";
 import { markUnread } from "./seen";
-import { activeRowIndex, answerAttention, busy, duplicateSession, hiddenCount, hideSessions, isUnseen, killSession, markSeen, railGroups, railRows, remindSession, resumeSession, setActive, setGroupBy, showAllSessions, terminalHere, toggleMachine, toggleShowClosed, useStore, type GroupBy } from "./ws";
+import { activeRowIndex, answerAttention, busy, canFork, duplicateSession, forkSession, hiddenCount, hideSessions, isUnseen, killSession, markSeen, railGroups, railRows, remindSession, resumeSession, setActive, setGroupBy, showAllSessions, terminalHere, toggleMachine, toggleShowClosed, useStore, type GroupBy } from "./ws";
 
 const base = baseName;
 
@@ -128,7 +128,9 @@ function useNow(everyMs: number): number {
   return now;
 }
 
-/** A rail row's right-click menu: read / unread, and a reminder to come back. */
+const FORK_KEY = isMac ? "⌘⇧D" : "Alt+Shift+D";
+
+/** A rail row's right-click menu: read / unread, a fork, and a reminder to come back. */
 function RowMenu({ x, y, session, now, onClose }: { x: number; y: number; session: Session; now: number; onClose: () => void }) {
   // The row's session as the store has it now, not as it was when the menu opened.
   const s = useStore((st) => st.sessions.find((v) => v.id === session.id)) ?? session;
@@ -144,6 +146,11 @@ function RowMenu({ x, y, session, now, onClose }: { x: number; y: number; sessio
           ? <button onClick={act(() => markSeen(s.id, true))}>mark as read</button>
           : <button onClick={act(() => markUnread(s.id))}>mark as unread</button>}
         <button onClick={act(() => popOutSession(s.id))}>{isPoppedOut(s.id) ? "bring its window forward" : "open in its own window"}</button>
+        {canFork(s) && (
+          <button onClick={act(() => forkSession(s))} title="a new tab that starts from a copy of this conversation; this one carries on untouched">
+            fork into a new tab ({FORK_KEY})
+          </button>
+        )}
         <div className="menu-sep" />
         {REMIND.map(([label, at]) => (
           <button key={label} onClick={act(() => remindSession(s.id, at(Date.now())))} title="it leaves the unread pile now and comes back, with a notification, then">
@@ -177,6 +184,7 @@ export function LeftPane() {
   // Chrome keeps ⌘N for itself (new window) and never delivers it, so ⌃N is the one that fires.
   // ⌘D (bookmark) is overridable, so it works in both. ⌃D is EOF in the terminal: never bound.
   // Off macOS Chrome reserves Ctrl+N too, so Alt+N opens the picker there, and Ctrl+Shift+D duplicates.
+  // Fork is ⌘⇧D on macOS; off it Ctrl+Shift+D is taken, so Alt+Shift+D.
   // ⌘` is the macOS window-cycling chord: the shell's menu item claims it, but a browser tab never
   // sees it, so ⌃` stands in there. Off macOS nothing reserves Ctrl+`, and the terminal makes no
   // control character out of it, so it is bound everywhere.
@@ -194,6 +202,9 @@ export function LeftPane() {
       } else if (d && !e.altKey && (isMac ? e.metaKey && !e.ctrlKey && !e.shiftKey : e.ctrlKey && e.shiftKey && !e.metaKey)) {
         e.preventDefault();
         duplicateSession();
+      } else if (d && e.shiftKey && !e.ctrlKey && (isMac ? e.metaKey && !e.altKey : e.altKey && !e.metaKey)) {
+        e.preventDefault();
+        forkSession();
       } else if (tick && !e.altKey && !e.shiftKey && (isMac ? e.metaKey !== e.ctrlKey : e.ctrlKey && !e.metaKey)) {
         e.preventDefault();
         terminalHere();
@@ -292,6 +303,8 @@ function Rail({ onNew }: { onNew: () => void }) {
               const fade = neglect(s, now);
               const fresh = isUnseen(s);
               const remindAt = on ? s.remindAt : undefined;
+              // The parent's title when it is still listed; a fork outliving it still says it is one.
+              const forkedFrom = s.parentSessionId ? sessions.find((x) => x.id === s.parentSessionId)?.title ?? "an earlier session" : undefined;
               return (
                 <div key={g.key + "\n" + s.id} className={"rail-item" + mark + (on ? "" : " off") + (fade ? " neglect-" + fade : "") + (ask.length ? " asking" : "") + (fresh ? " unseen" : "")} onClick={() => { setActive(s.id, g.key); showSession(s.id); }}
                   onContextMenu={(e) => {
@@ -300,11 +313,12 @@ function Rail({ onNew }: { onNew: () => void }) {
                     e.preventDefault();
                     setMenu({ x: e.clientX, y: e.clientY, session: s });
                   }}
-                  title={`${ask.map((a) => `asking you: ${a.message} (${until(a.deadline, now)})\n`).join("")}${fresh ? `not seen yet${since(s.unseenSince, now) ? `, for ${since(s.unseenSince, now)}` : ""}\n` : ""}${remindAt ? `reminder at ${clock(remindAt, now)}\n` : ""}${what}, ${state}${on && s.activity ? ` — ${ACTIVITY_TEXT[s.activity]}${ago && busy(s) ? ` for ${ago}` : ""}` : ""}${yours}\n${s.cwd}${s.peer ? `\non ${s.peer} (remote, via its own Henry daemon)` : s.host ? `\non ${s.host}` : ""}${i >= 0 && i < 9 ? `\n${MOD}${i + 1}` : ""}${on ? "\nright click: mark unread, remind me later" : ""}`}>
+                  title={`${ask.map((a) => `asking you: ${a.message} (${until(a.deadline, now)})\n`).join("")}${fresh ? `not seen yet${since(s.unseenSince, now) ? `, for ${since(s.unseenSince, now)}` : ""}\n` : ""}${remindAt ? `reminder at ${clock(remindAt, now)}\n` : ""}${forkedFrom ? `forked from ${forkedFrom}\n` : ""}${what}, ${state}${on && s.activity ? ` — ${ACTIVITY_TEXT[s.activity]}${ago && busy(s) ? ` for ${ago}` : ""}` : ""}${yours}\n${s.cwd}${s.peer ? `\non ${s.peer} (remote, via its own Henry daemon)` : s.host ? `\non ${s.host}` : ""}${i >= 0 && i < 9 ? `\n${MOD}${i + 1}` : ""}${on ? `\nright click: mark unread, ${canFork(s) ? "fork, " : ""}remind me later` : ""}`}>
                   {on && claude && <Spark prompts={s.prompts} now={now} />}
                   {/* Idle greys Clawd only once the row has begun to fade: in your working set it is still your move. */}
                   {claude ? <ClaudeMark on={on} activity={on ? (s.activity === "idle" && !fade ? "waiting" : s.activity) : undefined} /> : <ShellMark on={on} />}
                   {fresh && <span className="unseen-dot" aria-label="not seen yet" />}
+                  {forkedFrom && <span className="forked" aria-label={`forked from ${forkedFrom}`}>⑂</span>}
                   <span className="title">{s.title}</span>
                   {s.title !== repo && showSub && <span className="sub" style={{ color: hueText(nameHue(repo)) }}>{repo}</span>}
                   {/* The time is in the tooltip: the rail is narrow and the title matters more. */}

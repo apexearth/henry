@@ -270,7 +270,19 @@ async function handleMessage(client: Client, msg: ClientMessage): Promise<void> 
       }
       // The manager's "update" listener broadcasts too; this direct send carries the requestId
       // so the creating window can select the new tab.
-      const session = await sessions.create({ cwd: msg.cwd, title: msg.title, kind: msg.kind, command: msg.command, args: msg.args, resume: msg.resume });
+      // A fork copies the conversation this daemon has on disk, so the source is looked up here.
+      const source = msg.fork ? sessions.get(msg.fork) : undefined;
+      if (msg.fork && !source?.claudeSessionId) return console.error(`[ws] session:create fork of ${msg.fork}: no Claude conversation to copy`);
+      const session = await sessions.create({
+        cwd: source?.cwd ?? msg.cwd,
+        title: msg.title,
+        kind: source ? "claude" : msg.kind,
+        command: msg.command,
+        args: msg.args,
+        resume: msg.resume,
+        fork: source?.claudeSessionId,
+        parentSessionId: source?.id,
+      });
       client.send({ type: "session:update", session, requestId: msg.requestId });
       return;
     }
