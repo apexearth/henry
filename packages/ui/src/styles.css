@@ -114,7 +114,9 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 .rail-hidden { flex: none; display: flex; gap: 8px; align-items: center; justify-content: space-between; padding: 5px 10px; border-bottom: 1px solid var(--border); color: var(--fg-dim); font-size: 11px; }
 .rail-item { padding: 0 8px 0 6px; height: 26px; cursor: pointer; border-left: 2px solid transparent; display: flex; gap: 6px; align-items: center; white-space: nowrap; }
 .rail-item:hover { background: var(--bg-3); }
-.rail-item.active { background: var(--bg-3); border-left-color: var(--accent); }
+.rail-item { --row-on: color-mix(in srgb, var(--accent) 18%, var(--bg-3)); }
+/* Tinted, not just raised: hover already raises a row, so --bg-3 alone left two "here"s. */
+.rail-item.active, .rail-item.active:hover { background: var(--row-on); border-left-color: var(--accent); }
 /* The active session listed again under another repo: the bar only, at half strength. */
 .rail-item.echo { border-left-color: color-mix(in srgb, var(--accent) 50%, transparent); }
 .rail-item.off .title { color: var(--fg-dim); }
@@ -130,7 +132,8 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 .mark.claude { --mark: var(--claude); }
 .mark.claude .body, .mark.claude .leg { fill: var(--mark); }
 .mark.claude .eye { fill: var(--bg-2); }
-.rail-item:hover .mark.claude .eye, .rail-item.active .mark.claude .eye { fill: var(--bg-3); }
+.rail-item:hover .mark.claude .eye { fill: var(--bg-3); }
+.rail-item.active .mark.claude .eye { fill: var(--row-on); }
 .mark.claude:not(.on) .body, .mark.claude:not(.on) .leg { fill: none; stroke: var(--mark); stroke-width: 1; }
 .mark.claude:not(.on) .eye { fill: var(--mark); }
 

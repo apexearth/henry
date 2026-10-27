@@ -27,7 +27,8 @@ One line per session on the left: titles, order, grouping, hiding.
   the chosen grouping applied inside each (no delimiters at all while every session is
   local). Groups are alphabetical by name ("no repo" last); order within a group, and the keyboard
   order, stay the running-then-exited rail order. The active *row* is the one you picked (session
-  plus group): it alone gets the full highlight, the same session's rows under other repos
+  plus group): it alone gets the full highlight (the accent bar and an accent-tinted background, so it never reads as
+  a hovered row), the same session's rows under other repos
   get a half-strength bar, and `⌘↑/↓` step from the picked row, not its first echo.
   A repo name is coloured by a hash of the name wherever it appears (group headers, row
   sub-labels, the Files tool, the new-session picker), so one repo is one
