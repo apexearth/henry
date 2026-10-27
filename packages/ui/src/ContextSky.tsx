@@ -1,4 +1,4 @@
-// The session pane's backdrop, one of two scenes (the other, "life", is ContextLife). This one: a brick wall that rises from the bottom as the session's context
+// The session pane's backdrop, one of three scenes ("life" is ContextLife, "loom" ContextLoom). This one: a brick wall that rises from the bottom as the session's context
 // window fills, in front of the sky that is actually outside. The sun and moon are where they
 // really are over the user's latitude and longitude (solar.ts does the arithmetic, place.ts
 // guesses the place from the time zone), so the day is as long as today's day, the winter sun
@@ -7,7 +7,9 @@
 // sits under live terminal text. The fraction is the Usage panel's context bar, so the crest and
 // the bar always agree, and a /compact drops the wall back down.
 import { useEffect, useRef } from "react";
+import { Backdrop, bloom } from "./Backdrop";
 import { ContextLife } from "./ContextLife";
+import { ContextLoom } from "./ContextLoom";
 import { contextFraction, heatHue } from "./panels/Usage";
 import { skyState, type Body, type Sky } from "./solar";
 import { SHADES, SKIES, oklch, useTheme } from "./theme";
@@ -181,7 +183,9 @@ function draw(ctx: CanvasRenderingContext2D, w: number, h: number, f: number, L0
 /** The pane's backdrop, in whichever scene the theme picks. */
 export function ContextSky({ sessionId }: { sessionId: string }) {
   const scene = useTheme().scene;
-  return scene === "life" ? <ContextLife key={sessionId} sessionId={sessionId} /> : <SkyWall sessionId={sessionId} />;
+  if (scene === "life") return <ContextLife key={sessionId} sessionId={sessionId} />;
+  if (scene === "loom") return <ContextLoom key={sessionId} sessionId={sessionId} />;
+  return <SkyWall sessionId={sessionId} />;
 }
 
 function SkyWall({ sessionId }: { sessionId: string }) {
@@ -214,7 +218,10 @@ function SkyWall({ sessionId }: { sessionId: string }) {
         shown.current += d * 0.1;
         raf = requestAnimationFrame(tick);
       }
-      if (w && h) draw(ctx, w, h, shown.current, L0, sky.current);
+      if (w && h) {
+        draw(ctx, w, h, shown.current, L0, sky.current);
+        bloom(el);
+      }
     };
     kick.current = () => {
       if (!raf) raf = requestAnimationFrame(tick);
@@ -228,6 +235,7 @@ function SkyWall({ sessionId }: { sessionId: string }) {
       el.height = Math.round(h * dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       draw(ctx, w, h, shown.current, L0, sky.current);
+      bloom(el);
     });
     ro.observe(el);
     const clock = setInterval(() => {
@@ -249,5 +257,5 @@ function SkyWall({ sessionId }: { sessionId: string }) {
   }, [frac]);
 
   if (!on) return null;
-  return <canvas ref={canvas} className="term-sky" style={{ opacity: strength }} aria-hidden="true" />;
+  return <Backdrop canvas={canvas} strength={strength} />;
 }

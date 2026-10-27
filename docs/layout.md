@@ -78,11 +78,15 @@ to xterm — is drawn fully clear over the context backdrop rather than as a sla
 the same rows sit in the ⚙ tab of the ⋮ sheet.
 
 **The context backdrop.** Behind every session pane is a canvas that gets busier as the
-session's context window fills, in one of two scenes. Both read the Usage panel's context
-fraction and colour by its green/amber/red thresholds. It sits under xterm, whose background
-is transparent whenever the backdrop is on; a theme choice (`backdrop`: off, faint, soft,
-bold) sets how hard it paints, and "off" makes the terminal background opaque again.
-Decoration only: no session state is readable from it that a panel does not also state.
+session's context window fills, in one of three scenes, all reading the Usage panel's context
+fraction. It sits under xterm, whose background is transparent whenever the backdrop is on; a
+theme choice (`backdrop`: off, faint, soft, bold) sets how hard it paints, and "off" makes the
+terminal background opaque again. Two more soften or brighten it, for every scene: `focus`
+(sharp, soft, hazy, dream) blurs it, so lines become texture and then a wash of colour, and
+`glow` (off, soft, neon; dark shades only, since added light only washes paper out) blooms it
+— a half-size copy of each painted frame, blurred, brightened and added on top, so every line
+glows in its own colour. Decoration only: no session state is readable from it that a panel
+does not also state.
 
 `life` (the default) is Conway's Life written in dim, mirrored half-width katakana on cells
 larger than the terminal's, so it never reads as text. Life alone settles into a few percent
@@ -95,7 +99,31 @@ phosphor rather than blinking out, and old still life erodes so the board never 
 tool call fires a glider in from an edge, a working session runs at about twice the tempo of an
 idle one, and a drop of more than 8 points in the fraction (a `/compact`, a `/clear`) turns every
 living cell into a drop that pours off the bottom. It pauses with the tab and, under reduced
-motion, is a still frame redrawn when the fraction moves.
+motion, is a still frame redrawn when the fraction moves. Its colour walks the Usage thresholds,
+green to amber to red.
+
+`loom` weaves the session as cloth (`loom.ts`). Every prompt lays a thread across the pane in
+a new colour, and every tool call leaves a stroke of its own kind: a reading tool a long warp
+line, an edit a tight knot, a shell command a zig-zag, an agent a fan of filaments. The threads
+follow a seeded flow field, so a debugging session leaves knotted cloth and a clean build calm
+parallel weave. The context fraction sets how much thread is on the loom; where the events
+account for less, plain weft makes up the difference. Past 70% the field turns turbulent and
+past 90% the cloth frays. A compaction (the PreCompact hook, or the same 8-point drop) squeezes
+the cloth down into a braid along the bottom, and braids stack, one per compaction. The cloth
+is alive, like a sample under a microscope: its threads sit at three depths — behind the focal
+plane (soft, dim, slow), on it (sharp), in front of it (wide, soft, carried furthest) — each
+depth drawn at its own resolution, which is the blur, and drifting at its own speed, with motes
+suspended at every depth. A slow current carries every thread at about 15 frames a second, more
+once the field is turbulent, swinging its tail further than its anchor so it bends like a fibre
+in water. A tool call landing touches the water, a small ring from where its stroke begins, and
+when the context fraction then rises, a swell goes out from that same place sized by what was
+added (a percent of the window is a plain ripple, a big read a wide, hard swell), pushing the
+threads near it aside. A turn's threads recede as
+newer turns arrive, to about a fifth of their strength, so the turn in hand stands out and the
+history settles into texture. Filler is drawn already receded. Under reduced motion the current
+is still and frames are drawn only when the cloth changes. On mount the session's history is fetched from `/api/events` and
+replayed, seeded by event ids, into the cloth it was before the reload; a peer's session,
+which this daemon has no history for, starts from the live feed.
 
 `sky` is a brick wall that rises from the bottom as
 the window fills, in front of the sky that is actually outside: the sun and

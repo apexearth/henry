@@ -5,9 +5,26 @@
 import { useState } from "react";
 import { clampLat, clampLon } from "./place";
 import { riseSet, skyState } from "./solar";
-import { HIGHLIGHTS, SCENES, SHADES, SKIES, TONES, isLight, oklch, setTheme, useTheme, type ThemeChoice } from "./theme";
+import { FOCUS, GLOWS, HIGHLIGHTS, SCENES, SHADES, SKIES, TONES, isLight, oklch, setTheme, useTheme, type ThemeChoice } from "./theme";
 
-const hhmm = (d: Date) => d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+const SCENE_TITLES: Record<(typeof SCENES)[number], string> = {
+  life: "glyph Life fed by rain; busier as the context fills",
+  loom: "the session woven as cloth: a thread per prompt, a stroke per tool call",
+  sky: "a wall rising under the real sun and moon",
+};
+const FOCUS_TITLES: Record<keyof typeof FOCUS, string> = {
+  sharp: "the backdrop in focus",
+  soft: "a slight blur: lines become texture",
+  hazy: "out of focus: shapes and colour, no lines",
+  dream: "a wash of colour",
+};
+const GLOW_TITLES: Record<keyof typeof GLOWS, string> = {
+  off: "no bloom",
+  soft: "a halo of light around the backdrop",
+  neon: "full bloom: every line glows like neon tubing",
+};
+
+const hhmm =(d: Date) => d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
 /** A latitude or longitude. Edits are held as text until they parse, so a "-" can be typed. */
 function Coord({ k, title, clamp }: { k: "lat" | "lon"; title: string; clamp: (n: number) => number }) {
@@ -76,6 +93,20 @@ export function ThemeRows() {
       </span>
     </div>
   );
+  /** A row of named choices, for the ones a colour swatch cannot show. */
+  const words = <K extends "scene" | "focus" | "glow">(key: K, names: readonly ThemeChoice[K][], title: (n: ThemeChoice[K]) => string) => (
+    <div className="theme-row">
+      <span className="theme-label">{key} · {t[key]}</span>
+      <span className="theme-swatches">
+        {names.map((n) => (
+          <button key={n} className={"theme-btn" + (t[key] === n ? " sel" : "")} title={title(n)}
+            onClick={() => setTheme({ [key]: n } as Partial<ThemeChoice>)}>
+            {n}
+          </button>
+        ))}
+      </span>
+    </div>
+  );
   return (
     <>
       {row("tone", Object.keys(TONES), (n) => { const c = TONES[n as keyof typeof TONES]; return oklch(0.4, c.c * 2, c.h); })}
@@ -86,19 +117,9 @@ export function ThemeRows() {
         const v = SKIES[n as keyof typeof SKIES];
         return oklch(SHADES[t.shade] + (isLight(t.shade) ? -0.13 : 0.13) * v, 0.055 * v, 130);
       }, "backdrop")}
-      {SKIES[t.sky] > 0 && (
-        <div className="theme-row">
-          <span className="theme-label">scene · {t.scene}</span>
-          <span className="theme-swatches">
-            {SCENES.map((s) => (
-              <button key={s} className={"theme-btn" + (t.scene === s ? " sel" : "")} onClick={() => setTheme({ scene: s })}
-                title={s === "life" ? "glyph Life fed by rain; busier as the context fills" : "a wall rising under the real sun and moon"}>
-                {s}
-              </button>
-            ))}
-          </span>
-        </div>
-      )}
+      {SKIES[t.sky] > 0 && words("scene", SCENES, (s) => SCENE_TITLES[s])}
+      {SKIES[t.sky] > 0 && words("focus", Object.keys(FOCUS) as (keyof typeof FOCUS)[], (s) => FOCUS_TITLES[s])}
+      {SKIES[t.sky] > 0 && !isLight(t.shade) && words("glow", Object.keys(GLOWS) as (keyof typeof GLOWS)[], (s) => GLOW_TITLES[s])}
       {SKIES[t.sky] > 0 && t.scene === "sky" && <Place />}
     </>
   );

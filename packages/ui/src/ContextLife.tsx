@@ -8,6 +8,7 @@
 // Mirrored glyphs on a cell larger than the terminal's never read as text, and dead cells
 // fade like phosphor instead of blinking out, so nothing flashes under what you are reading.
 import { useEffect, useRef } from "react";
+import { Backdrop, bloom } from "./Backdrop";
 import { FADE, Life } from "./life";
 import { contextFraction, heatHue } from "./panels/Usage";
 import { SHADES, SKIES, oklch, useTheme } from "./theme";
@@ -121,6 +122,7 @@ export function ContextLife({ sessionId }: { sessionId: string }) {
         sheet = atlas(el.ownerDocument, dpr, oklch(L0 + up * 0.3, 0.11, hue), oklch(L0 + up * 0.56, 0.08, hue));
       }
       if (life.current) draw(ctx, life.current, sheet, dpr, frame);
+      bloom(el);
     };
     const warm = (l: Life, frames: number) => {
       for (let i = 0; i < frames; i++) {
@@ -189,5 +191,5 @@ export function ContextLife({ sessionId }: { sessionId: string }) {
   }, [tool]);
 
   if (!on) return null;
-  return <canvas ref={canvas} className="term-sky" style={{ opacity: strength }} aria-hidden="true" />;
+  return <Backdrop canvas={canvas} strength={strength} />;
 }

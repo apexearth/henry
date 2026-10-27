@@ -20,8 +20,14 @@ export const SHADES = { black: 0.11, dark: 0.18, dim: 0.24, light: 0.93, white: 
 export const isLight = (shade: keyof typeof SHADES = current.shade): boolean => SHADES[shade] > 0.5;
 /** How strongly the context wall paints behind the terminal (ContextSky); off hides it. */
 export const SKIES = { off: 0, faint: 0.3, soft: 0.55, bold: 0.85 } as const;
-/** What the backdrop draws: glyph Life fed by rain (ContextLife), or the wall under the real sky. */
-export const SCENES = ["life", "sky"] as const;
+/** What the backdrop draws: glyph Life fed by rain (ContextLife), the session woven as cloth
+ * (ContextLoom), or the wall under the real sky. */
+export const SCENES = ["life", "loom", "sky"] as const;
+/** How far the backdrop is thrown out of focus, in CSS pixels of blur: sharp lines read as
+ * something to look at, soft ones as texture. */
+export const FOCUS = { sharp: 0, soft: 1, hazy: 2.2, dream: 4 } as const;
+/** Bloom over the backdrop (Backdrop.tsx), as the glow layer's strength; dark shades only. */
+export const GLOWS = { off: 0, soft: 0.55, neon: 1 } as const;
 
 export interface ThemeChoice {
   tone: keyof typeof TONES;
@@ -30,12 +36,14 @@ export interface ThemeChoice {
   /** The context wall behind the terminal (ContextSky). "off" makes xterm's background opaque again. */
   sky: keyof typeof SKIES;
   scene: (typeof SCENES)[number];
+  focus: keyof typeof FOCUS;
+  glow: keyof typeof GLOWS;
   /** Where the sky is drawn from, in degrees north and east: it sets where the sun and moon are
    * and how long the day is. Seeded from the time zone, corrected by hand in the theme menu. */
   lat: number;
   lon: number;
 }
-const DEFAULT: ThemeChoice = { tone: "slate", highlight: "blue", shade: "dark", sky: "soft", scene: "life", ...guessPlace() };
+const DEFAULT: ThemeChoice = { tone: "slate", highlight: "blue", shade: "dark", sky: "soft", scene: "life", focus: "sharp", glow: "off", ...guessPlace() };
 const KEY = "henry.theme";
 
 // OKLCH -> sRGB hex. Chroma is pulled in until the color fits the gamut.
@@ -98,6 +106,8 @@ function load(): ThemeChoice {
       shade: raw.shade && raw.shade in SHADES ? raw.shade : DEFAULT.shade,
       sky: raw.sky && raw.sky in SKIES ? raw.sky : DEFAULT.sky,
       scene: SCENES.includes(raw.scene!) ? raw.scene! : DEFAULT.scene,
+      focus: raw.focus && raw.focus in FOCUS ? raw.focus : DEFAULT.focus,
+      glow: raw.glow && raw.glow in GLOWS ? raw.glow : DEFAULT.glow,
       lat: typeof raw.lat === "number" ? clampLat(raw.lat) : DEFAULT.lat,
       lon: typeof raw.lon === "number" ? clampLon(raw.lon) : DEFAULT.lon,
     };
@@ -120,6 +130,7 @@ export function themeDocument(doc: Document): () => void {
 
 export function applyTheme() {
   const vars = Object.entries(palette(current));
+  vars.push(["--backdrop-blur", `${FOCUS[current.focus]}px`]);
   for (const doc of [document, ...popouts]) {
     const root = doc.documentElement.style;
     for (const [k, val] of vars) root.setProperty(k, val);

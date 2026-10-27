@@ -130,6 +130,7 @@ function route(url: URL, method: string): Response {
   switch (p) {
     case "/api/phone/me": return json({ required: false });
     case "/api/human": return json(world.human());
+    case "/api/events": return json(world.events.filter((e) => !q.get("session") || e.sessionId === q.get("session")).sort((a, b) => b.ts - a.ts));
     case "/api/prs": return json({ repos: world.prs });
     case "/api/session/files": return json(world.sessionFiles[q.get("sessionId") ?? ""] ?? { sessionId: q.get("sessionId"), repos: [] });
     case "/api/repo/files": return json(world.fileIndex[q.get("repo") ?? ""] ?? []);
