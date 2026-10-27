@@ -216,7 +216,9 @@ stdout, split on spaces, and two are known to work:
 - [Kokoro](https://github.com/thewh1teagle/kokoro-onnx): close to a person, three or four
   seconds an answer on a CPU. Needs [uv](https://docs.astral.sh/uv/) and the two model files
   from the kokoro-onnx releases; `scripts/kokoro-tts.py` says where. Then
-  `"tts": "uv run C:/…/henry/scripts/kokoro-tts.py --voice af_heart"`.
+  `"tts": "uv run C:/…/henry/scripts/kokoro-tts.py --voice af_heart"`. With an NVIDIA card,
+  run `uv run scripts/kokoro-tts-cuda.py --prepare` once (about 2 GB of CUDA wheels and a
+  converted model) and name `kokoro-tts-cuda.py` instead; long answers come back in half the time.
 
 ## What a session can ask Henry
 

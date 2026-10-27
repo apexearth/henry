@@ -63,7 +63,12 @@ records and plays.
   process per answer, on purpose: nothing resident, nothing to babysit. `scripts/kokoro-tts.py`
   is that command for Kokoro; measured 2026-09-14 on a Ryzen 5800X3D, the process costs about
   two seconds before it renders a word (interpreter, then a 326 MB model), which is the price
-  of the no-daemon rule and the reason Piper is documented beside it.
+  of the no-daemon rule and the reason Piper is documented beside it. With an NVIDIA card,
+  `scripts/kokoro-tts-cuda.py` renders on the GPU, which shortens long answers and leaves that
+  startup as it is. It cannot use the stock model, whose per-phoneme Loop is slower on CUDA than
+  the whole model on a CPU, so `--prepare` converts the onnx-community export once, rewriting its
+  STFT (which onnxruntime runs only on the CPU) as a Conv. DirectML is not an option: it fails
+  on Kokoro's ConvTranspose.
 - **Henry may type into a session; only you may send.** Dictation (hold right ⌥) and a relayed
   message ("tell the indexer session to stop the backfill", which the model answers with a
   `TELL:` directive) both put text in a session's prompt and stop there. Nothing is submitted:

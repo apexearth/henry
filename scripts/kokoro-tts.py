@@ -13,7 +13,8 @@ and then roughly a quarter of the audio's length to render it.
 The model files are not fetched here. Download `kokoro-v1.0.onnx` and `voices-v1.0.bin` from
 https://github.com/thewh1teagle/kokoro-onnx/releases into --dir (default:
 %LOCALAPPDATA%/Programs/kokoro on Windows, ~/.local/share/kokoro elsewhere). The int8 model is
-not a shortcut: on a CPU it is ten times slower than the full one.
+not a shortcut: on a CPU it is ten times slower than the full one. With an NVIDIA card, use
+kokoro-tts-cuda.py beside this instead.
 
 config.json:  "tts": "uv run C:/path/to/henry/scripts/kokoro-tts.py --voice am_michael"
 """
@@ -31,7 +32,7 @@ def default_dir() -> Path:
     return Path.home() / ".local" / "share" / "kokoro"
 
 
-def main() -> int:
+def main(model_name: str = "kokoro-v1.0.onnx", open_session=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--voice", default="af_heart", help="af_heart, af_sarah, af_bella, am_michael, am_adam, bf_emma, bm_george, ...")
     ap.add_argument("--speed", type=float, default=1.0, help="multiplier around 1.0")
@@ -42,10 +43,10 @@ def main() -> int:
     if not text:
         print("kokoro-tts: no text on stdin", file=sys.stderr)
         return 1
-    model, voices = args.dir / "kokoro-v1.0.onnx", args.dir / "voices-v1.0.bin"
+    model, voices = args.dir / model_name, args.dir / "voices-v1.0.bin"
     for f in (model, voices):
         if not f.exists():
-            print(f"kokoro-tts: {f} is missing (see the header of this script)", file=sys.stderr)
+            print(f"kokoro-tts: {f} is missing (see the header of {Path(sys.argv[0]).name})", file=sys.stderr)
             return 1
 
     # Imported after the checks so a missing model file is reported in a millisecond rather
@@ -53,7 +54,10 @@ def main() -> int:
     import numpy as np
     from kokoro_onnx import Kokoro
 
-    kokoro = Kokoro(str(model), str(voices))
+    if open_session is None:
+        kokoro = Kokoro(str(model), str(voices))
+    else:
+        kokoro = Kokoro.from_session(open_session(str(model)), str(voices))
     samples, rate = kokoro.create(text, voice=args.voice, speed=args.speed, lang="en-us")
     pcm = (np.clip(samples, -1.0, 1.0) * 32767).astype("<i2").tobytes()
 
