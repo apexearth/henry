@@ -137,6 +137,13 @@ function route(url: URL, method: string): Response {
     case "/api/repo/changes": return json([]);
     case "/api/repo/log": return json({ commits: world.logs[q.get("repoPath") ?? ""] ?? [] });
     case "/api/repo/prs": return json(world.prs.find((r) => r.repo === q.get("repoPath")) ?? { repo: q.get("repoPath"), name: "", prs: [] });
+    case "/api/github/ref": {
+      const n = Number(q.get("n"));
+      const pr = world.prs.flatMap((r) => r.prs).find((x) => x.number === n);
+      if (!pr) return json({ items: [], note: `nothing numbered #${n} in this demo` });
+      const item = { repo: pr.url.split("/").slice(3, 5).join("/"), number: n, kind: "pr", state: pr.draft ? "draft" : "open", title: pr.title, url: pr.url, body: "", labels: [], assignees: [pr.author], fields: [] };
+      return json({ items: [item], pick: "only" });
+    }
     case "/api/repo/grep": return json({ hits: [], truncated: false });
     case "/api/repos": return json(world.repoPicker);
     case "/api/playbook/status": return json({ backend: "api", model: "claude-opus-5", lastRunAt: world.NOW - 2 * 60_000, running: 0 });

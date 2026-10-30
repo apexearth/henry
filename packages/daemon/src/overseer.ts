@@ -168,11 +168,12 @@ export function liveSessions(limit: number): Session[] {
 
 export { eventLine, oneLine, safeRepos };
 
-/** One prompt through whichever backend the overseer chose. Throws when there is none. */
-export function askBackend(system: string, user: string, signal: AbortSignal): Promise<string | undefined> {
+/** One prompt through whichever backend the overseer chose, on the overseer's model unless the
+ * caller names a cheaper one. Throws when there is none. */
+export function askBackend(system: string, user: string, signal: AbortSignal, model = config.overseer.model): Promise<string | undefined> {
   const backend = currentBackend();
   if (!backend) throw new Error(lastError ?? chosen.why);
-  return backend({ system, user, model: config.overseer.model }, signal);
+  return backend({ system, user, model }, signal);
 }
 
 // ---- test hooks ----
@@ -545,12 +546,13 @@ async function apiBackend(req: BackendRequest, signal: AbortSignal): Promise<str
     const { default: Anthropic } = await import("@anthropic-ai/sdk");
     apiClient = new Anthropic({ apiKey: resolveApiKey() });
   }
+  // Haiku has no server-side refusal fallback; asking for one there is a 400.
+  const fallback = /haiku/i.test(req.model) ? {} : { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const };
   const stream = apiClient.beta.messages.stream(
     {
       model: req.model,
       max_tokens: 2048,
-      betas: ["server-side-fallback-2026-07-01"],
-      fallbacks: "default",
+      ...fallback,
       thinking: { type: "adaptive" },
       output_config: { effort: "low" },
       system: [{ type: "text", text: req.system, cache_control: { type: "ephemeral" } }],

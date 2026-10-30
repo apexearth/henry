@@ -95,6 +95,7 @@ const SETTABLE = {
   federation: ["listen", "port"],
   phone: ["listen", "port"],
   files: ["roots"],
+  github: ["repos", "pickModel"],
   rules: ["protectedBranches", "alarm", "notable", "crossRepoWrite", "commitOnProtected", "pushToProtected", "maxSubagentsPer10m", "repos"],
 } as const;
 
@@ -106,7 +107,7 @@ export function setConfig(patch: Partial<HenryConfig>): HenryConfig {
   const incoming = patch as Record<string, unknown>;
   const next: Record<string, unknown> = { ...user };
   for (const k of SETTABLE.root) if (k in incoming) next[k] = incoming[k];
-  for (const group of ["overseer", "mcp", "federation", "phone", "files", "rules"] as const) {
+  for (const group of ["overseer", "mcp", "federation", "phone", "files", "github", "rules"] as const) {
     const sub = incoming[group];
     if (!sub || typeof sub !== "object") continue;
     const merged = { ...((user[group] as Record<string, unknown>) ?? {}) };
@@ -115,6 +116,19 @@ export function setConfig(patch: Partial<HenryConfig>): HenryConfig {
   }
   writeUser(next);
   return reloadConfig();
+}
+
+/** Record the projects Henry found for a GitHub repo, unless config.json already says
+ * something about that repo: what is there was written by the user or by an earlier run. */
+export function noteGithubRepo(slug: string, projects: string[]): void {
+  const user = readUser() as Record<string, unknown>;
+  const github = { ...((user.github as Record<string, unknown>) ?? {}) };
+  const repos = { ...((github.repos as Record<string, unknown>) ?? {}) };
+  if (slug in repos) return;
+  repos[slug] = { projects };
+  github.repos = repos;
+  writeUser({ ...user, github });
+  reloadConfig();
 }
 
 function load(): HenryConfig {
@@ -130,6 +144,7 @@ function load(): HenryConfig {
     phone: { ...DEFAULT_CONFIG.phone, ...(user.phone ?? {}) },
     files: { ...DEFAULT_CONFIG.files, ...(user.files ?? {}) },
     voice: { ...DEFAULT_CONFIG.voice, ...(user.voice ?? {}) },
+    github: { ...DEFAULT_CONFIG.github, ...(user.github ?? {}) },
     rules: { ...DEFAULT_CONFIG.rules, ...(user.rules ?? {}) },
   };
   if (process.env.HENRY_PORT) merged.port = Number(process.env.HENRY_PORT);
@@ -139,6 +154,7 @@ function load(): HenryConfig {
   merged.files.roots = (Array.isArray(merged.files.roots) ? merged.files.roots : [])
     .filter((p): p is string => typeof p === "string" && p.trim() !== "")
     .map(expandHome);
+  if (!merged.github.repos || typeof merged.github.repos !== "object") merged.github.repos = {};
   return merged;
 }
 

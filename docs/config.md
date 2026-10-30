@@ -46,6 +46,7 @@
   "federation": { "listen": "tailscale", "port": 14712 },
   "phone": { "listen": "tailscale", "port": 14714 },
   "files": { "roots": [] },
+  "github": { "repos": { "acme/api": { "projects": ["acme/1"] } }, "pickModel": "claude-haiku-5-5" },
   "rules": {
     "protectedBranches": ["main", "master"],
     "alarm": ["git push --force", "git push -f", "git reset --hard", "rm -rf", "git branch -D", "git checkout -- ."],

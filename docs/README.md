@@ -9,7 +9,7 @@ A changed decision edits the sentence that is now wrong; nothing here is a histo
 - [rail.md](rail.md) — one line per session: titles, order, grouping, hiding, shortcuts
 - [activity.md](activity.md) — working / needsInput / waiting / idle, your engagement with a session, unseen work and reminders
 - [hooks.md](hooks.md) — hooks, statusline, transcript tailer, data flow, session identity
-- [git.md](git.md) — per-session baselines and open PRs via `gh`
+- [git.md](git.md) — per-session baselines, open PRs and `#157` cards via `gh`
 - [flags.md](flags.md) — safeguard rules (observe, never block), per-repo overrides, the Flags tab
 - [usage.md](usage.md) — 5h/7d windows, per-session tokens and context, the status strip
 - [overseer.md](overseer.md) — the playbook writer: altitude, backends, cadence, off by default

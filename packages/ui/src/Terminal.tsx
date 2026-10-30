@@ -6,6 +6,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { isClaudeSession } from "@henry/shared";
 import { getState, send, subscribePty, useStore } from "./ws";
 import { openPeek, splitLineRef } from "./FileView";
+import { useRefCard, type RefAt } from "./RefCard";
 import { arrowMod, isMac, mod } from "./platform";
 import { cellBgAlpha, cssVar, isLight, minContrast, onTheme, themeBgRgb, xtermTheme } from "./theme";
 
@@ -32,6 +33,10 @@ const RESIZE_SETTLE_MS = 120;
 const PATH_RE = /(?<![\w@:/.\\-])(?:[A-Za-z]:)?(?:~[\\/]|\.{1,2}[\\/]|[\\/])?[\w.@+-]+(?:[\\/][\w.@+-]+)+(?::\d+(?::\d+)?)?|(?<![\w@:/.\\-])[\w@+-]+(?:\.[\w@+-]+)*\.[A-Za-z]{2,5}(?::\d+(?::\d+)?)?/g;
 const URL_RE = /https?:\/\/[^\s<>"'`]+/g;
 const URL_TAIL_RE = /[.,;:!?'")\]}>]+$/;
+// `#157`: an issue or PR by number. Not part of a word, a URL fragment or a colour (`#157abc`).
+const REF_RE = /(?<![\w&#/])#(\d{1,6})(?![\w-])/g;
+/** Rows above a mention that go with it as context, for telling which repo's #3 it is. */
+const REF_CONTEXT_ROWS = 4;
 // Terminal-to-host reports: DA1/DA2/DSR/CPR, DECRQM, OSC and DCS replies, focus events.
 const REPORT_RE = /^\x1b(\[[?>]?[\d;]*[cRn]|\[\?[\d;]*\$y|\][^\x07\x1b]*(\x07|\x1b\\)|P[^\x1b]*\x1b\\|\[[IO])/;
 
@@ -128,6 +133,14 @@ function logicalLine(t: Terminal, row: number): { text: string; top: number } {
   return { text, top };
 }
 
+/** The rows just above a mention and its own (soft-wrapped) line, whitespace squeezed. */
+function refContext(t: Terminal, top: number, whole: string): string {
+  const buf = t.buffer.active;
+  const above: string[] = [];
+  for (let i = Math.max(0, top - REF_CONTEXT_ROWS); i < top; i++) above.push(buf.getLine(i)?.translateToString(true) ?? "");
+  return [...above, whole].map((l) => l.replace(/\s+/g, " ").trim()).filter(Boolean).join("\n");
+}
+
 export function TerminalView({ sessionId, visible, focused, fontSize }: Props) {
   const box = useRef<HTMLDivElement>(null);
   const term = useRef<Terminal | null>(null);
@@ -148,6 +161,8 @@ export function TerminalView({ sessionId, visible, focused, fontSize }: Props) {
   const winRef = useRef(windowsBuild);
   winRef.current = windowsBuild;
   const replaying = useRef(false);
+  const refCard = useRefCard(sessionId, box);
+  const refApi = useRef(refCard.api);
 
   useEffect(() => {
     let overUrl = false; // the pointer is over a URL, set by the link hovers below
@@ -391,6 +406,27 @@ export function TerminalView({ sessionId, visible, focused, fontSize }: Props) {
             leave: () => void (overUrl = false),
           });
         }
+        // `#157` gets a card (RefCard.tsx), but only where there is a GitHub repo to read it from.
+        if ((getState().repos[sessionId] ?? []).some((r) => r.remoteUrl?.startsWith("https://github.com/"))) {
+          for (const m of whole.matchAll(REF_RE)) {
+            const start = at(m.index), end = at(m.index + m[0].length - 1);
+            if (end.y < y || start.y > y) continue;
+            const a = start.y === y ? start.x : 1, b = end.y === y ? end.x : t.cols;
+            if (urlCols.some(([ua, ub]) => a <= ub && b >= ua)) continue;
+            const mention = (ev: MouseEvent): RefAt => ({ n: Number(m[1]), context: refContext(t, top, whole), x: ev.clientX, y: ev.clientY });
+            links.push({
+              range: { start, end },
+              text: m[0],
+              decorations: { underline: true, pointerCursor: true },
+              activate: (ev: MouseEvent) => {
+                if (!ev.metaKey && !ev.ctrlKey && !tracking() && performance.now() - tapAt > TAP_CLICK_MS) return;
+                refApi.current.pin(mention(ev));
+              },
+              hover: (ev: MouseEvent) => refApi.current.hover(mention(ev)),
+              leave: () => refApi.current.leave(),
+            });
+          }
+        }
         const text = t.buffer.active.getLine(y - 1)?.translateToString(true) ?? "";
         for (const m of text.matchAll(PATH_RE)) {
           const raw = m[0].replace(/[.,;:'")\]}]+$/, "");
@@ -523,5 +559,10 @@ export function TerminalView({ sessionId, visible, focused, fontSize }: Props) {
     (t as unknown as { _henryFit?: () => void })._henryFit?.();
   }, [fontSize]);
 
-  return <div ref={box} className="term" onMouseDown={() => term.current?.focus()} />;
+  return (
+    <>
+      <div ref={box} className="term" onMouseDown={() => term.current?.focus()} />
+      {refCard.node}
+    </>
+  );
 }

@@ -14,6 +14,7 @@ import type { ChangedFile, FileDiff, GrepHit, GrepOptions, GrepResult, HenryEven
 import * as db from "./db";
 import * as filewatch from "./filewatch";
 import { isWindows } from "./platform";
+import * as github from "./github";
 import * as prs from "./prs";
 import * as rules from "./rules";
 
@@ -427,7 +428,10 @@ async function readBase(info: RepoInfo): Promise<RepoBase | undefined> {
   // Only repos a session is actually in: `allRepoStates` walks every checkout under the
   // repos root, and that must not turn into a `gh` call per repo. Cheap unless the cached
   // list has aged out; the fetch itself runs on its own.
-  if (repoSessions.get(info.path)?.size) prs.track(info.path, base.remoteUrl);
+  if (repoSessions.get(info.path)?.size) {
+    prs.track(info.path, base.remoteUrl);
+    github.track(base.remoteUrl);
+  }
   if (log.code === 0 && log.out.trim()) {
     const tab = log.out.indexOf("\t");
     base.lastCommitAt = Number(log.out.slice(0, tab)) * 1000;

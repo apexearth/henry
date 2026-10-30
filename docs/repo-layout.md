@@ -31,7 +31,8 @@ henry/
       src/attachments.ts       # images a phone sent: written under ~/.henry/attachments, swept with history
       src/files.ts             # GET /api/file (one file, capped), /api/fs/tree (a plain folder), the tree's mkdir/move/trash
       src/filewatch.ts         # working-tree watchers for the folders a files pane shows, leased
-      src/prs.ts               # open PRs per checkout via `gh pr list`, cached and best-effort
+      src/prs.ts               # open PRs per checkout via `gh pr list`, cached and best-effort; the shared `gh` runner
+      src/github.ts            # what `#157` means: repo issues + linked project items, a model for ties
       src/rules.ts             # ~/.henry/config.json rules → classify events
       src/mcp.ts               # POST /mcp: Henry's tools; henry_activity + henry_attention for hosted sessions
       src/attention.ts         # asks: a session calling for the user, with a deadline and a way to answer
@@ -71,6 +72,7 @@ henry/
       src/ws.ts                # client, reconnect, state store
       src/Terminal.tsx         # xterm + webgl addon
       src/PrsMenu.tsx          # topbar open-PR count + the list behind it
+      src/RefCard.tsx          # the card behind `#157` in a terminal
       src/RepoPicker.tsx       # "+ new": typed picker over repos × {claude, terminal}
       src/FilePicker.tsx       # ⌘K: find a file to peek at
       src/FilesPane.tsx        # ⌘F / the Files tool: the folder tree, its filter and the search's toggles

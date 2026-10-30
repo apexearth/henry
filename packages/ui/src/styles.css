@@ -263,6 +263,28 @@ html.backdrop-wide .dockview-theme-henry {
 /* Theme popover (topbar). */
 .pop-bg { position: fixed; inset: 0; z-index: 998; }
 .pop { position: absolute; top: 30px; right: 8px; z-index: 999; background: var(--bg-2); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, .4); }
+/* The card behind `#157` in a terminal (RefCard.tsx). Placed at the pointer; a sheet on a phone. */
+.ref-card { position: fixed; z-index: 1000; width: 380px; max-width: calc(100vw - 16px); max-height: 60vh; overflow: auto; background: var(--bg-2); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, .4); font-size: 12px; line-height: 1.4; }
+.ref-head { display: flex; align-items: center; gap: 6px; color: var(--fg-dim); font-size: 11px; }
+.ref-state { padding: 0 4px; border: 1px solid currentColor; border-radius: 3px; font-size: 10px; text-transform: uppercase; }
+.ref-state.open { color: var(--ok); }
+.ref-state.merged { color: var(--accent); }
+.ref-state.closed, .ref-state.draft { color: var(--fg-faint); }
+.ref-title { margin: 3px 0 5px; font-weight: 600; color: var(--fg); }
+.ref-fields { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 5px; }
+.ref-field { padding: 0 5px; border-radius: 3px; background: var(--bg-3); font-size: 11px; }
+.ref-field .k { color: var(--fg-faint); }
+.ref-meta { margin-bottom: 4px; color: var(--fg-dim); font-size: 11px; }
+.ref-body { max-height: 9em; overflow: hidden; margin: 4px 0 6px; padding-left: 6px; border-left: 2px solid var(--border); color: var(--fg-dim); font-size: 11px; white-space: pre-wrap; }
+.ref-foot { display: flex; justify-content: space-between; gap: 8px; color: var(--fg-faint); font-size: 11px; }
+.ref-card a { color: var(--accent); }
+.ref-note { color: var(--fg-faint); font-size: 11px; }
+.ref-others { margin-top: 6px; padding-top: 5px; border-top: 1px solid var(--border); }
+.ref-alt { display: block; width: 100%; margin-top: 3px; padding: 2px 4px; overflow: hidden; border: 0; background: none; color: var(--fg-dim); font-size: 11px; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.ref-alt:hover { background: var(--bg-3); color: var(--fg); }
+@media (max-width: 700px), (pointer: coarse) and (max-width: 1024px) {
+  .ref-card { left: 6px !important; right: 6px; top: auto !important; bottom: calc(6px + env(safe-area-inset-bottom)) !important; width: auto; max-width: none; max-height: 55vh; font-size: 13px; }
+}
 .theme-row { display: flex; align-items: center; gap: 10px; padding: 3px 0; }
 .theme-label { width: 12ch; color: var(--fg-dim); font-size: 11px; }
 .theme-swatches { display: flex; gap: 5px; }

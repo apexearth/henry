@@ -99,6 +99,36 @@ export interface PullRequest {
   updatedAt: number;
 }
 
+/** An issue or pull request a session's output named by number (`#157`), as its card shows it. */
+export interface GithubItem {
+  /** owner/name on github.com. */
+  repo: string;
+  number: number;
+  kind: "issue" | "pr";
+  state: "open" | "closed" | "merged" | "draft";
+  title: string;
+  url: string;
+  /** The first few hundred characters of the body. */
+  body: string;
+  labels: string[];
+  assignees: string[];
+  /** The project it sits on, when it is on one of the repo's projects. */
+  project?: string;
+  /** That project's fields that are set on it (Status, Priority, …), in the project's order. */
+  fields: { name: string; value: string }[];
+}
+
+/** What `#<n>` in one session can mean (GET /api/github/ref). `items[0]` is the answer. */
+export interface GithubRef {
+  items: GithubItem[];
+  /** How items[0] was chosen: the only match, the model reading the text around the mention,
+   * or the session's own repos first because nothing better was available. */
+  pick?: "only" | "model" | "guess";
+  /** More than one match and no model has picked yet: ask again with `pick=1`. */
+  ambiguous?: boolean;
+  note?: string;
+}
+
 /** Open PRs of one checkout. `note` says why the list is empty when it is not simply "none". */
 export interface RepoPrs {
   repo: string;
@@ -392,6 +422,16 @@ export interface HenryConfig {
      * transcript that spells one differently ("sub-squid") is put back to this spelling. */
     vocabulary?: string[];
   };
+  /** What `#157` in a session's output points at (daemon/github.ts). */
+  github: {
+    /** Per GitHub repo ("owner/name"): the projects ("owner/number") whose items its sessions
+     * name by number, besides the repo's own issues and PRs. Henry writes an entry the first
+     * time a session works in a repo, from the projects the repo is linked to; an entry that is
+     * already here is never rewritten, so an edit (or `[]`) sticks. */
+    repos: Record<string, { projects: string[] }>;
+    /** Picks which item a number means when several repos have one, from the text around it. */
+    pickModel: string;
+  };
   rules: {
     protectedBranches: string[];
     alarm: string[];
@@ -422,6 +462,7 @@ export const DEFAULT_CONFIG: HenryConfig = {
   phone: { listen: "tailscale", port: 14714 },
   files: { roots: [] },
   voice: { enabled: false, stt: "whisper-cli" },
+  github: { repos: {}, pickModel: "claude-haiku-5-5" },
   rules: {
     protectedBranches: ["main", "master"],
     alarm: ["git push --force", "git push -f", "git reset --hard", "rm -rf", "git branch -D", "git checkout -- ."],

@@ -96,29 +96,39 @@ async function refresh(repoPath: string, slug: string, force: boolean): Promise<
 
 async function ghPrList(slug: string): Promise<{ prs?: PullRequest[]; note?: string }> {
   const args = ["pr", "list", "--repo", slug, "--state", "open", "--limit", String(LIMIT), "--json", "number,title,author,isDraft,url,headRefName,updatedAt"];
+  const res = await runGh(args);
+  if (res.out === undefined) {
+    if (res.note !== "gh not installed") console.log(`[prs] ${slug}: ${res.note}`);
+    return { note: res.note };
+  }
+  const prs = parse(res.out);
+  return { prs, note: prs.length >= LIMIT ? `first ${LIMIT}; there may be more` : undefined };
+}
+
+/**
+ * One `gh` call: its stdout, or a one-line note saying why there is none. Never throws. A `gh`
+ * that is not on PATH is remembered, and nothing spawns it again until the daemon restarts.
+ */
+export async function runGh(args: string[], timeoutMs = TIMEOUT_MS): Promise<{ out?: string; note?: string }> {
+  if (ghMissing) return { note: "gh not installed" };
   let proc: Bun.Subprocess<"ignore", "pipe", "pipe">;
   try {
     // GH_PAGER: gh pipes JSON through a pager when one is configured, which would hang here.
     proc = Bun.spawn(["gh", ...args], { stdin: "ignore", stdout: "pipe", stderr: "pipe", env: { ...process.env, GH_PAGER: "cat", NO_COLOR: "1", GH_PROMPT_DISABLED: "1" } });
   } catch (err) {
     ghMissing = true;
-    console.log(`[prs] cannot run \`gh\` (${(err as Error).message}); PR counts stay off until restart`);
+    console.log(`[gh] cannot run \`gh\` (${(err as Error).message}); GitHub lookups stay off until restart`);
     return { note: "gh not installed" };
   }
-  const timer = setTimeout(() => proc.kill(), TIMEOUT_MS);
+  const timer = setTimeout(() => proc.kill(), timeoutMs);
   try {
     const [out, errOut, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
     if (code === 127) {
       ghMissing = true;
       return { note: "gh not installed" };
     }
-    if (code !== 0) {
-      const note = firstLine(errOut) || `gh exited ${code}`;
-      console.log(`[prs] ${slug}: ${note}`);
-      return { note };
-    }
-    const prs = parse(out);
-    return { prs, note: prs.length >= LIMIT ? `first ${LIMIT}; there may be more` : undefined };
+    if (code !== 0) return { note: firstLine(errOut) || `gh exited ${code}` };
+    return { out };
   } catch (err) {
     return { note: (err as Error).message };
   } finally {

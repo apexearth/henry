@@ -41,6 +41,10 @@ unbounded input is trimmed at the door.
   The explorer's sweep of every repo under the root deliberately gets no PR counts — that
   would be one `gh` per repo. Worktrees of one repo are folded by remote before any total,
   so the same PR is never counted twice.
+- **Project boards behind `#157` cards are read at most every 5 minutes** (15 after a
+  failure), one `gh` page per 100 items, only for projects of repos a live session is in.
+  The model that picks between same-numbered items runs only when a card is opened on such a
+  number, and its answer is kept per mention for the life of the daemon.
 - **The transcript tailer reads 1MB per pass** and comes back through the event loop.
   A cold start begins at byte 0 and transcripts reach tens of MB; one synchronous pass would
   stall hooks and the WS for the length of the file.

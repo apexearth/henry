@@ -16,6 +16,7 @@ import * as federation from "./federation";
 import type { Client } from "./federation";
 import type { FedState, PeerLink } from "./fed-peer";
 import * as git from "./git";
+import * as github from "./github";
 import * as files from "./files";
 import * as filewatch from "./filewatch";
 import { readHistory } from "./history";
@@ -688,6 +689,14 @@ export async function handleApi(req: Request, url: URL, origin: ApiOrigin): Prom
         return json(await git.pullRequests(url.searchParams.get("repoPath") ?? "", url.searchParams.get("refresh") === "1"));
       }
       if (pathname === "/api/prs") return json({ repos: await git.allPullRequests() });
+      // What `#157` in a session's output means (github.ts). `context` is the terminal text
+      // around the mention; `pick=1` lets a model settle a number more than one repo has.
+      if (pathname === "/api/github/ref") {
+        const n = Number(url.searchParams.get("n"));
+        if (!Number.isInteger(n) || n < 1) return json({ error: "n must be a positive number" }, 400);
+        const sessionId = url.searchParams.get("sessionId") ?? "";
+        return json(await github.resolveRef(sessionId, n, url.searchParams.get("context") ?? "", url.searchParams.get("pick") === "1"));
+      }
       // Commit graph of one repo, every branch. `sessionId` only routes it to the right machine.
       if (pathname === "/api/repo/tree") return json(await git.commitGraph(url.searchParams.get("repoPath") ?? "", Number(url.searchParams.get("limit")) || undefined));
       if (pathname === "/api/repo/commit") {
