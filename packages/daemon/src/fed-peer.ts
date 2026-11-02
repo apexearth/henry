@@ -107,7 +107,7 @@ export class PeerLink {
   flags: Flag[] = [];
   /** Live asks from the peer's sessions, tagged with `peer` like the sessions they name. */
   attention: Attention[] = [];
-  /** The peer's whole usage: its rows and its own 5h/7d windows, which are not ours. */
+  /** The peer's whole usage: its rows and its own 7d window, which is not ours. */
   usage: Usage = { perSession: {}, updatedAt: 0 };
   playbook: PlaybookEntry[] = [];
 

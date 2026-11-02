@@ -320,7 +320,7 @@ describe("hook ingest", () => {
     expect((await post("/statusline", [1, 2, 3])).status).toBe(200);
   });
 
-  test("statusline payload becomes the 5h/7d snapshot, per-session cost, and a display line", async () => {
+  test("statusline payload becomes the 7d snapshot, per-session cost, and a display line", async () => {
     const now = Math.floor(Date.now() / 1000);
     const payload = {
       hook_event_name: "Status",
@@ -334,7 +334,6 @@ describe("hook ingest", () => {
       cost: { total_cost_usd: 1.2345, total_duration_ms: 90000, total_api_duration_ms: 20000, total_lines_added: 10, total_lines_removed: 2 },
       context_window: { total_input_tokens: 45000, total_output_tokens: 1200, context_window_size: 200000, used_percentage: 23, remaining_percentage: 77 },
       rate_limits: {
-        five_hour: { used_percentage: 42, resets_at: now + 2 * 3600 + 10 * 60 },
         seven_day: { used_percentage: 17, resets_at: now + 3 * 86400 },
       },
       exceeds_200k_tokens: false,
@@ -342,12 +341,11 @@ describe("hook ingest", () => {
     const res = await post("/statusline", { henrySession: sessionId, payload });
     expect(res.status).toBe(200);
     const text = await res.text();
-    expect(text).toMatch(/^henry · 5h 42% ↻2h10m · 7d 17% ↻3d · ctx 23% · \$1\.23$/);
+    expect(text).toMatch(/^henry · 7d 17% ↻3d · ctx 23% · \$1\.23$/);
 
-    const upd = await next("usage:update", (m) => m.usage.fiveHour !== undefined);
-    expect(upd.usage.fiveHour?.utilization).toBeCloseTo(0.42, 5);
+    const upd = await next("usage:update", (m) => m.usage.sevenDay !== undefined);
     expect(upd.usage.sevenDay?.utilization).toBeCloseTo(0.17, 5);
-    expect(upd.usage.fiveHour?.resetsAt).toBe((now + 2 * 3600 + 10 * 60) * 1000);
+    expect(upd.usage.sevenDay?.resetsAt).toBe((now + 3 * 86400) * 1000);
     expect(upd.usage.updatedAt).toBeGreaterThan(0);
     expect(upd.usage.perSession[sessionId]?.costUsd).toBeCloseTo(1.2345, 4);
     expect(upd.usage.perSession[sessionId]?.model).toBe("claude-opus-5");
@@ -356,18 +354,17 @@ describe("hook ingest", () => {
     expect(upd.usage.perSession[sessionId]?.contextWindow).toBe(200000);
 
     const st = await state();
-    expect(st.usage.fiveHour?.utilization).toBeCloseTo(0.42, 5);
+    expect(st.usage.sevenDay?.utilization).toBeCloseTo(0.17, 5);
     expect(st.usage.perSession[sessionId]?.costUsd).toBeCloseTo(1.2345, 4);
 
     // Fraction-style utilization (older shape) and ISO resets_at are accepted too.
     const res2 = await post("/statusline", {
       henrySession: sessionId,
-      payload: { ...payload, rate_limits: { five_hour: { utilization: 0.91, resets_at: new Date((now + 600) * 1000).toISOString() }, seven_day: { utilization: 55 } } },
+      payload: { ...payload, rate_limits: { seven_day: { utilization: 0.91, resets_at: new Date((now + 600) * 1000).toISOString() } } },
     });
-    expect(await res2.text()).toMatch(/^henry · 5h 91% ↻10m · 7d 55% · ctx 23% · \$1\.23$/);
+    expect(await res2.text()).toMatch(/^henry · 7d 91% ↻10m · ctx 23% · \$1\.23$/);
     const st2 = await state();
-    expect(st2.usage.fiveHour?.utilization).toBeCloseTo(0.91, 5);
-    expect(st2.usage.sevenDay?.utilization).toBeCloseTo(0.55, 5);
+    expect(st2.usage.sevenDay?.utilization).toBeCloseTo(0.91, 5);
   });
 
   test("a statusline post that changes nothing sends nothing", async () => {
@@ -378,7 +375,7 @@ describe("hook ingest", () => {
       model: { id: "claude-opus-5", display_name: "Opus" },
       cost: { total_cost_usd: 2.5 },
       context_window: { total_input_tokens: 50000, total_output_tokens: 1500, context_window_size: 200000, used_percentage: 30 },
-      rate_limits: { five_hour: { used_percentage: 91 }, seven_day: { used_percentage: 55 } },
+      rate_limits: { seven_day: { used_percentage: 55 } },
     };
     // New cost and windows: the table goes out (windows moved) and so does the row.
     await post("/statusline", { henrySession: sessionId, payload });

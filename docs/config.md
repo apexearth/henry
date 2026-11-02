@@ -16,7 +16,7 @@
 - **History is swept to `retentionDays` (30).** Events, flags, playbook entries, usage
   snapshots and images sent from a phone older than the window go at startup and every 6h, and immediately when the
   setting shrinks; `0` keeps everything. Sessions are never swept — the rail owns their
-  lifetime. The newest usage snapshot survives at any age, since it is the live 5h/7d bars.
+  lifetime. The newest usage snapshot survives at any age, since it is the live 7d bar.
 - **The daemon can say what it is holding.** A process that runs for days is measured, not
   guessed at: `GET /api/debug/memory` (loopback only, never proxied, refused to peers and
   phones) reports RSS, the JSC heap, the top object types and the size of every long-lived

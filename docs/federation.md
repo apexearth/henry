@@ -69,11 +69,11 @@ until it is back. Two machines that both listen dial each other, so each window 
   app tracks the mouse and opens the URL itself (a new window, which the native shell hands
   to the default browser). URLs xterm soft-wrapped stay one link; OSC 8 hyperlinks open the
   same way. In a plain shell, where a click selects, a URL takes ⌘/Ctrl-click like a path.
-- **Every machine's 5h/7d windows are shown, never added up.** A daemon meters the
-  subscription it is signed in to and only that one, so one pair of bars was one machine's
+- **Every machine's 7d window is shown, never added up.** A daemon meters the
+  subscription it is signed in to and only that one, so one bar would be one machine's
   answer standing in for the rail's. `mergeUsage` therefore builds a `hosts` table — this
   machine under its own name, each connected peer under theirs — for windows only; what
-  goes over a link is still this daemon's own pair, so a peer names us in its own merge and
+  goes over a link is still this daemon's own window, so a peer names us in its own merge and
   trust stays non-transitive. The strip leads with the machine of the session you are
   looking at, the Usage tab lists them all. Sharing an account means the numbers agree,
   which is a thing you can see rather than something Henry has to assume.

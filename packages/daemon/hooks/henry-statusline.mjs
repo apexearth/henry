@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Claude Code statusLine command -> Henry daemon, for Windows (henry-statusline.sh is the
-// macOS/Linux twin). The daemon answers with a compact line ("henry · 5h 42% · 7d 17% · $0.42")
+// macOS/Linux twin). The daemon answers with a compact line ("henry · 7d 17% · $0.42")
 // which Claude Code displays; when the daemon is down this prints nothing. Never fails.
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";

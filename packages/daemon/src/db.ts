@@ -545,7 +545,7 @@ export function pruneHistory(days: number): PruneCounts | undefined {
     playbook: del("playbook"),
     // A live ask outlives the window by its deadline, never by its age.
     attention: db.prepare("DELETE FROM attention WHERE ts < ? AND done IS NOT NULL").run(cutoff).changes,
-    // The newest snapshot is the live 5h/7d usage; keep it however old it is.
+    // The newest snapshot is the live 7d usage; keep it however old it is.
     snapshots: db.prepare("DELETE FROM usage_snapshots WHERE ts < ? AND ts <> (SELECT MAX(ts) FROM usage_snapshots)").run(cutoff).changes,
     presence: db.prepare("DELETE FROM presence WHERE minute < ?").run(cutoff).changes,
   }))();

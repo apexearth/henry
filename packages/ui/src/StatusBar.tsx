@@ -1,7 +1,7 @@
 // The status strip along the bottom of the window: the gauges you keep an eye on while
 // working, on one line, always there. Left, the session you are looking at: model, context
-// meter, tokens, spend. Right, the subscription: the 5h and 7d windows with their resets, one
-// pair per machine you are paired with (each daemon meters its own), the machine of the session
+// meter, tokens, spend. Right, the subscription: the 7d window with its reset, one per
+// machine you are paired with (each daemon meters its own), the machine of the session
 // you are looking at first. Nothing here is a view you switch to; every item is a shortcut to
 // the Usage tab, which has the per-session table and the words.
 import { useEffect, useState } from "react";
@@ -22,7 +22,7 @@ function Meter({ frac }: { frac: number | undefined }) {
   );
 }
 
-/** "5h ▬▬▭ 42% 2h 10m": the window, how much of it is spent, and when it comes back. */
+/** "7d ▬▬▭ 42% 2d 10h": the window, how much of it is spent, and when it comes back. */
 function Rate({ label, win, now, on }: { label: string; win?: RateWindow; now: number; on: string }) {
   if (!win) return null;
   const pct = Math.round(win.utilization * 100);
@@ -37,10 +37,10 @@ function Rate({ label, win, now, on }: { label: string; win?: RateWindow; now: n
   );
 }
 
-/** One machine's pair. Its name leads only when more than one machine is reporting. */
+/** One machine's window. Its name leads only when more than one machine is reporting. */
 function HostRates({ row, alone, now }: { row: HostRow; alone: boolean; now: number }) {
   const on = row.name || "this machine";
-  const silent = !row.usage.fiveHour && !row.usage.sevenDay;
+  const silent = !row.usage.sevenDay;
   return (
     <>
       {!alone && (
@@ -51,10 +51,7 @@ function HostRates({ row, alone, now }: { row: HostRow; alone: boolean; now: num
       {silent ? (
         <button className="sb-item" onClick={open} title={`no usage reported from ${on} yet`}>–</button>
       ) : (
-        <>
-          <Rate label="5h" win={row.usage.fiveHour} now={now} on={on} />
-          <Rate label="7d" win={row.usage.sevenDay} now={now} on={on} />
-        </>
+        <Rate label="7d" win={row.usage.sevenDay} now={now} on={on} />
       )}
     </>
   );

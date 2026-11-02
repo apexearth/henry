@@ -23,7 +23,7 @@ is waiting on you, and what the others changed. That is the whole problem it sol
 - The same thing on your phone: scan a QR, get every session in your pocket, talk to them.
 - ⌘K by filename, ⌘F to browse or `git grep` every repo, files open over the terminal;
   `edit` on a peek, or right-click → new file, when a spec is quicker typed than dictated.
-- 5h and 7d subscription usage, plus tokens, cost and context per session.
+- 7d subscription usage, plus tokens, cost and context per session.
 - A backdrop behind each terminal that gets busier as that session's context window fills,
   so a session close to its limit looks it.
 - Sessions survive daemon restarts, closed windows and crashed browsers.
@@ -41,7 +41,7 @@ Rail | terminal | tools. The rail is one row per session, titled by the terminal
 by what that session is doing, with a sparkline of your prompts behind it; a second machine's
 sessions sit under their own header. The top bar says who is working, who needs you, what is
 uncommitted, and how long you have been here. The bottom bar is the session's model, context
-and spend, then the 5h/7d windows per machine.
+and spend, then the 7d window per machine.
 
 The rail is the only session selector: one terminal shows at a time. Every panel is a dockable
 tab, so drag to split, stack or float, and "reset layout" puts back the picture above.

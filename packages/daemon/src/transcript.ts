@@ -182,7 +182,7 @@ export function currentUsage(): Usage {
 // A window used to be sent the whole table every time any row moved: with dozens of sessions
 // that was ~25 KB every two seconds, all day, to every window and phone, for one changed
 // number. Now a changed row goes out on its own (usage:session), coalesced per throttle
-// window; the table only travels with the 5h/7d windows, which move rarely (broadcastWindows).
+// window; the table only travels with the 7d window, which moves rarely (broadcastWindows).
 const dirty = new Set<string>();
 let flushTimer: ReturnType<typeof setTimeout> | undefined;
 let lastFlush = 0;
@@ -205,7 +205,7 @@ function flushRows(): void {
   }
 }
 
-/** The 5h/7d windows moved: every window gets the table, rows included. */
+/** The 7d window moved: every window gets the table, rows included. */
 export function broadcastWindows(): void {
   if (flushTimer) clearTimeout(flushTimer);
   flushTimer = undefined;

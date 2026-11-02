@@ -2,7 +2,7 @@
 // Claude's session_id, then a new "external" row for sessions started outside Henry), binds
 // the two ids, writes HenryEvents, runs rules.classify, broadcasts {type:"event"} / {type:"flag"},
 // kicks the overseer, feeds git.noteSessionPath, and drives the transcript tailer. Statusline
-// payloads become the 5h/7d Usage snapshot. Neither entry point throws: the HTTP handlers
+// payloads become the 7d Usage snapshot. Neither entry point throws: the HTTP handlers
 // must answer fast and Claude Code must never see a failing hook.
 import { homedir } from "node:os";
 import { basename, isAbsolute, resolve } from "node:path";
@@ -378,12 +378,10 @@ function ingestStatuslineInner(body: StatuslineBody): StatuslineResult {
     // Not a statusline payload we recognise; do not disturb the stored snapshot.
     return { usage: transcript.currentUsage(), text: "" };
   }
-  const fiveHour = parseWindow(rl?.five_hour);
   const sevenDay = parseWindow(rl?.seven_day);
   const previous = db.latestUsageSnapshot<Usage>()?.json;
   const now = Date.now();
   const snapshot: Usage = {
-    fiveHour: fiveHour ?? previous?.fiveHour,
     sevenDay: sevenDay ?? previous?.sevenDay,
     perSession: {},
     updatedAt: now,
@@ -391,7 +389,7 @@ function ingestStatuslineInner(body: StatuslineBody): StatuslineResult {
   // Every session posts this every few seconds and the windows move a few times an hour:
   // a row per post was 20k rows a day saying the same thing. One when they move, plus a
   // heartbeat row so "last updated" stays honest.
-  const windowsMoved = !previous || !sameWindow(snapshot.fiveHour, previous.fiveHour) || !sameWindow(snapshot.sevenDay, previous.sevenDay);
+  const windowsMoved = !previous || !sameWindow(snapshot.sevenDay, previous.sevenDay);
   if (windowsMoved || now - previous.updatedAt >= SNAPSHOT_HEARTBEAT_MS) db.insertUsageSnapshot(snapshot, now);
 
   const session = resolveStatuslineSession(str(body.henrySession), claudeId);
@@ -478,7 +476,7 @@ function parseEpoch(v: unknown): number | undefined {
   return undefined;
 }
 
-/** The compact line henry-statusline.sh prints for Claude Code: "henry · 5h 42% · 7d 17% · $0.42". */
+/** The compact line henry-statusline.sh prints for Claude Code: "henry · 7d 17% · $0.42". */
 export function statuslineText(usage: Usage | undefined, sessionId?: string): string {
   if (!usage) return "";
   const parts = ["henry"];
@@ -488,7 +486,6 @@ export function statuslineText(usage: Usage | undefined, sessionId?: string): st
     const left = w.resetsAt ? w.resetsAt - Date.now() : 0;
     parts.push(`${label} ${pct}%${left > 0 ? ` ↻${fmtDuration(left)}` : ""}`);
   };
-  win("5h", usage.fiveHour);
   win("7d", usage.sevenDay);
   const s = sessionId ? usage.perSession[sessionId] : undefined;
   if (s?.contextTokens !== undefined) parts.push(`ctx ${Math.round((s.contextTokens / (s.contextWindow || DEFAULT_CONTEXT_WINDOW)) * 100)}%`);

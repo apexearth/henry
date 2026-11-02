@@ -12,7 +12,7 @@ The dock, the stage, the status strip, the topbar and the backdrop behind the te
 │ + new    │                                      │                      │
 │ 3 running│                                      │                      │
 ├──────────┴──────────────────────────────────────┴──────────────────────┤
-│ opus  ctx ▇▇▁ 41%  38k in 9k out  $1.20         5h ▇▇▁ 42% 2h10m  7d ▇▁▁ 18% 3d │
+│ opus  ctx ▇▇▁ 41%  38k in 9k out  $1.20                           7d ▇▁▁ 18% 3d │
 └────────────────────────────────────────────────────────────────────────┘
 ```
 

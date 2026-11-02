@@ -555,14 +555,14 @@ export function merge(local: StateSnapshot): StateSnapshot {
   return out;
 }
 
-/** This daemon's usage rows plus every connected peer's, and one 5h/7d pair per machine. A
+/** This daemon's usage rows plus every connected peer's, and one 7d window per machine. A
  * window's rail shows every machine, so its gauges must too; the windows are per machine and
  * never added up. A peer is only ever sent our own (server.broadcast), so `hosts` stops here
  * and trust stays non-transitive. */
 export function mergeUsage(local: Usage): Usage {
   const all = [...links.values()].filter((l) => l.status === "connected");
-  const hosts: Record<string, HostUsage> = { [localName()]: { fiveHour: local.fiveHour, sevenDay: local.sevenDay, updatedAt: local.updatedAt } };
-  for (const l of all) hosts[l.rec.name] = { fiveHour: l.usage.fiveHour, sevenDay: l.usage.sevenDay, updatedAt: l.usage.updatedAt };
+  const hosts: Record<string, HostUsage> = { [localName()]: { sevenDay: local.sevenDay, updatedAt: local.updatedAt } };
+  for (const l of all) hosts[l.rec.name] = { sevenDay: l.usage.sevenDay, updatedAt: l.usage.updatedAt };
   return {
     ...local,
     hosts,

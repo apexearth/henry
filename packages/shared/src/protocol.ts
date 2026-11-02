@@ -85,7 +85,7 @@ export type ServerMessage =
   /** A session needs the user (daemon/notify.ts); a window with permission raises an OS notification. */
   | { type: "notify"; notice: Notice }
   | { type: "repos:update"; sessionId: string; repos: RepoState[] }
-  /** The whole table: on connect and when the 5h/7d windows move. */
+  /** The whole table: on connect and when the 7d window moves. */
   | { type: "usage:update"; usage: Usage }
   /** One session's row changed. What a window gets many times a minute, so it is one row, not the table. */
   | { type: "usage:session"; sessionId: string; usage: SessionUsage; updatedAt: number }

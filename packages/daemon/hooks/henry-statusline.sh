@@ -1,6 +1,6 @@
 #!/bin/sh
 # Claude Code statusLine command -> Henry daemon. The daemon answers with a compact line
-# ("henry · 5h 42% · 7d 17% · $0.42") which Claude Code displays; when the daemon is down
+# ("henry · 7d 17% · $0.42") which Claude Code displays; when the daemon is down
 # this prints nothing and Claude Code shows no status line. Never fails.
 # The running daemon publishes its port in <henry home>/port; a session outlives the daemon,
 # so the HENRY_PORT in its environment may name a port the daemon left. File first, env next.

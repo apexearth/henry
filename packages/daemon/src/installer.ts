@@ -281,7 +281,7 @@ export async function install(): Promise<void> {
   } else {
     statusNote =
       `statusLine: SKIPPED, you already have one (${JSON.stringify(current)}).\n` +
-      `  Henry's 5h/7d usage bars need the statusLine command. Re-run with HENRY_FORCE_STATUSLINE=1 henry install\n` +
+      `  Henry's 7d usage bar needs the statusLine command. Re-run with HENRY_FORCE_STATUSLINE=1 henry install\n` +
       `  to replace it; the previous value is saved under "${PREVIOUS_KEY}" and \`henry uninstall\` restores it.`;
   }
 

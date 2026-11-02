@@ -1,5 +1,5 @@
-// 5h / 7d utilization bars with reset countdowns — one pair per machine, since every daemon
-// meters its own subscription — then the active session's context bar, the per-session token +
+// 7d utilization bar with reset countdown — one per machine, since every daemon meters its
+// own subscription — then the active session's context bar, the per-session token +
 // cost table and a last-updated stamp. The rate bars come from each machine's statusline
 // snapshot (henry-statusline.sh); context and rows come from the transcript tailer.
 import { useEffect, useRef, useState } from "react";
@@ -64,9 +64,9 @@ export interface HostRow {
 }
 
 /** The machines whose limits to draw: this one first, then each connected peer by name. A
- * daemon from before per-host windows sends only the flat pair, which is its own. */
+ * daemon from before per-host windows sends only the flat window, which is its own. */
 export function hostRows(usage: Usage, host: string | null): HostRow[] {
-  const own = { fiveHour: usage.fiveHour, sevenDay: usage.sevenDay, updatedAt: usage.updatedAt };
+  const own = { sevenDay: usage.sevenDay, updatedAt: usage.updatedAt };
   if (!usage.hosts) return [{ name: host ?? "", peer: false, usage: own }];
   return Object.entries(usage.hosts)
     .sort(([a], [b]) => Number(b === host) - Number(a === host) || a.localeCompare(b))
@@ -137,7 +137,7 @@ function useWidth(): [React.RefObject<HTMLDivElement>, number] {
 const th: React.CSSProperties = { textAlign: "right", color: "var(--fg-dim)", fontWeight: "normal", padding: "2px 4px", whiteSpace: "nowrap" };
 const td: React.CSSProperties = { textAlign: "right", padding: "2px 4px", whiteSpace: "nowrap" };
 
-/** One machine's pair of bars under its name. The name is dropped when there is only one. */
+/** One machine's bar under its name. The name is dropped when there is only one. */
 function HostBars({ row, alone, now }: { row: HostRow; alone: boolean; now: number }) {
   return (
     <div style={{ marginBottom: alone ? 0 : 10 }}>
@@ -147,7 +147,6 @@ function HostBars({ row, alone, now }: { row: HostRow; alone: boolean; now: numb
           <span style={{ color: "var(--fg-dim)" }}>{row.usage.updatedAt ? new Date(row.usage.updatedAt).toLocaleTimeString() : "no usage yet"}</span>
         </div>
       )}
-      <Bar label="5h" win={row.usage.fiveHour} now={now} />
       <Bar label="7d" win={row.usage.sevenDay} now={now} />
     </div>
   );

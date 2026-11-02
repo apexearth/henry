@@ -161,11 +161,10 @@ export const attention: Attention[] = [
 ];
 
 export const usage: Usage = {
-  fiveHour: { utilization: 0.42, resetsAt: NOW + 2 * HOUR + 10 * MIN },
   sevenDay: { utilization: 0.63, resetsAt: NOW + 3 * DAY + 4 * HOUR },
   hosts: {
-    [HOST]: { fiveHour: { utilization: 0.42, resetsAt: NOW + 2 * HOUR + 10 * MIN }, sevenDay: { utilization: 0.63, resetsAt: NOW + 3 * DAY + 4 * HOUR }, updatedAt: ago(MIN) },
-    [PEER]: { fiveHour: { utilization: 0.12, resetsAt: NOW + 4 * HOUR + 2 * MIN }, sevenDay: { utilization: 0.31, resetsAt: NOW + 5 * DAY + 9 * HOUR }, updatedAt: ago(6 * MIN) },
+    [HOST]: { sevenDay: { utilization: 0.63, resetsAt: NOW + 3 * DAY + 4 * HOUR }, updatedAt: ago(MIN) },
+    [PEER]: { sevenDay: { utilization: 0.31, resetsAt: NOW + 5 * DAY + 9 * HOUR }, updatedAt: ago(6 * MIN) },
   },
   perSession: {
     d1: { inputTokens: 42_300, outputTokens: 31_800, cacheRead: 6_210_000, cacheWrite: 412_000, costUsd: 4.87, model: "claude-opus-5", contextTokens: 118_400, contextWindow: 200_000 },

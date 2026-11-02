@@ -255,17 +255,15 @@ export interface SessionUsage {
   contextWindow?: number;
 }
 
-/** One machine's subscription windows. Each machine reports its own; they are not added up. */
+/** One machine's subscription window. Each machine reports its own; they are not added up. */
 export interface HostUsage {
-  fiveHour?: RateWindow;
   sevenDay?: RateWindow;
   /** When that machine's statusline last reported, 0 if never. */
   updatedAt: number;
 }
 
 export interface Usage {
-  /** This daemon's own windows. What travels to a peer; `hosts` is the window's view. */
-  fiveHour?: RateWindow;
+  /** This daemon's own window. What travels to a peer; `hosts` is the window's view. */
   sevenDay?: RateWindow;
   /** Every machine's windows by name, this one included. Filled in for windows only
    * (federation.mergeUsage); absent on what a peer is sent. */

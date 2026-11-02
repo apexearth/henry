@@ -252,14 +252,14 @@ afterAll(async () => {
 });
 
 /** A statusline body with a context reading: `pct` percent of a 200k window. */
-function statuslinePayload(claudeId: string, pct: number, fiveHourPct?: number): Record<string, unknown> {
+function statuslinePayload(claudeId: string, pct: number, sevenDayPct?: number): Record<string, unknown> {
   return {
     hook_event_name: "Status",
     session_id: claudeId,
     model: { id: "claude-opus-5", display_name: "Opus" },
     cost: { total_cost_usd: 1 },
     context_window: { total_input_tokens: 1000, total_output_tokens: 100, context_window_size: 200000, used_percentage: pct },
-    ...(fiveHourPct === undefined ? {} : { rate_limits: { five_hour: { used_percentage: fiveHourPct }, seven_day: { used_percentage: fiveHourPct / 2 } } }),
+    ...(sevenDayPct === undefined ? {} : { rate_limits: { seven_day: { used_percentage: sevenDayPct } } }),
   };
 }
 
@@ -380,20 +380,19 @@ describe("two daemons", () => {
     expect(after.usage.perSession[local]?.contextTokens).toBe(100000);
     expect(after.usage.perSession[betaSession]?.contextTokens).toBe(46000);
 
-    // Each machine meters its own subscription, so a window is shown both pairs of windows,
-    // keyed by machine. A peer is still sent our own pair and no `hosts` at all: its own merge
+    // Each machine meters its own subscription, so a window is shown both machines' windows,
+    // keyed by machine. A peer is still sent our own and no `hosts` at all: its own merge
     // names us, and trust is not transitive.
     await post(beta, "/statusline", { henrySession: betaSession, payload: statuslinePayload("beta-claude", 23, 80) });
     await post(alpha, "/statusline", { henrySession: local, payload: statuslinePayload("alpha-claude", 50, 20) });
-    const windows = await wa.next("usage:update", (m) => m.usage.hosts?.alpha?.fiveHour !== undefined && m.usage.hosts?.beta?.fiveHour !== undefined);
-    expect(windows.usage.hosts!.alpha!.fiveHour!.utilization).toBeCloseTo(0.2);
-    expect(windows.usage.hosts!.alpha!.sevenDay!.utilization).toBeCloseTo(0.1);
-    expect(windows.usage.hosts!.beta!.fiveHour!.utilization).toBeCloseTo(0.8);
-    // The flat pair stays this daemon's own, so a peer reading it is reading alpha.
-    expect(windows.usage.fiveHour!.utilization).toBeCloseTo(0.2);
+    const windows = await wa.next("usage:update", (m) => m.usage.hosts?.alpha?.sevenDay !== undefined && m.usage.hosts?.beta?.sevenDay !== undefined);
+    expect(windows.usage.hosts!.alpha!.sevenDay!.utilization).toBeCloseTo(0.2);
+    expect(windows.usage.hosts!.beta!.sevenDay!.utilization).toBeCloseTo(0.8);
+    // The flat window stays this daemon's own, so a peer reading it is reading alpha.
+    expect(windows.usage.sevenDay!.utilization).toBeCloseTo(0.2);
     const onBeta = await state(beta);
-    expect(onBeta.usage.hosts?.alpha?.fiveHour?.utilization).toBeCloseTo(0.2);
-    expect(onBeta.usage.hosts?.beta?.fiveHour?.utilization).toBeCloseTo(0.8);
+    expect(onBeta.usage.hosts?.alpha?.sevenDay?.utilization).toBeCloseTo(0.2);
+    expect(onBeta.usage.hosts?.beta?.sevenDay?.utilization).toBeCloseTo(0.8);
 
     // Put alpha back to no sessions of its own: what it relays is counted further down.
     wa.send({ type: "session:kill", sessionId: local });
