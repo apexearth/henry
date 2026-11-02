@@ -6,7 +6,9 @@
 // Talking is a different posture, not a button on the typing one: a thumb-sized mic wedged next
 // to the keys is a thing you miss and long-press into a text selection. So the composer has two
 // modes and 🎙/⌨ swaps the whole bottom of the screen between them — keys and a text box for
-// typing, one slab you hold and the words it heard for talking.
+// typing, one slab and the words it heard for talking. The slab is tapped or held: a tap keeps
+// the mic open until the next tap, so a thumb that drifts, or a browser that takes the touch for
+// a swipe, never cuts a sentence off.
 //
 // 📎 is the phone's paste for images: a photo goes to the daemon, which keeps it on the session's
 // machine, and the line sent carries its path, which Claude Code reads like any other image.
@@ -26,19 +28,24 @@ interface Key {
   title: string;
 }
 
+// What a permission prompt or a menu wants comes first, so it is on screen without scrolling the
+// row; ⌃C is last, where a thumb does not land on it by accident.
 const KEYS: Key[] = [
   { label: "esc", data: "\x1b", title: "Escape — interrupt Claude, or leave a prompt" },
-  { label: "tab", data: "\t", title: "Tab" },
   { label: "1", data: "1", title: "answer a prompt with 1" },
   { label: "2", data: "2", title: "answer a prompt with 2" },
   { label: "3", data: "3", title: "answer a prompt with 3" },
+  { label: "⏎", data: "\r", title: "Enter on its own" },
   { label: "↑", data: "\x1b[A", title: "up — previous command, or move in a menu" },
   { label: "↓", data: "\x1b[B", title: "down" },
+  { label: "tab", data: "\t", title: "Tab" },
   { label: "←", data: "\x1b[D", title: "left — move the cursor, or step back in a menu" },
   { label: "→", data: "\x1b[C", title: "right" },
-  { label: "⏎", data: "\r", title: "Enter on its own" },
-  { label: "⌃C", data: "\x03", title: "Ctrl+C — stop what is running" },
 ];
+
+/** A press shorter than this is a tap: the mic stays open until the next one. So is any press
+ * let go before the mic has opened, which on a phone can take longer than this. */
+const TAP_MS = 350;
 
 /** Which half of the composer is on screen. Remembered: a phone used by voice stays that way. */
 type Mode = "type" | "talk";
@@ -69,8 +76,23 @@ export function Composer({ session }: { session: Session }) {
    * browser's recogniser because it knows what your sessions, repos and files are called. */
   const [holdState, setHoldState] = useState<"idle" | "arming" | "recording" | "working">("idle");
   const [whisper, setWhisper] = useState(false);
-  const hold = useRef(holdToTalk(setHoldState));
-  const holding = useRef(false);
+  /** "held" while a finger is on the button; "latched" once it was a tap, or once the browser
+   * took the touch away. A latched mic stays open until the next tap. */
+  const phase = useRef<"idle" | "held" | "latched">("idle");
+  const [latched, setLatched] = useState(false);
+  const pressedAt = useRef(0);
+  const recording = useRef(false);
+  const hold = useRef(
+    holdToTalk((state) => {
+      recording.current = state === "recording";
+      // The recorder gave up (no permission, no device) under a finger or a latch.
+      if (state === "idle" && phase.current !== "idle") {
+        phase.current = "idle";
+        setLatched(false);
+      }
+      setHoldState(state);
+    }),
+  );
   /** Set when the swap to type mode was a request to edit, so the keyboard comes up with it. */
   const wantsBox = useRef(false);
   const box = useRef<HTMLTextAreaElement>(null);
@@ -178,6 +200,8 @@ export function Composer({ session }: { session: Session }) {
 
   const swap = (to: Mode, edit = false) => {
     speech.current?.stop();
+    // A latched mic has no button in type mode to stop it: what it heard so far goes in the box.
+    void finishHold();
     wantsBox.current = to === "type" && edit;
     setMode(to);
     try {
@@ -205,12 +229,13 @@ export function Composer({ session }: { session: Session }) {
     setDictating(true);
   };
 
-  /** Release: transcribe and put the words in the box, never straight into the session. */
+  /** Stop: transcribe and put the words in the box, never straight into the session. */
   async function finishHold() {
-    // pointerup and pointercancel can both land on one hold; the second stop() would wait on an
-    // `onstop` that has already fired.
-    if (!holding.current) return;
-    holding.current = false;
+    // A release, a second tap and the page going away can all land on one recording; a second
+    // stop() would wait on an `onstop` that has already fired.
+    if (phase.current === "idle") return;
+    phase.current = "idle";
+    setLatched(false);
     try {
       const said = await hold.current.stop(session.id);
       if (!said) return;
@@ -221,6 +246,44 @@ export function Composer({ session }: { session: Session }) {
     }
   }
 
+  // A phone that locks, or a swipe home, ends the recording: keep what was said rather than
+  // leave a mic open behind the lock screen.
+  useEffect(() => {
+    const onHide = () => {
+      if (document.hidden) void finishHold();
+    };
+    document.addEventListener("visibilitychange", onHide);
+    return () => document.removeEventListener("visibilitychange", onHide);
+  });
+
+  const pressMic = (e: React.PointerEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    if (phase.current === "latched") return void finishHold();
+    if (phase.current !== "idle") return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    phase.current = "held";
+    pressedAt.current = Date.now();
+    setNote(null);
+    hold.current.start().catch((err: unknown) => {
+      const name = err instanceof Error ? err.name : "";
+      setNote(name === "NotAllowedError" ? "microphone permission refused" : `the microphone would not open${name ? ` (${name})` : ""}`);
+    });
+  };
+  const releaseMic = () => {
+    if (phase.current !== "held") return;
+    if (!recording.current || Date.now() - pressedAt.current < TAP_MS) {
+      phase.current = "latched";
+      setLatched(true);
+    } else void finishHold();
+  };
+  // The browser took the touch for a gesture of its own. That is not the user letting go, so the
+  // mic stays open, latched, and the next tap stops it.
+  const cancelMic = () => {
+    if (phase.current !== "held") return;
+    phase.current = "latched";
+    setLatched(true);
+  };
+
   // Henry's own ear when the daemon has whisper, else the browser's recogniser, else no mic.
   const canTalk = whisper || dictationSupported();
 
@@ -229,35 +292,35 @@ export function Composer({ session }: { session: Session }) {
       holdState === "arming"
         ? "opening mic…"
         : holdState === "recording"
-          ? "listening — release to stop"
+          ? latched ? "listening — tap to stop" : "listening — release to stop"
           : holdState === "working"
             ? "writing it down…"
-            : "hold to talk";
+            : "tap or hold to talk";
     return (
       <div className="m-composer">
         {note && <div className="m-note" onClick={() => setNote(null)}>{note}</div>}
         {chips}
         {/* What it heard, still yours: tap to fix a word, send when it says what you meant. */}
-        <button className={"m-heard" + (text ? "" : " hint")} onClick={() => swap("type", true)} title="tap to edit before sending">
-          {text || `${whisper ? "hold" : "tap"} the button and ${claude ? "tell Claude what to do" : "say a command"}`}
-        </button>
+        <div className="m-heard-row">
+          <button className={"m-heard" + (text ? "" : " hint")} onClick={() => swap("type", true)} title="tap to edit before sending">
+            {text || `${whisper ? "tap or hold" : "tap"} the button and ${claude ? "tell Claude what to do" : "say a command"}`}
+          </button>
+          {text && (
+            <button className="m-clear" onClick={() => setText("")} aria-label="clear what it heard">&times;</button>
+          )}
+        </div>
         <div className="m-input">
           <button className="m-mode" onClick={() => swap("type")} title="back to the keyboard and the keys" aria-label="keyboard">
             abc
           </button>
           {whisper ? (
             <button
-              className={"m-hold" + (holdState === "recording" ? " on" : "")}
+              className={"m-hold" + (holdState === "recording" || latched ? " on" : "")}
               // Pointer events, not click: the press and the release are the whole gesture. The
               // capture keeps the release ours when the thumb drifts off the button mid-sentence.
-              onPointerDown={(e) => {
-                e.preventDefault();
-                e.currentTarget.setPointerCapture(e.pointerId);
-                holding.current = true;
-                void hold.current.start();
-              }}
-              onPointerUp={() => void finishHold()}
-              onPointerCancel={() => void finishHold()}
+              onPointerDown={pressMic}
+              onPointerUp={releaseMic}
+              onPointerCancel={cancelMic}
               onContextMenu={(e) => e.preventDefault()}
               disabled={holdState === "working"}
               aria-label="hold to talk"
@@ -290,6 +353,9 @@ export function Composer({ session }: { session: Session }) {
             ⇧⏎
           </button>
         )}
+        <button className="m-key m-key-stop" title="Ctrl+C — stop what is running" onClick={() => write("\x03")}>
+          ⌃C
+        </button>
       </div>
       {note && <div className="m-note" onClick={() => setNote(null)}>{note}</div>}
       {chips}

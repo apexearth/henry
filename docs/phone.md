@@ -68,9 +68,17 @@ through that machine's peers, so one phone reaches every Henry the desk reaches.
 - **Typing is a composer, not the on-screen keyboard against xterm.** A phone keyboard has no Esc,
   no Tab and no ⌃C, and autocorrect fights xterm's hidden textarea, so the terminal on a phone is
   a screen you read: xterm never takes focus there. Under it sits a row of the keys Claude Code
-  actually wants (esc, tab, 1/2/3 for a permission prompt, ↑↓←→, ⏎, ⌃C, ⇧⏎) and a text box that
-  sends a whole line at a time. The Enter goes a beat after the line, not with it: Claude Code
+  actually wants — esc, 1/2/3 for a permission prompt, ⏎ and ↑↓ first, so they show without
+  scrolling the row, then tab, ←→, ⇧⏎, and ⌃C last and set apart — and a text box that sends a
+  whole line at a time. The Enter goes a beat after the line, not with it: Claude Code
   reads a long burst as a paste and keeps a CR inside one as a newline, so the line never sent.
+- **The bottom edge belongs to the phone.** The home indicator's swipe and Safari's toolbar live
+  there, and a thumb reaching for a button on that edge gets the phone's gesture instead. The page
+  runs edge to edge (`viewport-fit=cover`) so the safe-area insets are real, every edge pads by its
+  own, and the composer stands a further 8px clear of the bottom inset, never less than 16px from
+  the edge, except while the keyboard is up. Everything pressed down there is at least 44px tall,
+  and the page itself never scrolls or bounces, so a drag that starts between two buttons moves
+  nothing.
 - **📎 is the phone's paste for images.** The session cannot reach a phone's clipboard, so a
   picked photo (library, camera or file) goes to `POST /api/attach`, and the daemon writes it
   under `~/.henry/attachments/<session>/` and answers with the path. The line sent carries the
@@ -89,5 +97,12 @@ through that machine's peers, so one phone reaches every Henry the desk reaches.
   textarea, so the phone keyboard's own microphone works in it with no code at all — that is the
   one that works everywhere. The mic button beside it is the Web Speech API: continuous,
   hands-free, words appearing as they are recognised, for when the phone is on the desk and you
-  are looking at the terminal. It is hidden where the API is missing. Recognition is the browser's;
+  are looking at the terminal. It is hidden where the API is missing.
+- **Henry's own ear is tapped or held, and a drifting thumb never ends it.** With whisper on the
+  daemon, talk mode's slab records: a press shorter than a third of a second, or one let go before
+  the mic has opened, latches it open until the next tap; a longer one stops on release. A mic that
+  will not open says why under the box. The slab claims every pan (`touch-action:
+  none`), and if the browser takes the touch anyway its cancel latches rather than stops. Locking
+  the phone, swiping home or going back to the keyboard stops the recording and keeps what it
+  heard. The words land in the box, with × to drop them, and are only sent when you send them. Recognition is the browser's;
   no audio goes near Henry.

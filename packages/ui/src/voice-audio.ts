@@ -62,6 +62,9 @@ export function holdToTalk(onState: (state: "idle" | "arming" | "recording" | "w
   let recorder: MediaRecorder | undefined;
   let stream: MediaStream | undefined;
   let held = false;
+  /** A getUserMedia still in flight. A press while it is pending rides on it rather than
+   * opening a second microphone that nothing would ever stop. */
+  let opening = false;
   const chunks: Blob[] = [];
 
   const cleanup = () => {
@@ -71,12 +74,16 @@ export function holdToTalk(onState: (state: "idle" | "arming" | "recording" | "w
   };
 
   return {
+    /** Rejects when the microphone will not open, so the caller can say why. */
     async start(): Promise<void> {
       if (recorder || !canRecord()) return;
       held = true;
       onState("arming");
+      if (opening) return;
+      opening = true;
       try {
         stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+        opening = false;
         if (!held) return cleanup();
         const rec = new MediaRecorder(stream);
         chunks.length = 0;
@@ -84,9 +91,11 @@ export function holdToTalk(onState: (state: "idle" | "arming" | "recording" | "w
         recorder = rec;
         rec.start();
         onState("recording");
-      } catch {
+      } catch (e) {
+        opening = false;
         cleanup();
         onState("idle");
+        if (held) throw e;
       }
     },
     /** The clip, as text. Empty when nothing was said or the hold never really started. */
@@ -106,8 +115,11 @@ export function holdToTalk(onState: (state: "idle" | "arming" | "recording" | "w
       await done;
       cleanup();
       onState("working");
+      // Closed as soon as the clip is decoded: on iOS a live AudioContext keeps the audio session
+      // in playback, and the next getUserMedia waits on it with the button saying "opening mic".
+      const ctx = new AudioContext();
       try {
-        const wav = await toWav16k(await new Blob(chunks, { type }).arrayBuffer(), new AudioContext());
+        const wav = await toWav16k(await new Blob(chunks, { type }).arrayBuffer(), ctx).finally(() => void ctx.close().catch(() => {}));
         const url = sessionId ? `/api/voice/transcribe?session=${encodeURIComponent(sessionId)}` : "/api/voice/transcribe";
         const res = await fetch(url, { method: "POST", headers: { "content-type": "audio/wav" }, body: wav });
         const body = (await res.json()) as { text?: string; error?: string };

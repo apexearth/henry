@@ -52,6 +52,12 @@ export function Mobile() {
   const { unread } = useSessionFlags();
   useViewportHeight();
   useAskTitle();
+  // The page itself never moves on a phone: a drag that starts between two buttons would
+  // otherwise bounce the whole app, and the browser would claim the touch from the button.
+  useEffect(() => {
+    document.documentElement.classList.add("m-lock");
+    return () => document.documentElement.classList.remove("m-lock");
+  }, []);
 
   const session = sessions.find((s) => s.id === activeId);
   // Off the subscribed list, not asksFor's module-level default, so a new ask redraws the bar.
