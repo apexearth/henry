@@ -193,6 +193,7 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 .rail-group-h .hide:hover { color: var(--fg); }
 .rail-groupby { background: none; border: none; padding: 0; color: var(--fg-dim); font: inherit; font-size: 11px; }
 .rail-groupby:hover { color: var(--fg); }
+.rail-menu button.on { color: var(--accent); }
 .rail-new-wrap { flex: none; padding: 8px 10px; border-top: 1px solid var(--border); }
 .rail-new { width: 100%; }
 /* Whole items wrap to a second line when the rail is narrow; no item breaks inside itself. */

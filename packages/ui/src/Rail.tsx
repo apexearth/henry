@@ -236,6 +236,8 @@ function Rail({ onNew }: { onNew: () => void }) {
   const attention = useStore((s) => s.attention);
   const now = useNow(15000);
   const [menu, setMenu] = useState<{ x: number; y: number; session: Session } | null>(null);
+  // Not a native <select>: WebView2 on Windows places that popup off the bottom of the screen.
+  const [groupMenu, setGroupMenu] = useState<{ left: number; bottom: number } | null>(null);
   const out = usePoppedOut();
 
   // The repo sub-label repeats the header under "by folder" / "by repo", so it only shows
@@ -359,12 +361,26 @@ function Rail({ onNew }: { onNew: () => void }) {
           {running} running
           {needsInput > 0 && <span className="needs"> · {needsInput} needs you</span>}
         </span>
-        <select className="rail-groupby" value={groupBy} title="group the session list" aria-label="group sessions"
-          onChange={(e) => setGroupBy(e.target.value as GroupBy)}>
-          {(Object.keys(GROUP_LABEL) as GroupBy[]).map((k) => (
-            <option key={k} value={k}>{GROUP_LABEL[k]}</option>
-          ))}
-        </select>
+        <button className="rail-groupby" title="group the session list" aria-label="group sessions" aria-haspopup="menu"
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            setGroupMenu({ left: r.left, bottom: window.innerHeight - r.top + 4 });
+          }}>
+          {GROUP_LABEL[groupBy]} ▴
+        </button>
+        {groupMenu && (
+          <>
+            <div className="pop-bg" onClick={() => setGroupMenu(null)} />
+            <div className="pop files-menu rail-menu" role="menu" style={{ left: groupMenu.left, top: "auto", bottom: groupMenu.bottom }}>
+              {(Object.keys(GROUP_LABEL) as GroupBy[]).map((k) => (
+                <button key={k} role="menuitemradio" aria-checked={k === groupBy} className={k === groupBy ? "on" : undefined}
+                  onClick={() => { setGroupBy(k); setGroupMenu(null); }}>
+                  {GROUP_LABEL[k]}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
         {closed > 0 && (
           <button className="rail-toggle" onClick={toggleShowClosed} title={showClosed ? "hide exited sessions" : "list exited sessions below, newest first"}>
             {closed} closed {showClosed ? "▾" : "▸"}
