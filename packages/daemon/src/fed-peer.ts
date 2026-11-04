@@ -358,7 +358,7 @@ export class PeerLink {
         return;
       }
       const id = crypto.randomUUID();
-      this.httpWaiters.set(id, (r) => resolve(new Response(r.body, { status: r.status, headers: { "content-type": r.contentType } })));
+      this.httpWaiters.set(id, (r) => resolve(new Response(r.bytes !== undefined ? Buffer.from(r.bytes, "base64") : r.body, { status: r.status, headers: { "content-type": r.contentType } })));
       if (typeof body === "object") this.send({ type: "http", id, method, path, bytes: Buffer.from(body.bytes).toString("base64"), contentType: body.contentType });
       else this.send({ type: "http", id, method, path, body });
     });

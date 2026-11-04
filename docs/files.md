@@ -97,7 +97,7 @@ both show the source.
 **A PDF is drawn by pdf.js in a sandboxed frame, after you ask.** A file whose bytes start
 `%PDF-` (whatever its name) is flagged in the peek and carries no content. The peek is an
 iframe with `sandbox="allow-scripts"` and a fixed `srcdoc` (`ui/pdf.ts`), so it has an opaque
-origin: Henry reads the bytes from `/raw` and posts them in with pdf.js's source, which the
+origin: Henry reads the bytes (`GET /api/file/bytes?path=`) and posts them in with pdf.js's source, which the
 frame imports from a blob URL of its own; a PDF that breaks pdf.js lands somewhere that cannot
 reach the API. The browser's own viewer is not used because WebKit (the Tauri shell on macOS)
 treats it as a plugin, and sandboxed frames get none. By default the peek shows a "view"
@@ -109,8 +109,9 @@ when the zooming stops. Over each page lies pdf.js's text layer, invisible text 
 picture's place, so text selects and copies (links do not follow). ⌘F is the peek's find bar
 as for any file; the frame searches that text (smart case, a line break counts as a space)
 and marks the matches with the CSS highlight API, and Henry only shows the count. Keys pressed
-inside the frame never reach Henry, so the frame passes on ⌘F, ⌘K and Esc. Same limits as
-HTML: this machine's loopback only.
+inside the frame never reach Henry, so the frame passes on ⌘F, ⌘K and Esc. Unlike HTML, the
+bytes are read by Henry's page, not the frame's, so a PDF shows on the phone and for a relayed
+session too (up to 10 MB from a peer, `federation.md`).
 
 **An STL is a 3D view.** A file named `.stl`, binary or ASCII, opens as a part you can turn
 (`ui/Model.tsx`, three.js, a chunk loaded only when one is shown): drag turns, right-drag
@@ -120,7 +121,7 @@ centre of turning, which is how you get close to a detail. Iso, top, front and r
 the part has more than 500k triangles; "wire" shows the mesh. Normals are recomputed from the
 triangles, since exporters often write zeros. The corner gives the triangle count and the
 bounding box in the file's own units. STL is triangles only, so it is parsed in Henry's page
-with no sandbox; the bytes come from `/raw` with the same limits as a PDF. STEP is not shown:
+with no sandbox; the bytes come the same way as a PDF's, so a peer's model shows too. STEP is not shown:
 it needs a CAD kernel (OpenCascade as WASM, several MB) to turn into triangles.
 
 The tree's marks are the exception: they are `git status`, against HEAD, so every session in

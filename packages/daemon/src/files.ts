@@ -16,6 +16,8 @@ const CAP_BYTES = 1024 * 1024;
  * the smaller one (server.ts passes it). */
 export const IMAGE_CAP_BYTES = 8 * 1024 * 1024;
 export const RELAYED_IMAGE_CAP_BYTES = 2 * 1024 * 1024;
+/** A model or PDF read whole for a paired machine: base64 of it must fit one 16 MB frame. */
+export const RELAYED_BYTES_CAP = 10 * 1024 * 1024;
 
 /** The picture formats a browser draws, told apart by their first bytes rather than their
  * names, so a screenshot saved as `.dat` still shows. SVG is text and goes by extension. */
@@ -78,6 +80,16 @@ export function readPeek(raw: string, cwd?: string, imageCap = IMAGE_CAP_BYTES):
   if (isPdf(bytes)) return { ...base, truncated: false, binary: true, pdf: true, content: "" };
   const binary = bytes.subarray(0, 8192).includes(0);
   return { ...base, truncated: size > bytes.length, binary, content: binary ? "" : bytes.toString("utf8") };
+}
+
+/** A file's bytes, for a 3D view or a PDF that is parsed in Henry's page (`GET /api/file/bytes`).
+ * Unlike `/raw` it is an /api/* answer, so it relays to a peer and the phone's cookie covers it. */
+export function serveBytes(raw: string, cap?: number): Response {
+  const path = isAbsolute(raw) ? raw : "";
+  const st = path ? statSync(path, { throwIfNoEntry: false }) : undefined;
+  if (!st?.isFile()) return Response.json({ error: "not found" }, { status: 404 });
+  if (cap !== undefined && st.size > cap) return Response.json({ error: `${st.size} bytes, over the ${cap} a relayed file carries` }, { status: 413 });
+  return new Response(Bun.file(path), { headers: { "content-type": "application/octet-stream", "cache-control": "no-store" } });
 }
 
 export type WriteResult = { peek: FilePeek } | { error: string; status: number };

@@ -126,6 +126,7 @@ export function Model({ url, name }: { url: string; name: string }) {
     let gone = false;
     fetch(url)
       .then((r) => {
+        if (r.status === 413) throw new Error("over the 10 MB a file from another machine can carry");
         if (!r.ok) throw new Error(`could not read the file (${r.status})`);
         return r.arrayBuffer();
       })

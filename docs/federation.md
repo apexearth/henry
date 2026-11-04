@@ -37,7 +37,9 @@ until it is back. Two machines that both listen dial each other, so each window 
 - **A paired machine is you.** It can attach, type, start and kill sessions, read files in
   repos there, and send a session an image (`/api/attach`, the one write besides asking the
   overseer, carried as base64 because a relayed body is otherwise JSON text), exactly what a
-  window can. Pause or forget a peer from the remotes menu
+  window can. An answer that is neither JSON nor text (a 3D model's or PDF's bytes, read
+  whole, up to 10 MB so its base64 fits one 16 MB frame) comes back as base64 the same way.
+  Pause or forget a peer from the remotes menu
   (`henry peers forget <name>`); a forgotten key is refused at the next handshake. A peer
   whose address or port changed is re-pointed in place (menu "address", `henry peers url
   <name> <host[:port]>`): the URL is just where to dial, the pinned key is the identity.

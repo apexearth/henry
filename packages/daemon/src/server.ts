@@ -749,6 +749,7 @@ export async function handleApi(req: Request, url: URL, origin: ApiOrigin): Prom
         const idx = files.readDirIndex(url.searchParams.get("path") ?? "");
         return idx ? json(idx) : json({ error: "not a directory" }, 404);
       }
+      if (pathname === "/api/file/bytes") return files.serveBytes(url.searchParams.get("path") ?? "", fromPeer ? files.RELAYED_BYTES_CAP : undefined);
       if (pathname === "/api/file/diff") {
         const d = await git.fileDiff(url.searchParams.get("path") ?? "");
         return d ? json(d) : json({ error: "not in a repo" }, 404);

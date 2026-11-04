@@ -451,6 +451,19 @@ describe("two daemons", () => {
       fake.stop();
     }
   }, 30000);
+  test("a peer's model file crosses the link as bytes, up to the relay cap", async () => {
+    const model = new Uint8Array(9 * 1024 * 1024).map((_, i) => (i * 13) & 255);
+    const path = join(beta.home, "part.stl");
+    writeFileSync(path, model);
+    const res = await fetch(`${alpha.base}/api/file/bytes?peer=beta&path=${encodeURIComponent(path)}`);
+    expect(res.status).toBe(200);
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(model);
+    writeFileSync(path, new Uint8Array(11 * 1024 * 1024));
+    expect((await fetch(`${alpha.base}/api/file/bytes?peer=beta&path=${encodeURIComponent(path)}`)).status).toBe(413);
+    // Read here, the same file has no cap.
+    expect((await fetch(`${beta.base}/api/file/bytes?path=${encodeURIComponent(path)}`)).status).toBe(200);
+  }, 30000);
+
 
   test("a peer cannot reach our other peers through us", async () => {
     // gamma pairs with alpha only. beta, dialed in to alpha, must not see or drive gamma.

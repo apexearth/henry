@@ -50,7 +50,8 @@ interface Store {
 /** An http body is JSON text, or `bytes` (base64) with its own type: an image sent to a session. */
 export type FedRequest = ClientMessage | { type: "http"; id: string; method: string; path: string; body?: string; bytes?: string; contentType?: string };
 /** Frames a listener sends after the handshake. */
-export type FedResponse = ServerMessage | { type: "http:res"; id: string; status: number; contentType: string; body: string };
+/** A JSON or text answer is `body`; anything else (a file's bytes) is `bytes`, base64. */
+export type FedResponse = ServerMessage | { type: "http:res"; id: string; status: number; contentType: string; body: string; bytes?: string };
 
 export interface Deps extends LinkDeps {
   handleMessage(client: Client, msg: ClientMessage): Promise<void>;
@@ -375,6 +376,7 @@ class Inbound implements Client {
     let status = 500;
     let contentType = "text/plain";
     let body = "proxy failed";
+    let bytes: string | undefined;
     try {
       if (!msg.path.startsWith("/api/")) throw new Error("only /api/* is served to peers");
       const req =
@@ -388,11 +390,15 @@ class Inbound implements Client {
       const res = await deps.handleApi(req, true);
       status = res.status;
       contentType = res.headers.get("content-type") ?? "application/octet-stream";
-      body = await res.text();
+      if (/^(text\/|application\/json)/.test(contentType)) body = await res.text();
+      else {
+        body = "";
+        bytes = Buffer.from(await res.arrayBuffer()).toString("base64");
+      }
     } catch (e) {
       body = (e as Error).message;
     }
-    this.send({ type: "http:res", id: msg.id, status, contentType, body });
+    this.send({ type: "http:res", id: msg.id, status, contentType, body, bytes });
   }
 
   closed(): void {

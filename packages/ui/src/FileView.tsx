@@ -44,6 +44,15 @@ function rawServed(local: boolean): boolean {
   return local || !getState().sessions.find((x) => x.id === getState().activeSessionId)?.peer;
 }
 
+/** A 3D model's or PDF's bytes, parsed in Henry's own page, so unlike `/raw` they may come from
+ *  a peer's disk (relayed) or reach the phone. */
+function bytesUrl(path: string, local: boolean): string {
+  const q = new URLSearchParams({ path });
+  const peer = local ? undefined : getState().sessions.find((x) => x.id === getState().activeSessionId)?.peer;
+  if (peer) q.set("peer", peer);
+  return `/api/file/bytes?${q}`;
+}
+
 function rawUrl(path: string): string {
   const parts = path.replace(/\\/g, "/").replace(/^\/+/, "").split("/");
   return "/raw/" + parts.map((p) => encodeURIComponent(p).replace(/%3A/g, ":")).join("/");
@@ -247,10 +256,11 @@ export function FileView({ path, line, active, local = false, popped = false, ed
   const [saveState, setSaveState] = useState<{ busy?: boolean; error?: string; conflict?: boolean } | null>(null);
   const [nudge, setNudge] = useState(false);
   const editor = useRef<EditorHandle>(null);
-  // An STL (binary, or ASCII text) is a 3D view, read from `/raw` like a PDF.
+  // An STL (binary, or ASCII text) is a 3D view, its bytes read whole like a PDF's.
   const isStl = !!peek && !peek.image && /\.stl$/i.test(path);
-  const stlServed = isStl && rawServed(local);
-  const canEdit = editable && !!peek && !peek.binary && !peek.image && !peek.truncated && !stlServed
+  // Fixed when the peek opens: the machine is the one whose session was in view then.
+  const bytes = useMemo(() => bytesUrl(path, local), [path, local]);
+  const canEdit = editable && !!peek && !peek.binary && !peek.image && !peek.truncated && !isStl
     && !getState().sessions.find((x) => x.id === getState().activeSessionId)?.peer;
   // CodeMirror joins lines with LF whatever the file used; a CRLF file is compared and written
   // back in its own line ends, or it would read as edited on opening and come out changed.
@@ -405,9 +415,7 @@ export function FileView({ path, line, active, local = false, popped = false, ed
     window.addEventListener(FIND_EVENT, onFind);
     return () => window.removeEventListener(FIND_EVENT, onFind);
   }, [active]);
-  // A PDF's bytes come from `/raw`: same machine and listener rules as HTML.
   const isPdf = !!peek?.pdf;
-  const pdfServed = isPdf && rawServed(local);
   const [pdfOpen, setPdfOpen] = useState(loadPdfAuto);
   // 1 = the page fits the pane's width.
   const [pdfZoom, setPdfZoom] = useState(1);
@@ -419,7 +427,7 @@ export function FileView({ path, line, active, local = false, popped = false, ed
     setPdfFound(0);
   }, [path]);
   const found = useMemo(() => findAll(lines, find?.q ?? ""), [lines, find?.q]);
-  const nFound = pdfServed && pdfOpen ? pdfFound : found.at.length;
+  const nFound = isPdf && pdfOpen ? pdfFound : found.at.length;
   const curIdx = find && nFound ? ((find.n % nFound) + nFound) % nFound : -1;
   const curAt = curIdx >= 0 ? found.at[curIdx] : undefined;
   useEffect(() => {
@@ -495,13 +503,13 @@ export function FileView({ path, line, active, local = false, popped = false, ed
           {peek?.image
             ? `${peek.image.slice(6).replace("+xml", "").replace("x-icon", "ico")}${dims ? ` · ${dims.w}×${dims.h}` : ""} · ${fmtSize(peek.size)}`
             : peek?.pdf ? `pdf · ${fmtSize(peek.size)}`
-            : isStl && (stlServed || peek.binary) ? `stl · ${fmtSize(peek!.size)}`
+            : isStl ? `stl · ${fmtSize(peek!.size)}`
             : peek ? `${lines.length} lines · ${fmtSize(peek.size)}${peek.truncated ? " · truncated" : ""}` : peek === null ? "not found" : "loading…"}
         </span>
         {imgSrc && dims && (
           <button className="peek-back" onClick={() => setFit((f) => !f)} title={fit ? "show at actual size" : "fit to the pane"}>{fit ? "1:1" : "fit"}</button>
         )}
-        {pdfServed && pdfOpen && (
+        {isPdf && pdfOpen && (
           <span className="peek-zoom" title="zoom (⌘+scroll over the page)">
             <input type="range" min={Math.log(PDF_ZOOM_MIN)} max={Math.log(PDF_ZOOM_MAX)} step={0.01} value={Math.log(pdfZoom)}
               onChange={(e) => setPdfZoom(clampZoom(Math.exp(Number(e.target.value))))} />
@@ -561,24 +569,22 @@ export function FileView({ path, line, active, local = false, popped = false, ed
         )}
         {peek?.image && !imgSrc && <div className="peek-note">{peek.truncated ? `Image is ${fmtSize(peek.size)}, over what a peek carries.` : "Empty image file."}</div>}
         {peek?.binary && !peek.image && !isPdf && !isStl && <div className="peek-note">Binary file, nothing to show.</div>}
-        {isStl && !stlServed && peek!.binary && <div className="peek-note">3D models are shown only in a Henry window on the machine that holds them.</div>}
-        {stlServed && (
+        {isStl && (
           <div className="peek-pane peek-html">
             <Suspense fallback={<div className="peek-note">loading the 3D view…</div>}>
-              <Model url={rawUrl(peek!.path)} name={name} />
+              <Model url={bytes} name={name} />
             </Suspense>
           </div>
         )}
-        {isPdf && !pdfServed && <div className="peek-note">PDFs are shown only in a Henry window on the machine that holds them.</div>}
-        {pdfServed && !pdfOpen && (
+        {isPdf && !pdfOpen && (
           <div className="peek-note">
             PDF, {fmtSize(peek!.size)}, not rendered yet. <button onClick={() => setPdfOpen(true)}>view</button>
             <div style={{ marginTop: 8, fontSize: 11 }}>Settings can render PDFs as soon as they open.</div>
           </div>
         )}
-        {pdfServed && pdfOpen && (
+        {isPdf && pdfOpen && (
           <div className="peek-pane peek-html">
-            <PdfFrame path={peek!.path} title={name} zoom={pdfZoom} onZoom={setPdfZoom} find={find} onFound={setPdfFound} />
+            <PdfFrame url={bytes} title={name} zoom={pdfZoom} onZoom={setPdfZoom} find={find} onFound={setPdfFound} />
           </div>
         )}
         {editing && peek && showSource && (
@@ -588,7 +594,7 @@ export function FileView({ path, line, active, local = false, popped = false, ed
             </Suspense>
           </div>
         )}
-        {peek && !peek.binary && !peek.image && !stlServed && showSource && !editing && (
+        {peek && !peek.binary && !peek.image && !isStl && showSource && !editing && (
           <pre className="peek-pane">
             {lines.map((t, i) => (
               <Line key={i} no={i + 1} text={t} html={html && i < html.length ? html[i] : undefined} hit={i + 1 === line}
@@ -617,9 +623,9 @@ export function FileView({ path, line, active, local = false, popped = false, ed
 }
 
 /** Opaque origin (sandbox without allow-same-origin): pdf.js runs there, never as Henry. The
- *  bytes are read here, where `/raw` is same-origin, and handed over with the library. */
+ *  bytes are read here, where the API is same-origin, and handed over with the library. */
 interface PdfFrameProps {
-  path: string;
+  url: string;
   title: string;
   zoom: number;
   onZoom: (f: (z: number) => number) => void;
@@ -627,7 +633,7 @@ interface PdfFrameProps {
   onFound: (count: number) => void;
 }
 
-function PdfFrame({ path, title, zoom, onZoom, find, onFound }: PdfFrameProps) {
+function PdfFrame({ url, title, zoom, onZoom, find, onFound }: PdfFrameProps) {
   const ref = useRef<HTMLIFrameElement>(null);
   const now = useRef({ zoom, find, onZoom, onFound });
   now.current = { zoom, find, onZoom, onFound };
@@ -660,7 +666,10 @@ function PdfFrame({ path, title, zoom, onZoom, find, onFound }: PdfFrameProps) {
     unlisten.current = () => host?.removeEventListener("message", onMsg);
     const f = now.current.find;
     frame?.postMessage({ find: f?.q ?? "", n: f?.n ?? 0 }, "*");
-    Promise.all([loadPdfJs(), fetch(rawUrl(path)).then((r) => r.arrayBuffer())])
+    Promise.all([loadPdfJs(), fetch(url).then((r) => {
+      if (!r.ok) throw new Error(`could not read the file (${r.status})`);
+      return r.arrayBuffer();
+    })])
       .then(([{ lib, worker }, data]) => {
         frame?.postMessage({ lib, worker, data }, "*", [data]);
         frame?.postMessage({ zoom: now.current.zoom }, "*");
@@ -669,7 +678,7 @@ function PdfFrame({ path, title, zoom, onZoom, find, onFound }: PdfFrameProps) {
   };
   useEffect(() => ref.current?.contentWindow?.postMessage({ zoom }, "*"), [zoom]);
   useEffect(() => ref.current?.contentWindow?.postMessage({ find: find?.q ?? "", n: find?.n ?? 0 }, "*"), [find?.q, find?.n]);
-  return <iframe ref={ref} key={path} srcDoc={PDF_FRAME} sandbox="allow-scripts" title={title} onLoad={onLoad} />;
+  return <iframe ref={ref} key={url} srcDoc={PDF_FRAME} sandbox="allow-scripts" title={title} onLoad={onLoad} />;
 }
 
 function clampZoom(z: number): number {
