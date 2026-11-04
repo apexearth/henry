@@ -18,7 +18,7 @@ import { showSession } from "../dock";
 import { focusTerminal } from "../Terminal";
 import { isMac } from "../platform";
 import { cssVar, onTheme } from "../theme";
-import { toWav16k } from "../voice-audio";
+import { pcmToWav16k, Segmenter, tapNode, toWav16k } from "../voice-audio";
 import { createSession, getState, send, useStore, whenSession } from "../ws";
 
 const SAMPLE_RATE = 16_000;
@@ -35,6 +35,11 @@ const MAX_MS = 60_000;
  * window left alone.
  */
 const WARM_MS = 60_000;
+/** A right-option press shorter than this is a tap, and a tap keeps dictation on until the next. */
+const TAP_MS = 300;
+/** Continuous dictation turns itself off after this long without a word, so a window left
+ * alone does not keep a microphone open for days. */
+const IDLE_OFF_MS = 10 * 60_000;
 
 /** Kept in localStorage rather than the daemon: this is what *this window* heard and said, and
  * it should survive a reload the way the rest of the layout does. Capped so it cannot grow
@@ -68,7 +73,8 @@ function loadTurns(): Turn[] {
   }
 }
 
-type Phase = "idle" | "arming" | "recording" | "thinking" | "speaking";
+/** "streaming" is continuous dictation: listening, cutting at pauses, typing as it goes. */
+type Phase = "idle" | "arming" | "recording" | "thinking" | "speaking" | "streaming";
 /** Who the held key is talking to: Henry, or the session you are looking at. */
 type Mode = "ask" | "dictate";
 
@@ -115,6 +121,20 @@ export function VoicePanel() {
   // The key handlers are bound once; they read the phase here rather than close over a stale one.
   const phaseRef = useRef<Phase>("idle");
   phaseRef.current = phase;
+  /** When right option went down, to tell a tap from a hold. */
+  const pressedAt = useRef(0);
+  /** Set by a tap: the hold it began ends in continuous dictation rather than a clip. */
+  const latch = useRef(false);
+  /** The right-option release after a press that turned dictation off: swallowed, not a hold. */
+  const swallowUp = useRef(false);
+  /** Continuous dictation's audio graph, while it runs. */
+  const live = useRef<{ mic: MediaStream; src: MediaStreamAudioSourceNode; node: AudioWorkletNode; seg: Segmenter; idle: ReturnType<typeof setInterval>; heardAt: number } | null>(null);
+  /** Clips are transcribed one at a time, so the words land in the order they were said. */
+  const chain = useRef<Promise<void>>(Promise.resolve());
+  const [pending, setPending] = useState(0);
+  /** The log entry a run of continuous dictation writes into, one per run. */
+  const streamTurn = useRef<string | null>(null);
+  const unmounted = useRef(false);
 
   useEffect(() => {
     fetch("/api/voice/status")
@@ -319,6 +339,14 @@ export function VoicePanel() {
   useEffect(
     () => () => {
       discard.current = true;
+      unmounted.current = true;
+      const run = live.current;
+      live.current = null;
+      if (run) {
+        clearInterval(run.idle);
+        run.node.port.onmessage = null;
+        run.src.disconnect();
+      }
       if (stopTimer.current) clearTimeout(stopTimer.current);
       const rec = recorder.current;
       recorder.current = null;
@@ -347,10 +375,12 @@ export function VoicePanel() {
           return;
         }
         const mic = await streamOf();
-        // Released during the handshake: that was a tap, not a hold. The device is open by now,
-        // so it has to be quieted and scheduled for release exactly as a finished hold would be —
-        // otherwise a mistimed tap leaves the microphone live for the life of the panel.
+        // Released during the handshake. A tap of the dictation key latches it on; anything else
+        // leaves the device open by now, so it has to be quieted and scheduled for release exactly
+        // as a finished hold would be — otherwise a mistimed tap leaves the microphone live for
+        // the life of the panel.
         if (!held.current) {
+          if (latch.current) return void beginStream(mic);
           idleMic(mic);
           setPhase("idle");
           return;
@@ -360,8 +390,9 @@ export function VoicePanel() {
         chunks.current = [];
         rec.ondataavailable = (e) => e.data.size && chunks.current.push(e.data);
         rec.onstop = () => {
-          idleMic(mic);
           listenTo(null);
+          if (latch.current) return void beginStream(mic);
+          idleMic(mic);
           if (discard.current) return;
           // Read now, not from the closure: shift may have joined the hold after it started.
           void deliver(new Blob(chunks.current, { type: rec.mimeType }), modeRef.current, getState().activeSessionId);
@@ -372,6 +403,7 @@ export function VoicePanel() {
         setPhase("recording");
         stopTimer.current = setTimeout(() => stop(), MAX_MS);
       } catch (e) {
+        latch.current = false;
         // Same reason: the throw may have come from MediaRecorder, after the device was opened.
         if (stream.current) idleMic(stream.current);
         setError(e instanceof Error ? e.message : "microphone unavailable");
@@ -397,6 +429,95 @@ export function VoicePanel() {
     stop();
     setPhase("idle");
   }, [stop]);
+
+  /**
+   * Continuous dictation on an open microphone: raw audio through a worklet into the segmenter,
+   * which cuts a clip at each pause; each clip is transcribed and typed in while you keep
+   * talking. Typed, never sent, as with a hold.
+   */
+  async function beginStream(mic: MediaStream) {
+    latch.current = false;
+    if (unmounted.current) return;
+    try {
+      const ctx = context();
+      await ctx.resume();
+      for (const t of mic.getTracks()) t.enabled = true;
+      const src = ctx.createMediaStreamSource(mic);
+      const seg = new Segmenter(ctx.sampleRate, (clip) => queueClip(clip, ctx.sampleRate));
+      const node = await tapNode(ctx, (block) => seg.push(block));
+      src.connect(node);
+      listenTo(src);
+      streamTurn.current = null;
+      live.current = {
+        mic,
+        src,
+        node,
+        seg,
+        heardAt: Date.now(),
+        idle: setInterval(() => {
+          if (live.current && Date.now() - live.current.heardAt > IDLE_OFF_MS) stopStream("stopped after ten quiet minutes");
+        }, 30_000),
+      };
+      setError(null);
+      setPhase("streaming");
+    } catch (e) {
+      idleMic(mic);
+      fail(e instanceof Error ? e.message : "microphone unavailable");
+    }
+  }
+
+  /** The button's way in: no key to tap, so open the device and go straight to listening. */
+  async function startStream() {
+    if (phaseRef.current !== "idle" || !ready?.ready) return;
+    if (!navigator.mediaDevices?.getUserMedia) return fail("this browser has no microphone API");
+    setError(null);
+    setPhase("arming");
+    try {
+      await beginStream(await streamOf());
+    } catch (e) {
+      fail(e instanceof Error ? e.message : "microphone unavailable");
+    }
+  }
+
+  /** Stop listening. What was said since the last pause is still transcribed and typed in. */
+  function stopStream(note?: string) {
+    const run = live.current;
+    live.current = null;
+    if (!run) return;
+    clearInterval(run.idle);
+    run.seg.flush();
+    run.node.port.onmessage = null;
+    run.src.disconnect();
+    listenTo(null);
+    idleMic(run.mic);
+    if (note) setError(note);
+    setPhase("idle");
+  }
+
+  /** One clip into the queue. The target is the session in view when the pause came. */
+  function queueClip(clip: Float32Array, rate: number) {
+    if (live.current) live.current.heardAt = Date.now();
+    const target = getState().activeSessionId;
+    setPending((n) => n + 1);
+    chain.current = chain.current.then(async () => {
+      try {
+        if (!target) return setError("no active session to type into");
+        const text = await hear(await pcmToWav16k(clip, rate), target);
+        if (!text || unmounted.current) return;
+        // No focus moves: you may be reading or clicking elsewhere while you talk, and the words
+        // go to the session in view anyway. The trailing space joins the next clip's words on.
+        send({ type: "pty:input", sessionId: target, data: text + " " });
+        const went = getState().sessions.find((s) => s.id === target)?.title;
+        const id = streamTurn.current;
+        if (id) setTurns((prev) => prev.map((t) => (t.id === id ? { ...t, said: `${t.said} ${text}`, went } : t)));
+        else streamTurn.current = addTurn({ id: crypto.randomUUID(), at: Date.now(), kind: "dictate", said: text, went, note: "dictated as you talked — press Enter to send" });
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setPending((n) => n - 1);
+      }
+    });
+  }
 
   async function deliver(blob: Blob, m: Mode, target: string | null) {
     setPhase("thinking");
@@ -540,7 +661,16 @@ export function VoicePanel() {
       // every accented character on an EU layout opens the microphone.
       if (e.code === "AltRight" && !e.ctrlKey && phaseRef.current === "idle") {
         if (!isMac) e.preventDefault();
+        pressedAt.current = performance.now();
         void start(e.shiftKey ? "ask" : "dictate");
+        return;
+      }
+      // While dictation is latched on, the same key turns it off; nothing else touches it.
+      if (e.code === "AltRight" && !e.ctrlKey && phaseRef.current === "streaming") {
+        if (!isMac) e.preventDefault();
+        swallowUp.current = true;
+        // Any render's stopStream will do: it reads only refs.
+        stopStream();
         return;
       }
       if (phaseRef.current !== "recording" && phaseRef.current !== "arming") return;
@@ -555,11 +685,22 @@ export function VoicePanel() {
       if (!MODIFIERS.has(e.code)) cancel();
     };
     const up = (e: KeyboardEvent) => {
+      if (e.code === "AltRight" && swallowUp.current) {
+        swallowUp.current = false;
+        if (!isMac) e.preventDefault();
+        return;
+      }
       // "arming" counts: a release during the mic handshake must still end the hold.
       if (phaseRef.current !== "recording" && phaseRef.current !== "arming") return;
       // The hold is the option key, whichever destination it ended up pointing at.
       if (e.code !== "AltRight") return;
       if (!isMac) e.preventDefault();
+      // A tap is too short to have said anything: it means "keep listening", and the clip it
+      // started is dropped on the way into continuous dictation.
+      if (modeRef.current === "dictate" && performance.now() - pressedAt.current < TAP_MS) {
+        latch.current = true;
+        discard.current = true;
+      }
       stop();
     };
     // A hold that survives the window losing focus would leave the microphone open.
@@ -585,7 +726,9 @@ export function VoicePanel() {
           ? "thinking…"
           : phase === "speaking"
             ? "speaking"
-            : warm
+            : phase === "streaming"
+              ? `dictating — pause and it types${pending ? " · transcribing…" : ""}`
+              : warm
               ? "hold to talk — mic ready"
               : "hold to talk";
 
@@ -594,7 +737,7 @@ export function VoicePanel() {
       <canvas ref={canvas} style={{ width: "100%", height: 48, flex: "0 0 auto" }} />
       <div style={{ display: "flex", gap: 6, alignItems: "stretch", position: "relative" }}>
       <button
-        onPointerDown={() => void start("ask")}
+        onPointerDown={() => (phase === "streaming" ? stopStream() : void start("ask"))}
         onPointerUp={stop}
         onPointerLeave={() => phase === "recording" && stop()}
         disabled={!ready?.ready || phase === "thinking" || phase === "speaking"}
@@ -606,8 +749,8 @@ export function VoicePanel() {
           padding: "8px 12px",
           borderRadius: 6,
           border: "1px solid var(--border)",
-          background: phase === "recording" ? "var(--warn)" : "var(--bg-alt)",
-          color: phase === "recording" ? "var(--bg)" : phase === "arming" ? "var(--fg-dim)" : "var(--fg)",
+          background: phase === "recording" || phase === "streaming" ? "var(--warn)" : "var(--bg-alt)",
+          color: phase === "recording" || phase === "streaming" ? "var(--bg)" : phase === "arming" ? "var(--fg-dim)" : "var(--fg)",
           cursor: ready?.ready ? "pointer" : "not-allowed",
           font: "inherit",
           flex: 1,
@@ -630,6 +773,24 @@ export function VoicePanel() {
           </kbd>
         )}
       </button>
+      {ready?.ready && (
+        <button
+          onClick={() => (phase === "streaming" ? stopStream() : void startStream())}
+          disabled={phase !== "idle" && phase !== "streaming"}
+          title={phase === "streaming" ? "stop listening" : `keep listening and type into the session in view at every pause (or tap ${DICTATE_KEY})`}
+          style={{
+            padding: "0 10px",
+            borderRadius: 6,
+            border: "1px solid var(--border)",
+            background: phase === "streaming" ? "var(--warn)" : "var(--bg-alt)",
+            color: phase === "streaming" ? "var(--bg)" : "var(--fg)",
+            cursor: "pointer",
+            font: "inherit",
+          }}
+        >
+          {phase === "streaming" ? "stop" : "dictate"}
+        </button>
+      )}
       {ready?.ready && (
         <div
           onMouseEnter={() => openVocab(true)}
@@ -662,7 +823,7 @@ export function VoicePanel() {
         </div>
       )}
       </div>
-      {ready?.ready && <div style={{ color: "var(--fg-dim)", fontSize: 11 }}>{DICTATE_KEY} types into the session instead</div>}
+      {ready?.ready && <div style={{ color: "var(--fg-dim)", fontSize: 11 }}>{DICTATE_KEY} types into the session instead: hold for one thought, tap to keep listening</div>}
       {ready && !ready.ready && <div style={{ color: "var(--fg-dim)", fontSize: 12 }}>{ready.reason}</div>}
       {error && <div style={{ color: "var(--warn)", fontSize: 12 }}>{error}</div>}
       {/* Newest first. The log is read at a glance mid-task, so the thing just said is at the
@@ -839,7 +1000,7 @@ function Vocabulary({ anchor, onEnter, onLeave }: { anchor: DOMRect; onEnter: ()
 }
 
 function strokeFor(phase: Phase): string {
-  if (phase === "recording") return cssVar("--warn") || "#d29922";
+  if (phase === "recording" || phase === "streaming") return cssVar("--warn") || "#d29922";
   if (phase === "arming") return cssVar("--fg-dim") || "#8b949e";
   return cssVar("--accent") || "#6ea8fe";
 }

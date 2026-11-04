@@ -4,9 +4,15 @@ The first slice of "Henry as an interlocutor" (PLAN.md), done by voice: hold a k
 panel, ask a question, hear an answer. `daemon/src/voice.ts` owns the round trip; the panel
 records and plays.
 
-- **Push-to-talk, not a wake word.** The key release ends the utterance, so there is no voice
-  activity detection to tune, and the microphone is live only while a key is down. A tool that
-  already watches every repo you touch does not get a permanently open mic by default.
+- **Push-to-talk, or a tap that latches dictation on; never a wake word.** A held key ends the
+  utterance on release. A tap of the dictation key (under 300 ms), or the panel's "dictate"
+  button, keeps the microphone open until the next tap: a worklet hands raw audio to a
+  segmenter that cuts a clip at each pause (700 ms, shorter once a clip passes 15 s, and a hard
+  cut at 25 s), and each clip is transcribed and typed into the session in view at the moment
+  of the pause, in order, unsent, without moving focus. Raw samples rather than MediaRecorder,
+  because restarting a recorder to cut a clip loses the audio in between. The mic is open only
+  because you turned it on, shown in the warn colour the whole time, and it turns itself off
+  after ten minutes without a word.
 - **Its own system prompt, not the overseer's.** The overseer writes to be *read*: backticks
   around every name, `HEADLINE:`/`CHANGED:` labels, bullets. All of that is unspeakable. Voice
   shares the overseer's per-session description (`sessionDetail`: summary, latest entries,
