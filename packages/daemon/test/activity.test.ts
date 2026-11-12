@@ -174,6 +174,26 @@ describe("activity", () => {
     expect(s.activity).toBe("working");
   });
 
+  test("a background agent working after the turn ended is not the session working", () => {
+    const t0 = Date.now();
+    activity.note(s.id, "UserPromptSubmit", {}, t0);
+    activity.note(s.id, "Stop", {}, t0 + 1);
+    expect(s.activity).toBe("waiting");
+    activity.note(s.id, "PreToolUse", { tool_name: "Bash", tool_use_id: "s1", agent_id: "sub" }, t0 + 2);
+    activity.note(s.id, "PostToolUse", { tool_name: "Bash", tool_use_id: "s1", agent_id: "sub" }, t0 + 3);
+    expect(s.activity).toBe("waiting");
+    // Its permission prompt still needs me.
+    activity.note(s.id, "PreToolUse", { tool_name: "Bash", tool_use_id: "s2", agent_id: "sub" }, t0 + 4);
+    activity.note(s.id, "Notification", { message: "Claude needs your permission" }, t0 + 5);
+    expect(s.activity).toBe("needsInput");
+    // Answered: the move is mine again, not the agent's work.
+    activity.note(s.id, "PostToolUse", { tool_name: "Bash", tool_use_id: "s2", agent_id: "sub" }, t0 + 6);
+    expect(s.activity).toBe("waiting");
+    // The main thread acting again (a wake-up turn) is working.
+    activity.note(s.id, "PreToolUse", { tool_name: "Read", tool_use_id: "m" }, t0 + 7);
+    expect(s.activity).toBe("working");
+  });
+
   test("a prompt belongs to the thread that made the latest call; other threads are heartbeats", () => {
     const t0 = Date.now();
     // Main thread: an Agent call (never prompts) and a Bash that does. A subagent keeps reading.

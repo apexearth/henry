@@ -90,6 +90,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
     if (c.retentionDays !== config.retentionDays) out.retentionDays = c.retentionDays;
     if (JSON.stringify(c.overseer) !== JSON.stringify(config.overseer)) out.overseer = c.overseer;
     if (JSON.stringify(c.rules) !== JSON.stringify(config.rules)) out.rules = c.rules;
+    if (c.voice.announce !== config.voice.announce) out.voice = { ...config.voice, announce: c.voice.announce };
     return out;
   };
   const dirty = Object.keys(changes()).length > 0;
@@ -145,6 +146,13 @@ export function Settings({ onClose }: { onClose: () => void }) {
             <NotifyToggle id="notify-settings" />
             <div style={{ ...st.note, marginLeft: 0, paddingTop: 4 }}>
               An OS notification from this browser when a session opens a permission prompt or asks a question, ends a turn after real work, or asks for you by name — never for the session you are looking at. Sessions on paired machines included. Per browser, and on as soon as you tick it.
+            </div>
+            <div style={st.check}>
+              <input id="announce" type="checkbox" checked={!!c.voice.announce} onChange={(e) => set({ voice: { ...c.voice, announce: e.target.checked } })} />
+              <label htmlFor="announce">say what it did or wants, in one spoken line</label>
+            </div>
+            <div style={{ ...st.note, marginLeft: 0, paddingTop: 4 }}>
+              A few seconds after the chime, a small model ({c.voice.announceModel ?? "claude-haiku-5-5"}, on the playbook's backend) reads the end of that session's conversation and Henry says the result or what it needs from you; the line also replaces the notification's text. One model call per notice. Spoken in windows with the sound on. Saved for every window.
             </div>
           </Section>
 

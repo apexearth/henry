@@ -353,7 +353,7 @@ function openable(repos: OpenTarget[]): string {
  * always means the one in the session being worked in. Thinking blocks are dropped (they are
  * not what anyone means by the response) and tool calls collapse to their name.
  */
-function conversationTail(session: Session): string {
+export function conversationTail(session: Session): string {
   let turns;
   try {
     // Read wider than we keep: readHistory's limit counts sidechain lines too, and a turn that

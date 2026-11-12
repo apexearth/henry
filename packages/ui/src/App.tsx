@@ -15,6 +15,7 @@ import { Layout } from "./Layout";
 import { WindowBackdrop } from "./ContextSky";
 import { Setup } from "./Setup";
 import { onNotice } from "./notify";
+import { onNoticeChime } from "./chime";
 import { Settings } from "./Settings";
 import { Keys } from "./Keys";
 import { TopActivity } from "./TopActivity";
@@ -35,7 +36,7 @@ export function App({ access, onRetry }: { access: Access; onRetry: () => void }
   const mobile = useMobile();
   // Both shapes: a phone with a Henry tab open in the background is told the same way. A
   // session's own window leaves it to the main one, which knows every session.
-  useEffect(() => (soloSessionId ? undefined : subscribeNotices(onNotice)), []);
+  useEffect(() => (soloSessionId ? undefined : subscribeNotices((n) => (onNotice(n), onNoticeChime(n)))), []);
   if (!access.ok) return <Gate error={access.error} onRetry={onRetry} />;
   if (soloSessionId) return <Solo sessionId={soloSessionId} />;
   return mobile ? <MobileApp /> : <DesktopApp />;

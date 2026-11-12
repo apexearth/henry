@@ -12,7 +12,8 @@ records and plays.
   of the pause, in order, unsent, without moving focus. Raw samples rather than MediaRecorder,
   because restarting a recorder to cut a clip loses the audio in between. The mic is open only
   because you turned it on, shown in the warn colour the whole time, and it turns itself off
-  after ten minutes without a word.
+  after ten minutes without a word. Turning it off by hand (the button or the key) gives the
+  keyboard to the session in view, so Enter sends; the ten-minute timeout moves nothing.
 - **Its own system prompt, not the overseer's.** The overseer writes to be *read*: backticks
   around every name, `HEADLINE:`/`CHANGED:` labels, bullets. All of that is unspeakable. Voice
   shares the overseer's per-session description (`sessionDetail`: summary, latest entries,
@@ -111,6 +112,15 @@ records and plays.
   the context is fetched fresh for every question, and the prompt says which wins when the two
   disagree.
 - **Off by default** (`voice.enabled`), like the overseer: it costs an LLM call per question.
+- **Henry says what finished, unprompted, when asked to** (`voice.announce`, a tick under
+  Settings → notifications; `daemon/announce.ts`). Each local notice except a reminder waits
+  1.5 s for the transcript to land, hands the same conversation tail to a small model
+  (`voice.announceModel`, Haiku by default, on the overseer's backend) with why it stopped,
+  and gets one sentence back: what it needs from you, or the result. The notice goes out again
+  with that line and its audio; windows with the sound on speak it once, one line at a time,
+  under the chime's quiet rule, and the OS notification swaps its text for the line. A newer
+  notice for the same session cancels a line still being written. It needs the speaker and the
+  backend, not `voice.enabled` or whisper. Peers relay the line like any notice.
 
 - **A phone records too, and that is what `phone.tls` is for.** A browser gives no microphone to
   an insecure origin — `navigator.mediaDevices` is not merely blocked, it is undefined — so the

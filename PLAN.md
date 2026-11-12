@@ -21,7 +21,7 @@ area's doc is edited to say the new rule — edited, not appended to.
   prompt nor after the retention sweep. The chat runs only when asked, so unlike the playbook
   it can default on.
 - **Voice, still to do**: word-level highlighting as Henry speaks (needs per-word timings,
-  which no stock Kokoro ONNX export emits), and speaking Stop-hook answers unprompted.
+  which no stock Kokoro ONNX export emits).
 - **Web Push for the phone in a pocket.** Notices reach a phone only while a Henry tab is open;
   iOS shows nothing from a page at all. Background delivery is a manifest (Add to Home Screen),
   a service worker, VAPID keys and subscriptions in `~/.henry`, and the daemon POSTing to the

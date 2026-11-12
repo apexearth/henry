@@ -24,6 +24,7 @@ import { backfillPresence, humanStats, notePresence } from "./human";
 import * as hooks from "./hooks";
 import * as mcp from "./mcp";
 import * as notify from "./notify";
+import * as announce from "./announce";
 import * as overseer from "./overseer";
 import * as phone from "./phone";
 import { revealSpec } from "./platform";
@@ -403,7 +404,11 @@ export async function startServer(): Promise<void> {
   activity.start();
   // After it: the replay walks each session through its old transitions, and none of those
   // are news.
-  notify.setBroadcast(broadcast);
+  notify.setBroadcast((m) => {
+    broadcast(m);
+    if (m.type === "notify") announce.onNotice(m.notice);
+  });
+  announce.setBroadcast(broadcast);
   notify.start();
   engagement.start();
   seen.start();

@@ -37,6 +37,8 @@ describe("decide", () => {
     // A two-second wake-up turn ending is news, because the stretch began with the first turn.
     const woke = decide({ activity: "working", activitySince: T + 300_000, busySince: T }, session("waiting", T + 302_000), T + 302_000);
     expect(woke?.kind).toBe("waiting");
+    // A turn of real work ending into background work is news: it often ended by asking you something.
+    expect(decide({ activity: "working", activitySince: T }, session("background", T + MIN_WORKED_MS), T + MIN_WORKED_MS)?.body).toContain("background");
     // So is the hold running out on work that never reports back.
     expect(decide({ activity: "background", activitySince: T }, session("waiting", T + 1_200_000), T + 1_200_000)?.kind).toBe("waiting");
   });

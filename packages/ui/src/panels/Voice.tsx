@@ -479,7 +479,9 @@ export function VoicePanel() {
     }
   }
 
-  /** Stop listening. What was said since the last pause is still transcribed and typed in. */
+  /** Stop listening. What was said since the last pause is still transcribed and typed in.
+   * Stopping by hand hands the keyboard to the session in view, so Enter sends what was said;
+   * the idle timeout (`note`) moves nothing, since you may be anywhere by then. */
   function stopStream(note?: string) {
     const run = live.current;
     live.current = null;
@@ -491,6 +493,10 @@ export function VoicePanel() {
     listenTo(null);
     idleMic(run.mic);
     if (note) setError(note);
+    else {
+      const target = getState().activeSessionId;
+      if (target) requestAnimationFrame(() => focusTerminal(target));
+    }
     setPhase("idle");
   }
 

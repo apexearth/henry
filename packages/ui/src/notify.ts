@@ -3,6 +3,7 @@
 // it out loud, and shows it. Off until the user turns it on — asking for permission unbidden
 // is how a site gets blocked for good — and per browser, since the permission is.
 import type { Notice } from "@henry/shared";
+import { chimeWanted } from "./chime";
 import { showSession } from "./dock";
 import { useSyncExternalStore } from "react";
 import { getState, setActive } from "./ws";
@@ -49,7 +50,9 @@ export function onNotice(n: Notice): void {
   const title = n.peer ? `${n.title} · ${n.peer}` : n.title;
   // One per session: a second notice for the same session replaces the first rather than
   // stacking, and two windows on this machine raise one, not two.
-  const note = new Notification(title, { body: n.body, tag: `henry:${n.sessionId}`, silent: n.kind === "waiting" });
+  // A notice that comes back with `said` (daemon/announce.ts) replaces its own first showing
+  // with the line, quietly: it already made its sound.
+  const note = new Notification(title, { body: n.said ?? n.body, tag: `henry:${n.sessionId}`, silent: !!n.said || chimeWanted() || n.kind === "waiting" });
   note.onclick = () => {
     window.focus();
     setActive(n.sessionId);
