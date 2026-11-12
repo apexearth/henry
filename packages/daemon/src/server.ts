@@ -31,6 +31,7 @@ import { revealSpec } from "./platform";
 import * as seen from "./seen";
 import { sessions } from "./sessions";
 import * as voice from "./voice";
+import { sessionWrites } from "./written";
 
 const uiDist = join(import.meta.dir, "../../ui/dist");
 const ALL = "all";
@@ -709,6 +710,7 @@ export async function handleApi(req: Request, url: URL, origin: ApiOrigin): Prom
         return c ? json(c) : json({ error: "no such commit" }, 404);
       }
       if (pathname === "/api/session/files") return json(await git.sessionFiles(url.searchParams.get("sessionId") ?? ""));
+      if (pathname === "/api/session/writes") return json(sessionWrites(url.searchParams.get("sessionId") ?? ""));
       // A bare list for ⌘K; with `ignored=1` the tree's listing, which also keeps the folder
       // watched while a window keeps asking (filewatch.ts).
       if (pathname === "/api/repo/files") {

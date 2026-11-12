@@ -106,6 +106,9 @@ export async function vocabulary(sessionId?: string): Promise<VocabTerm[]> {
   const add = (term: string, source: VocabTerm["source"]) => {
     const key = squash(term);
     if (!key || key.length < 2 || seen.has(key)) return;
+    // TODO.md, ISSUES.md, README: a file named in capitals is an ordinary word spelled by a
+    // filename convention. Primed with it, whisper and canonicalize shout "to-do" back as TODO.
+    if (source !== "you" && shouting(term)) return;
     seen.add(key);
     out.push({ term, source });
   };
@@ -148,6 +151,8 @@ export function biasFrom(terms: VocabTerm[]): { prompt: string; used: VocabTerm[
 
 /** Letters and digits only: "sub-squid", "Sub Squid" and "subsquid" all come down to the same. */
 const squash = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+/** Capitals and no lower case: "TODO", "ISSUES", "CLAUDE_MD". */
+const shouting = (s: string) => /[A-Z]/.test(s) && !/[a-z]/.test(s);
 
 /**
  * Put known words back the way they are spelled.
@@ -159,8 +164,11 @@ const squash = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
  * lands in a session when you dictate.
  */
 export function canonicalize(text: string, terms: VocabTerm[]): string {
-  const byKey = new Map<string, string>();
-  for (const t of terms) if (squash(t.term)) byKey.set(squash(t.term), t.term);
+  const byKey = new Map<string, VocabTerm>();
+  for (const t of terms) {
+    if (!squash(t.term) || (t.source !== "you" && shouting(t.term))) continue;
+    byKey.set(squash(t.term), t);
+  }
   if (!byKey.size) return text;
   const tokens = text.split(/(\s+)/);
   const words = tokens.map((t, i) => (i % 2 === 0 ? t : null));
@@ -173,7 +181,10 @@ export function canonicalize(text: string, terms: VocabTerm[]): string {
       const core = trail ? joined.slice(0, -trail.length) : joined;
       const hit = byKey.get(squash(core));
       if (!hit || squash(core).length < 3) continue;
-      words[i] = hit + trail;
+      // Whisper's word differing only in case ("issues" against Issues.tsx) is an English word
+      // whisper already cased for the sentence. Only your own vocabulary overrides that.
+      if (n === 1 && hit.source !== "you" && core.toLowerCase() === hit.term.toLowerCase()) break;
+      words[i] = hit.term + trail;
       for (let k = i + 1; k < i + n * 2 - 1; k++) words[k] = "";
       i += (n - 1) * 2;
       break;

@@ -535,6 +535,22 @@ export interface ChangedFile {
   mtime?: number;
 }
 
+/** GET /api/session/writes: files the session's Write/Edit calls wrote, newest write first. */
+export interface SessionWrites {
+  sessionId: string;
+  /** Your last prompt to the session, ms. A file written at or after it is that prompt's. */
+  promptAt?: number;
+  files: {
+    /** Absolute. */
+    path: string;
+    /** Its latest write, ms. */
+    at: number;
+    /** The checkout it is in, and its path there with forward slashes. */
+    repo?: string;
+    rel?: string;
+  }[];
+}
+
 /** GET /api/session/files: every repo the session touched (plus the one its cwd is in). */
 export interface SessionFiles {
   sessionId: string;

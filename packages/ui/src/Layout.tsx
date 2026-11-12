@@ -8,7 +8,7 @@ import { ContextSky } from "./ContextSky";
 import { FileView } from "./FileView";
 import { FilesPane } from "./FilesPane";
 import { BoundFlags, BoundHistory, BoundPlaybook, BoundUsage, useSessionFlags } from "./panels/bound";
-import { VoicePanel } from "./panels/Voice";
+import { ChangesPanel } from "./panels/Changes";
 import { setActive, useStore } from "./ws";
 import { usePoppedOut } from "./popout";
 import { buildDefaultLayout, dropPoppedPanels, ensureSessionPanel, henryTheme, isFilePanel, isTerminalGroup, loadLayout, migrateRestoredLayout, noteActivePanel, saveLayout, sessionTitle, setDockApi, styleTerminalGroup, TERM_PREFIX, termPanelId } from "./dock";
@@ -133,7 +133,9 @@ const components = {
   flags: FlagsDock,
   playbook: PlaybookDock,
   usage: UsageDock,
-  voice: VoicePanel,
+  changes: ChangesPanel,
+  // Retired (dock.ts RETIRED): restores from a saved layout, then is removed.
+  voice: () => null,
 };
 
 export function Layout() {

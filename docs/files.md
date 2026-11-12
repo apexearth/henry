@@ -17,6 +17,15 @@ pops a peek out into a window of its own (dockview's popout group on `/popout.ht
 panel moves, the app's state stays shared, the theme follows); closing that window closes
 the peek.
 
+**The Changes pane is what the last prompt wrote.** Under the tool tabs, it lists the files
+the session in view wrote through Write, Edit, MultiEdit or NotebookEdit, newest write first:
+the ones written since your last prompt (Claude Code's own wake-up prompts do not count) at
+full strength, earlier ones dimmed beneath a rule, 40 files in all. A click peeks the file.
+`GET /api/session/writes?sessionId=` reads it off the `PostToolUse` hooks (`daemon/written.ts`),
+so a file the session changed only through Bash is not listed, and a denied call, which posts
+nothing, is not either. It refetches on each prompt or tool result the window sees for the
+session, and when its activity moves.
+
 **Diffs show what is uncommitted**, against HEAD: once you commit, the change leaves the
 diff, and what the session committed lives in its `+n` log instead. `GET
 /api/file/diff?sessionId=&path=` returns the one-file unified diff (untracked files against

@@ -2,13 +2,15 @@
 // working, on one line, always there. Left, the session you are looking at: model, context
 // meter, tokens, spend. Right, the subscription: the 7d window with its reset, one per
 // machine you are paired with (each daemon meters its own), the machine of the session
-// you are looking at first. Nothing here is a view you switch to; every item is a shortcut to
-// the Usage tab, which has the per-session table and the words.
+// you are looking at first. Nothing here is a view you switch to; every gauge is a shortcut to
+// the Usage tab, which has the per-session table and the words. Between them sits voice
+// (VoiceStrip) with its small waveform.
 import { useEffect, useState } from "react";
 import type { RateWindow, SessionUsage } from "@henry/shared";
 import { showTool } from "./dock";
 import { barColor, contextFraction, DEFAULT_CONTEXT_WINDOW, fmtCountdown, fmtTokens, hostRows, shortModel, type HostRow } from "./panels/Usage";
 import { hueText, nameHue } from "./theme";
+import { VoiceStrip } from "./VoiceStrip";
 import { useStore } from "./ws";
 
 const open = () => showTool("usage");
@@ -100,6 +102,8 @@ export function StatusBar() {
           <button className="sb-item" onClick={open} title={`estimated cost $${u.costUsd.toFixed(4)}`}>${u.costUsd.toFixed(2)}</button>
         </div>
       )}
+      <span style={{ flex: 1 }} />
+      <VoiceStrip />
       <span style={{ flex: 1 }} />
       {usage.updatedAt ? (
         hosts.map((h) => <HostRates key={h.name} row={h} alone={hosts.length === 1} now={now} />)

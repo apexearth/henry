@@ -1,6 +1,7 @@
-// Talking to Henry. Hold right option to dictate into the session you are in, or shift with it
-// to ask Henry instead; the button does the same as the latter. On release the clip goes to
-// /api/voice/transcribe, and an ask follows it with /api/voice/answer for the spoken reply.
+// Talking to Henry, from the status strip. Hold right option to dictate into the session you
+// are in, or shift with it to ask Henry instead; holding "voice" in the strip does the latter.
+// On release the clip goes to /api/voice/transcribe, and an ask follows it with
+// /api/voice/answer for the spoken reply.
 //
 // Two calls rather than one so the words appear as soon as the ear is done (about a second)
 // instead of after the model has finished several seconds later.
@@ -9,17 +10,18 @@
 // in Chrome) and whisper.cpp wants 16 kHz mono PCM, so the clip is decoded and rendered through
 // an OfflineAudioContext here rather than shelling out to ffmpeg on the daemon's two platforms.
 //
-// The canvas shows whichever side is making sound — the microphone while recording, Henry's
-// own output while speaking — off one AnalyserNode wired to whichever source is live.
+// The small canvas beside "voice" shows whichever side is making sound — the microphone
+// while recording, Henry's own output while speaking — off one AnalyserNode wired to whichever
+// source is live.
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import type { VocabTerm, VoiceReply, VoiceVocabulary } from "@henry/shared";
-import { showSession } from "../dock";
-import { focusTerminal } from "../Terminal";
-import { isMac } from "../platform";
-import { cssVar, onTheme } from "../theme";
-import { pcmToWav16k, Segmenter, tapNode, toWav16k } from "../voice-audio";
-import { createSession, getState, send, useStore, whenSession } from "../ws";
+import { showSession } from "./dock";
+import { focusTerminal } from "./Terminal";
+import { isMac } from "./platform";
+import { cssVar, onTheme } from "./theme";
+import { pcmToWav16k, Segmenter, tapNode, toWav16k } from "./voice-audio";
+import { createSession, getState, send, useStore, whenSession } from "./ws";
 
 const SAMPLE_RATE = 16_000;
 /** A held key that never comes back up should not record forever. */
@@ -41,36 +43,11 @@ const TAP_MS = 300;
  * alone does not keep a microphone open for days. */
 const IDLE_OFF_MS = 10 * 60_000;
 
-/** Kept in localStorage rather than the daemon: this is what *this window* heard and said, and
- * it should survive a reload the way the rest of the layout does. Capped so it cannot grow
- * without bound in a window left open for days. */
-const STORAGE_KEY = "henry.voice.v1";
-const MAX_TURNS = 50;
-
-/** One exchange, as the panel shows it: what you said, what came back, where it took you. */
-interface Turn {
-  id: string;
-  at: number;
-  kind: Mode;
-  /** What whisper heard — written as soon as it is known, before the answer exists. */
-  said: string;
-  /** Henry's answer; absent while it is still thinking. */
-  heard?: string;
-  /** The session it switched to, or dictated into. */
-  went?: string;
-  /** The message Henry put in another session's prompt on your behalf. */
-  relayed?: string;
-  note?: string;
-}
-
-function loadTurns(): Turn[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    const parsed = raw ? (JSON.parse(raw) as Turn[]) : [];
-    return Array.isArray(parsed) ? parsed.slice(-MAX_TURNS) : [];
-  } catch {
-    return [];
-  }
+// The panel kept a log of every exchange here; it has none now, so drop what an old one left.
+try {
+  localStorage.removeItem("henry.voice.v1");
+} catch {
+  // private mode
 }
 
 /** "streaming" is continuous dictation: listening, cutting at pauses, typing as it goes. */
@@ -86,10 +63,11 @@ const DICTATE_KEY = isMac ? "right ⌥" : "right alt";
 const MODIFIERS = new Set(["ShiftLeft", "ShiftRight", "AltLeft", "AltRight", "ControlLeft", "ControlRight", "MetaLeft", "MetaRight", "CapsLock"]);
 const isShift = (code: string) => code === "ShiftLeft" || code === "ShiftRight";
 
-export function VoicePanel() {
+export function VoiceStrip() {
   const [phase, setPhase] = useState<Phase>("idle");
-  const [turns, setTurns] = useState<Turn[]>(loadTurns);
   const [error, setError] = useState<string | null>(null);
+  /** Henry's last answer, shown only when it came back without audio to speak it. */
+  const [reply, setReply] = useState<string | null>(null);
   /** The mic is open and instant. Shown, because a held-open device should never be a secret. */
   const [warm, setWarm] = useState(false);
   const [mode, setModeState] = useState<Mode>("dictate");
@@ -132,8 +110,6 @@ export function VoicePanel() {
   /** Clips are transcribed one at a time, so the words land in the order they were said. */
   const chain = useRef<Promise<void>>(Promise.resolve());
   const [pending, setPending] = useState(0);
-  /** The log entry a run of continuous dictation writes into, one per run. */
-  const streamTurn = useRef<string | null>(null);
   const unmounted = useRef(false);
 
   useEffect(() => {
@@ -222,25 +198,6 @@ export function VoicePanel() {
     setModeState(m);
   }, []);
 
-  // Functional updates throughout: these are called from a recorder callback captured by an
-  // earlier render, which must not append to the log as it was when that render ran.
-  const addTurn = useCallback((t: Turn) => {
-    setTurns((prev) => [...prev, t].slice(-MAX_TURNS));
-    return t.id;
-  }, []);
-
-  const updateTurn = useCallback((id: string, patch: Partial<Turn>) => {
-    setTurns((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
-  }, []);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(turns));
-    } catch {
-      // quota or private mode: the log just won't survive a reload
-    }
-  }, [turns]);
-
   // One analyser, repointed at whatever is currently making sound.
   const listenTo = useCallback((node: AudioNode | null) => {
     const ctx = context();
@@ -254,7 +211,9 @@ export function VoicePanel() {
     if (node) node.connect(analyser.current);
   }, []);
 
-  // The waveform. Runs whenever the panel is mounted; an idle analyser just draws a flat line.
+  // The waveform: a small box of its own beside "voice" in the strip, not behind the strip's
+  // text, where a line through the gauges read as strikethrough.
+  const audible = phase === "recording" || phase === "streaming" || phase === "speaking";
   useEffect(() => {
     let raf = 0;
     // Resolved once per phase (and again when the theme moves) rather than every frame:
@@ -262,7 +221,6 @@ export function VoicePanel() {
     let stroke = strokeFor(phase);
     const offTheme = onTheme(() => (stroke = strokeFor(phase)));
     const draw = () => {
-      raf = requestAnimationFrame(draw);
       const el = canvas.current;
       const a = analyser.current;
       if (!el) return;
@@ -277,12 +235,14 @@ export function VoicePanel() {
       ctx2d.clearRect(0, 0, width, height);
       const mid = height / 2;
       ctx2d.strokeStyle = stroke;
-      ctx2d.lineWidth = 1.5;
+      ctx2d.lineWidth = 1.2;
       ctx2d.beginPath();
-      if (!a) {
+      // Silent: one flat line, drawn once. Frames run only while there is sound.
+      if (!audible || !a) {
         ctx2d.moveTo(0, mid);
         ctx2d.lineTo(width, mid);
       } else {
+        raf = requestAnimationFrame(draw);
         const buf = new Uint8Array(a.fftSize);
         a.getByteTimeDomainData(buf);
         for (let i = 0; i < buf.length; i++) {
@@ -298,7 +258,8 @@ export function VoicePanel() {
       cancelAnimationFrame(raf);
       offTheme();
     };
-  }, [phase]);
+    // `ready`: the canvas mounts only once the status is known, after the first idle draw.
+  }, [phase, audible, ready]);
 
   /** The live capture stream, kept warm between holds. Tracks are off unless a hold is open. */
   const streamOf = useCallback(async (): Promise<MediaStream> => {
@@ -360,6 +321,7 @@ export function VoicePanel() {
     async (m: Mode) => {
       if (phase !== "idle" || !ready?.ready) return;
       setError(null);
+      setReply(null);
       setMode(m);
       held.current = true;
       // Set before the await: opening a device is not instant, and the one thing worse than a
@@ -447,7 +409,6 @@ export function VoicePanel() {
       const node = await tapNode(ctx, (block) => seg.push(block));
       src.connect(node);
       listenTo(src);
-      streamTurn.current = null;
       live.current = {
         mic,
         src,
@@ -513,10 +474,6 @@ export function VoicePanel() {
         // No focus moves: you may be reading or clicking elsewhere while you talk, and the words
         // go to the session in view anyway. The trailing space joins the next clip's words on.
         send({ type: "pty:input", sessionId: target, data: text + " " });
-        const went = getState().sessions.find((s) => s.id === target)?.title;
-        const id = streamTurn.current;
-        if (id) setTurns((prev) => prev.map((t) => (t.id === id ? { ...t, said: `${t.said} ${text}`, went } : t)));
-        else streamTurn.current = addTurn({ id: crypto.randomUUID(), at: Date.now(), kind: "dictate", said: text, went, note: "dictated as you talked — press Enter to send" });
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       } finally {
@@ -531,16 +488,14 @@ export function VoicePanel() {
       const wav = await toWav16k(await blob.arrayBuffer(), context());
       if (m === "dictate") return await dictate(wav, target);
 
-      // The question goes into the log as soon as the ear is done; the answer fills in beside it.
       const question = await hear(wav);
       if (!question) return fail("nothing heard");
-      const id = addTurn({ id: crypto.randomUUID(), at: Date.now(), kind: "ask", said: question });
 
       const res = await fetch("/api/voice/answer", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: question }) });
       const body = (await res.json()) as VoiceReply & { error?: string };
       if (!res.ok) throw new Error(body.error ?? `answer failed (${res.status})`);
-      const relayed = body.action?.kind === "type" || body.action?.kind === "open" ? body.action.text : undefined;
-      updateTurn(id, { heard: body.text, went: body.action?.title, note: body.reason, relayed });
+      // Spoken when there is audio; written only when there is not, or it would be lost.
+      if (!body.audio && body.text) setReply(body.text);
       // Act before speaking: the sentence describes what has already happened.
       if (body.action?.kind === "switch") showSession(body.action.sessionId);
       // Typed, never submitted. A relayed message still needs a person to send it, which is what
@@ -569,8 +524,6 @@ export function VoicePanel() {
     // Trailing space: two holds in a row are one sentence continuing, and without it the second
     // one arrives welded to the first ("...three.Wow, it's").
     typeInto(sessionId, text + " ");
-    const title = getState().sessions.find((s) => s.id === sessionId)?.title;
-    addTurn({ id: crypto.randomUUID(), at: Date.now(), kind: "dictate", said: text, went: title, note: "typed in — press Enter to send" });
     setPhase("idle");
   }
 
@@ -726,141 +679,74 @@ export function VoicePanel() {
       ? "opening mic…"
       : phase === "recording"
         ? mode === "dictate"
-          ? "listening — release to type it in"
-          : "listening — release to ask Henry"
+          ? "listening → session"
+          : "listening → Henry"
         : phase === "thinking"
           ? "thinking…"
           : phase === "speaking"
             ? "speaking"
             : phase === "streaming"
-              ? `dictating — pause and it types${pending ? " · transcribing…" : ""}`
-              : warm
-              ? "hold to talk — mic ready"
-              : "hold to talk";
+              ? `dictating${pending ? " · transcribing…" : ""}`
+              : "voice";
+  const hot = phase === "recording" || phase === "streaming";
+  const message = error ?? reply;
 
+  // Lives in the status strip (StatusBar), which is always mounted: the keys work with no pane
+  // open.
   return (
-    <div className="voice-panel" style={{ display: "flex", flexDirection: "column", gap: 8, padding: 10, height: "100%", boxSizing: "border-box" }}>
-      <canvas ref={canvas} style={{ width: "100%", height: 48, flex: "0 0 auto" }} />
-      <div style={{ display: "flex", gap: 6, alignItems: "stretch", position: "relative" }}>
-      <button
-        onPointerDown={() => (phase === "streaming" ? stopStream() : void start("ask"))}
-        onPointerUp={stop}
-        onPointerLeave={() => phase === "recording" && stop()}
-        disabled={!ready?.ready || phase === "thinking" || phase === "speaking"}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: 8,
-          padding: "8px 12px",
-          borderRadius: 6,
-          border: "1px solid var(--border)",
-          background: phase === "recording" || phase === "streaming" ? "var(--warn)" : "var(--bg-alt)",
-          color: phase === "recording" || phase === "streaming" ? "var(--bg)" : phase === "arming" ? "var(--fg-dim)" : "var(--fg)",
-          cursor: ready?.ready ? "pointer" : "not-allowed",
-          font: "inherit",
-          flex: 1,
-        }}
-      >
-        <span>{label}</span>
-        {phase === "idle" && (
-          <kbd
-            style={{
-              font: "inherit",
-              fontSize: 11,
-              padding: "1px 6px",
-              borderRadius: 4,
-              border: "1px solid var(--border)",
-              background: "var(--bg)",
-              color: "var(--fg-dim)",
-            }}
-          >
-            {ASK_KEY}
-          </kbd>
-        )}
-      </button>
-      {ready?.ready && (
-        <button
-          onClick={() => (phase === "streaming" ? stopStream() : void startStream())}
-          disabled={phase !== "idle" && phase !== "streaming"}
-          title={phase === "streaming" ? "stop listening" : `keep listening and type into the session in view at every pause (or tap ${DICTATE_KEY})`}
-          style={{
-            padding: "0 10px",
-            borderRadius: 6,
-            border: "1px solid var(--border)",
-            background: phase === "streaming" ? "var(--warn)" : "var(--bg-alt)",
-            color: phase === "streaming" ? "var(--bg)" : "var(--fg)",
-            cursor: "pointer",
-            font: "inherit",
-          }}
-        >
-          {phase === "streaming" ? "stop" : "dictate"}
-        </button>
-      )}
-      {ready?.ready && (
-        <div
-          onMouseEnter={() => openVocab(true)}
-          onMouseLeave={() => openVocab(false)}
-          style={{ display: "flex", alignItems: "center" }}
-        >
+    <>
+      {ready && !ready.ready ? (
+        <span className="sb-item" title={ready.reason}>voice off</span>
+      ) : (
+        <>
+          <canvas ref={canvas} className="sb-wave" style={{ opacity: audible ? 1 : 0.4 }} />
           <button
-            ref={vocabButton}
-            aria-label="what it listens for"
-            title="what it listens for"
-            onClick={toggleVocabPin}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              width: 32,
-              alignSelf: "stretch",
-              borderRadius: 6,
-              border: "1px solid var(--border)",
-              background: showVocab ? "var(--accent-soft)" : "var(--bg-alt)",
-              color: showVocab ? "var(--accent)" : "var(--fg-dim)",
-              borderColor: pinned ? "var(--accent)" : "var(--border)",
-              cursor: "pointer",
-              font: "inherit",
-            }}
+            className="sb-item"
+            onPointerDown={() => (phase === "streaming" ? stopStream() : void start("ask"))}
+            onPointerUp={stop}
+            onPointerLeave={() => phase === "recording" && stop()}
+            disabled={!ready?.ready || phase === "thinking" || phase === "speaking"}
+            title={`hold here or ${ASK_KEY} to ask Henry; ${DICTATE_KEY} types into the session instead: hold for one thought, tap to keep listening${warm ? " (mic open and ready)" : ""}`}
+            style={{ color: hot ? "var(--warn)" : phase === "idle" ? undefined : "var(--fg)", fontWeight: hot ? 600 : undefined }}
           >
-            <WordListIcon />
+            <span style={{ color: warm || hot ? "var(--warn)" : undefined }}>●</span>
+            {label}
           </button>
-          {showVocab && anchor && <Vocabulary anchor={anchor} onEnter={keepVocab} onLeave={() => openVocab(false)} />}
-        </div>
+          <button
+            className="sb-item"
+            onClick={() => (phase === "streaming" ? stopStream() : void startStream())}
+            disabled={!ready?.ready || (phase !== "idle" && phase !== "streaming")}
+            title={phase === "streaming" ? "stop listening" : `keep listening and type into the session in view at every pause (or tap ${DICTATE_KEY})`}
+            style={{ color: hot ? "var(--warn)" : undefined }}
+          >
+            {phase === "streaming" ? "stop" : "dictate"}
+          </button>
+          <span onMouseEnter={() => openVocab(true)} onMouseLeave={() => openVocab(false)} style={{ display: "flex", height: "100%" }}>
+            <button
+              ref={vocabButton}
+              className="sb-item"
+              aria-label="what it listens for"
+              title="what it listens for"
+              onClick={toggleVocabPin}
+              style={{ color: showVocab || pinned ? "var(--accent)" : undefined }}
+            >
+              <WordListIcon />
+            </button>
+            {showVocab && anchor && <Vocabulary anchor={anchor} onEnter={keepVocab} onLeave={() => openVocab(false)} />}
+          </span>
+        </>
       )}
-      </div>
-      {ready?.ready && <div style={{ color: "var(--fg-dim)", fontSize: 11 }}>{DICTATE_KEY} types into the session instead: hold for one thought, tap to keep listening</div>}
-      {ready && !ready.ready && <div style={{ color: "var(--fg-dim)", fontSize: 12 }}>{ready.reason}</div>}
-      {error && <div style={{ color: "var(--warn)", fontSize: 12 }}>{error}</div>}
-      {/* Newest first. The log is read at a glance mid-task, so the thing just said is at the
-          top where the eye already is, and everything behind it fades rather than competing. */}
-      <div style={{ overflowY: "auto", fontSize: 13, display: "flex", flexDirection: "column", gap: 10, flex: 1, minHeight: 0 }}>
-        {[...turns].reverse().map((t, i) => (
-          <div key={t.id} style={{ display: "flex", flexDirection: "column", gap: 3, opacity: Math.max(0.3, 1 - i * 0.18) }}>
-            <div style={{ color: "var(--fg-dim)", fontSize: 11 }}>
-              {new Date(t.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-              {t.kind === "dictate" ? " · dictated" : ""}
-              {t.went ? ` · ${t.went}` : ""}
-            </div>
-            <div style={{ color: "var(--fg-dim)" }}>“{t.said}”</div>
-            {t.heard && <div style={{ color: "var(--fg)" }}>{t.heard}</div>}
-            {t.relayed && (
-              <div style={{ borderLeft: "2px solid var(--accent)", paddingLeft: 6, color: "var(--fg-dim)", fontSize: 12 }}>{t.relayed}</div>
-            )}
-            {!t.heard && t.kind === "ask" && <div style={{ color: "var(--fg-dim)", fontStyle: "italic" }}>…</div>}
-            {t.note && <div style={{ color: "var(--fg-dim)", fontSize: 11 }}>{t.note}</div>}
-          </div>
-        ))}
-      </div>
-      {turns.length > 0 && (
+      {message && (
         <button
-          onClick={() => setTurns([])}
-          style={{ alignSelf: "flex-start", font: "inherit", fontSize: 11, padding: "2px 6px", background: "none", border: "none", color: "var(--fg-dim)", cursor: "pointer" }}
+          className="sb-item"
+          onClick={() => (setError(null), setReply(null))}
+          title={`${message}\n(click to dismiss)`}
+          style={{ color: error ? "var(--warn)" : "var(--fg)", flex: "0 1 auto", minWidth: 0, maxWidth: "40vw", overflow: "hidden" }}
         >
-          clear
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{message}</span>
         </button>
       )}
-    </div>
+    </>
   );
 }
 
