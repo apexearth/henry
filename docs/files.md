@@ -7,9 +7,11 @@ path in terminal output (relative paths resolve against the session's cwd; on a 
 does it) or a file header in a diff and the file opens read-only over the session, in the
 same stage group (on a phone, as a full-screen sheet), with its own slim header (path, repo,
 +added −deleted vs baseline, size, ×). A `path:line` reference
-scrolls to and tints that line. The stage is a strip: the session at position 0, its peeks
-to the right; ⌘←/→ walk it, Esc (or ×) closes the peek in view, and closing the last one
-lands on the session that was showing. Peeks are per window, never restored with the
+scrolls to and tints that line. One peek at a time: opening another replaces the one in the
+stage, so a run of clicked images never leaves a row of ×s behind. A peek open in the editor
+is the exception and stays beside the new one until you close it. ⌘←/→ walk between the
+session and its peeks, Esc (or ×) closes the peek in view, and closing the last one lands on
+the session that was showing. Peeks are per window, never restored with the
 layout, served by `GET /api/file?path=&cwd=` (1 MB cap, binary detection). ⧉ in the header
 pops a peek out into a window of its own (dockview's popout group on `/popout.html`: the
 panel moves, the app's state stays shared, the theme follows); closing that window closes

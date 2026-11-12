@@ -276,6 +276,14 @@ export function setPeekSink(fn: typeof peekSink): () => void {
   };
 }
 
+/** Peeks open in the editor. They survive the next peek replacing the others. */
+const held = new Set<string>();
+export function holdPeek(path: string, hold: boolean) {
+  if (hold) held.add(filePanelId(path));
+  else held.delete(filePanelId(path));
+}
+
+/** One peek at a time: a new one replaces the ones already in the stage, except those held. */
 export function peekFile(path: string, line?: number) {
   if (!api) return void peekSink?.({ path, line });
   const g = stageGroup();
@@ -285,9 +293,10 @@ export function peekFile(path: string, line?: number) {
   if (existing) {
     existing.api.updateParameters({ path, line });
     existing.api.setActive();
-    return;
+  } else {
+    api.addPanel({ id, component: "file", title: baseName(path), params: { path, line }, position: { referenceGroup: g.id, direction: "within" } });
   }
-  api.addPanel({ id, component: "file", title: baseName(path), params: { path, line }, position: { referenceGroup: g.id, direction: "within" } });
+  for (const p of [...g.panels]) if (p.id !== id && isFilePanel(p.id) && !held.has(p.id)) api.removePanel(p);
 }
 
 export function closePeek(id?: string) {
