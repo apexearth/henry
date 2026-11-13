@@ -83,6 +83,12 @@ through that machine's peers, so one phone reaches every Henry the desk reaches.
   the edge, except while the keyboard is up. Everything pressed down there is at least 44px tall,
   and the page itself never scrolls or bounces, so a drag that starts between two buttons moves
   nothing.
+- **The app sits on the visual viewport, not the layout one.** Focusing the composer, iOS pans
+  the visual viewport down by about the keyboard's height to show the box, and sometimes leaves
+  that pan behind when the keyboard closes. The app, the drawer, the sheet, a peek and the
+  picker are fixed at the visual viewport's top and as tall as it (`--m-vtop`, `--m-vh`), so the
+  composer stays just above the keyboard and no overlay hangs half off screen. Pinch-zoomed,
+  both hold still, so the zoomed page can be panned.
 - **📎 is the phone's paste for images.** The session cannot reach a phone's clipboard, so a
   picked photo (library, camera or file) goes to `POST /api/attach`, and the daemon writes it
   under `~/.henry/attachments/<session>/` and answers with the path. The line sent carries the

@@ -712,12 +712,14 @@ html:not([data-platform="mac"]) ::-webkit-scrollbar-button { display: none; widt
 
 /* ---- the phone layout (mobile/Mobile.tsx) ----
    One session on screen, the two rails behind ☰ and ⋮, and a composer instead of a keyboard
-   fighting xterm. --m-vh is the visual viewport (useMobile.ts): the height left over once the
-   on-screen keyboard has taken its share, which 100dvh does not know about.
+   fighting xterm. --m-vh and --m-vtop are the visual viewport (useMobile.ts): the height left
+   over once the on-screen keyboard has taken its share, which 100dvh does not know about, and
+   how far the browser has panned it down to show a focused box. The app and everything over it
+   are fixed at that top, so the composer stays at the bottom of what is on screen.
    The page runs edge to edge (viewport-fit=cover), so the safe-area insets are real numbers
    here, and each edge pads itself by its own. */
 html.m-lock, html.m-lock body { overflow: hidden; overscroll-behavior: none; }
-.m-app { display: flex; flex-direction: column; height: var(--m-vh, 100dvh); overflow: hidden; padding: 0 env(safe-area-inset-right) 0 env(safe-area-inset-left); }
+.m-app { position: fixed; left: 0; right: 0; top: var(--m-vtop, 0px); display: flex; flex-direction: column; height: var(--m-vh, 100dvh); overflow: hidden; padding: 0 env(safe-area-inset-right) 0 env(safe-area-inset-left); }
 .m-top { display: flex; align-items: center; gap: 2px; padding: env(safe-area-inset-top) 4px 0; height: calc(44px + env(safe-area-inset-top)); flex: none; border-bottom: 1px solid var(--border); background: var(--bg-2); }
 .m-icon { position: relative; background: none; border: none; color: var(--fg-dim); font-size: 17px; line-height: 1; min-width: 44px; height: 40px; border-radius: 5px; }
 .m-icon:active { background: var(--bg-3); color: var(--fg); }
@@ -794,8 +796,8 @@ html.m-lock, html.m-lock body { overflow: hidden; overscroll-behavior: none; }
    layout viewport's bottom, which on an iPhone can sit behind Safari's toolbar, and the drawer's
    footer — the grouping and "+ topic" — went with it. */
 .m-scrim { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 20; }
-.m-drawer { position: fixed; top: 0; left: 0; height: var(--m-vh, 100dvh); width: min(86vw, 340px); z-index: 21; background: var(--bg-2); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: env(safe-area-inset-top) 0 0 env(safe-area-inset-left); overscroll-behavior: contain; }
-.m-sheet { position: fixed; left: 0; right: 0; top: calc(var(--m-vh, 100dvh) * 0.2); height: calc(var(--m-vh, 100dvh) * 0.8); z-index: 21; background: var(--bg-2); border-top: 1px solid var(--border); border-radius: 10px 10px 0 0; display: flex; flex-direction: column; padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+.m-drawer { position: fixed; top: var(--m-vtop, 0px); left: 0; height: var(--m-vh, 100dvh); width: min(86vw, 340px); z-index: 21; background: var(--bg-2); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: env(safe-area-inset-top) 0 0 env(safe-area-inset-left); overscroll-behavior: contain; }
+.m-sheet { position: fixed; left: 0; right: 0; top: calc(var(--m-vtop, 0px) + var(--m-vh, 100dvh) * 0.2); height: calc(var(--m-vh, 100dvh) * 0.8); z-index: 21; background: var(--bg-2); border-top: 1px solid var(--border); border-radius: 10px 10px 0 0; display: flex; flex-direction: column; padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
 .m-sheet-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 6px 6px 12px; flex: none; border-bottom: 1px solid var(--border); color: var(--fg-dim); font-size: 12px; }
 .m-sheet-top span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .m-tabs { display: flex; gap: 4px; padding: 6px; flex: none; overflow-x: auto; }
@@ -803,7 +805,7 @@ html.m-lock, html.m-lock body { overflow: hidden; overscroll-behavior: none; }
 .m-tab.on { background: var(--bg-3); border-color: var(--border); color: var(--fg); }
 .m-sheet-body { flex: 1; overflow: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
 /* A file peek fills the screen, above the sheet that may have opened it; its own ← and × close it. */
-.m-peek { position: fixed; inset: 0; z-index: 22; background: var(--bg); padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+.m-peek { position: fixed; left: 0; right: 0; top: var(--m-vtop, 0px); height: var(--m-vh, 100dvh); z-index: 22; background: var(--bg); padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
 /* The rail in the drawer takes what is left under the drawer's own header, so its footer is on
    screen. The list keeps every drag it starts: chaining one into the locked page let iOS take the
    rest of the gesture, and the list moved half a row and stopped until the finger came back.
@@ -825,7 +827,9 @@ html.m-lock, html.m-lock body { overflow: hidden; overscroll-behavior: none; }
 .m-drawer .rail-foot { padding: 4px 12px max(16px, calc(env(safe-area-inset-bottom) + 8px)); font-size: 13px; gap: 4px 12px; }
 .m-drawer .rail-groupby, .m-drawer .rail-foot .rail-toggle { min-height: 44px; font-size: 16px; color: var(--fg); }
 .m-drawer .rail-menu button { min-height: 44px; font-size: 16px; }
-.m-drawer .modal-bg { padding-top: 6vh; }
+.m-drawer .modal-bg { top: var(--m-vtop, 0px); bottom: auto; height: var(--m-vh, 100dvh); padding-top: 6vh; }
+.m-drawer .modal { max-height: calc(var(--m-vh, 100dvh) * 0.85); }
+.m-drawer .modal .list { overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
 /* The settings tab: the desk's toggles at a size a thumb can use. */
 .m-settings { padding: 8px 14px 16px; font-size: 13px; }
 .m-settings h4 { margin: 12px 0 6px; font-size: 11px; font-weight: normal; letter-spacing: .06em; text-transform: uppercase; color: var(--fg-dim); }

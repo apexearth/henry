@@ -65,22 +65,33 @@ export function useFontSize(): { fontSize: number; zoom: (by: number) => void } 
 }
 
 /**
- * The height the page can actually use. On a phone the on-screen keyboard covers the bottom of
- * the window without changing its height, so `100dvh` leaves the composer under the keyboard;
- * visualViewport is the part still on screen.
+ * The part of the page that is actually on screen. On a phone the on-screen keyboard covers the
+ * bottom of the window without changing its height, so `100dvh` leaves the composer under the
+ * keyboard; visualViewport is the part still showing. Its top matters as much as its height:
+ * focusing the composer, iOS pans the visual viewport down by about the keyboard's height to
+ * bring the box into view, and an app pinned to the layout viewport's top then shows its bottom
+ * edge near the top of the screen. iOS can also leave that pan behind after the keyboard closes,
+ * which pushed part of the drawer off screen. So the app and its overlays sit at `--m-vtop`.
+ * While pinch-zoomed the values hold still, so the zoomed page can be panned around.
  */
 export function useViewportHeight(): void {
   useEffect(() => {
     const vv = window.visualViewport;
     if (!vv) return;
-    const apply = () => document.documentElement.style.setProperty("--m-vh", `${Math.round(vv.height)}px`);
+    const root = document.documentElement.style;
+    const apply = () => {
+      if (vv.scale > 1.01) return;
+      root.setProperty("--m-vh", `${Math.round(vv.height)}px`);
+      root.setProperty("--m-vtop", `${Math.round(vv.offsetTop)}px`);
+    };
     apply();
     vv.addEventListener("resize", apply);
     vv.addEventListener("scroll", apply);
     return () => {
       vv.removeEventListener("resize", apply);
       vv.removeEventListener("scroll", apply);
-      document.documentElement.style.removeProperty("--m-vh");
+      root.removeProperty("--m-vh");
+      root.removeProperty("--m-vtop");
     };
   }, []);
 }
