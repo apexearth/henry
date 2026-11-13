@@ -45,6 +45,7 @@ henry/
       src/overseer.ts          # playbook writer (api | claude-cli backend)
       src/installer.ts         # settings.json merge/unmerge
       src/screen.ts            # a headless xterm per session; attach is answered with its serialised buffer
+      src/typing.ts            # long input into a PTY in paced pieces, one queue per session
       src/history.ts           # GET /api/history: a Claude session's turns, read from its transcript
       src/platform.ts          # the Windows switches: default shell, .cmd spawning, PATH key, shims
       hooks/henry-hook.sh      # tiny script installed into settings.json (henry-hook.mjs on Windows)

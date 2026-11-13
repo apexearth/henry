@@ -27,6 +27,14 @@ Where a session lives, how a window sees it, and what Henry spawns it with.
   no dependencies; a daemon restart re-seeds each emulator from the ring, which costs one
   imperfect reconstruction and is exact from the next byte on. `pty:scrollback` did not
   change shape, so windows and peers need to know none of this.
+- **Long input is typed, not pasted.** Claude Code reads a burst as a paste, and ConPTY hands
+  a burst of a few thousand characters over in several reads, of which Claude Code kept only
+  the last: a dictated paragraph from the phone arrived as its final few hundred characters.
+  So the daemon writes anything longer than 400 characters in pieces, cut at spaces, 50 ms
+  apart (`daemon/src/typing.ts`), which Claude Code reads as typing. Each session has its own
+  queue: writes behind a long one wait their turn, the first of them 150 ms after it, so the
+  composer's Enter never joins the line's last piece. A bracketed paste from a desk window goes
+  whole, since typing it would send its newlines as Enters.
 
 - **3–4 top-level sessions** is the design point. Subagents show under their parent.
 

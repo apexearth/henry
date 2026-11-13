@@ -16,6 +16,7 @@ import { syncLaunchMcp, writeLaunchBin, writeLaunchSettings } from "./installer"
 import { defaultShell, expandTilde, prependPath, programName, redrawByShrink, resolveClaude, spawnSpec, windowsBuild } from "./platform";
 import { screens } from "./screen";
 import { SessiondClient, type SessionSummary } from "./sessiond-client";
+import { Typist } from "./typing";
 
 export interface CreateOptions {
   cwd: string;
@@ -75,6 +76,11 @@ class SessionManager extends EventEmitter<SessionEvents> {
   readonly client: SessiondClient;
   private starting: Promise<void> | undefined;
   private started = false;
+  /** Long input goes in paced pieces (typing.ts). */
+  private typist = new Typist(
+    (id, data) => this.client.send({ op: "write", id, data }),
+    (id) => this.live.get(id)?.session.status === "running",
+  );
 
   constructor() {
     super();
@@ -319,7 +325,7 @@ class SessionManager extends EventEmitter<SessionEvents> {
   }
 
   write(id: string, data: string): void {
-    if (this.live.get(id)?.session.status === "running") this.client.send({ op: "write", id, data });
+    if (this.live.get(id)?.session.status === "running") this.typist.write(id, data);
   }
 
   /** `redraw`: the window just showed this terminal again and wants the program to repaint

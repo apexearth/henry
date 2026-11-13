@@ -76,6 +76,8 @@ through that machine's peers, so one phone reaches every Henry the desk reaches.
   scrolling the row, then tab, ←→, ⇧⏎, and ⌃C last and set apart — and a text box that sends a
   whole line at a time. The Enter goes a beat after the line, not with it: Claude Code
   reads a long burst as a paste and keeps a CR inside one as a newline, so the line never sent.
+  A long line reaches the session in paced pieces, however long the dictation (see
+  [sessions.md](sessions.md)).
 - **The bottom edge belongs to the phone.** The home indicator's swipe and Safari's toolbar live
   there, and a thumb reaching for a button on that edge gets the phone's gesture instead. The page
   runs edge to edge (`viewport-fit=cover`) so the safe-area insets are real, every edge pads by its
