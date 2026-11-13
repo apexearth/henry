@@ -431,9 +431,13 @@ describe("git", () => {
     });
     writeFileSync(join(repo, "ignored.txt"), "x\n");
     mkdirSync(join(repo, "empty-dir"));
+    // A folder holding only ignored files is an ignored folder, not an empty one.
+    mkdirSync(join(repo, "only-ignored"));
+    writeFileSync(join(repo, "only-ignored", "ignored.txt"), "x\n");
     const first = (await git.repoFiles(join(repo, "a.txt")))!;
     expect(first.root).toBe(repo);
     expect(first.ignored).toContain("ignored.txt");
+    expect(first.ignored).toContain("only-ignored/");
     expect(first.files).not.toContain("ignored.txt");
     expect(first.empty).toEqual(["empty-dir"]);
     // Asking for the tree's listing is what keeps the working tree watched.
@@ -454,6 +458,8 @@ describe("git", () => {
     unlinkSync(join(repo, "empty-dir", "made.txt"));
     rmdirSync(join(repo, "empty-dir"));
     unlinkSync(join(repo, "ignored.txt"));
+    unlinkSync(join(repo, "only-ignored", "ignored.txt"));
+    rmdirSync(join(repo, "only-ignored"));
     filewatch.stop();
   }, 20_000);
 

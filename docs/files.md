@@ -92,7 +92,8 @@ lives on those two.
 --directory` beside the files, so an ignored file is a dim row and a wholly ignored folder
 (`node_modules`, `.claude`) is one dim folder that reads its contents (`GET /api/fs/list`, one
 level) when opened. `⊘` leaves them out. Empty folders, which git lists nowhere, come from the
-same pass over untracked folders. `⊟` closes every folder.
+same pass over untracked folders; one holding only ignored files is an ignored folder, not an
+empty one, so `⊘` hides it too. `⊟` closes every folder.
 
 **HTML opens as a running page.** An `.html` peek is an iframe on `/raw/<path>`, which serves
 the file from disk, so its relative CSS, scripts and pictures load the way they would from

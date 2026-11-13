@@ -1046,7 +1046,10 @@ export async function repoFiles(anyPath: string): Promise<RepoFiles | undefined>
     const ignored = ign.code === 0 ? ign.out.split("\0").filter(Boolean).slice(0, IGNORED_CAP) : [];
     const holding = new Set<string>();
     for (const f of files) for (let at = f.indexOf("/"); at > 0; at = f.indexOf("/", at + 1)) holding.add(f.slice(0, at));
-    const empty = dirs.code === 0 ? dirs.out.split("\0").filter((p) => p.endsWith("/") && !holding.has(p.slice(0, -1))).map((p) => p.slice(0, -1)).slice(0, IGNORED_CAP) : [];
+    // A folder holding only ignored files is listed as untracked too; it is an ignored folder,
+    // not an empty one, or hiding ignored files would leave it in the tree.
+    const ignoredDirs = new Set(ignored.filter((p) => p.endsWith("/")));
+    const empty = dirs.code === 0 ? dirs.out.split("\0").filter((p) => p.endsWith("/") && !holding.has(p.slice(0, -1)) && !ignoredDirs.has(p)).map((p) => p.slice(0, -1)).slice(0, IGNORED_CAP) : [];
     ignoredCache.set(info.path, (hit = { at: Date.now(), ignored, empty }));
   }
   filewatch.interest(info.path, hit.ignored.filter((p) => p.endsWith("/")));
