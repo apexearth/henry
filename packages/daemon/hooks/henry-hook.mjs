@@ -2,6 +2,8 @@
 // Claude Code hook -> Henry daemon, for Windows (henry-hook.sh is the macOS/Linux twin; there
 // is no curl to lean on here and the hook runs under Git Bash or PowerShell). Never blocks,
 // never fails the tool call. settings.json: "command": "node <path>/henry-hook.mjs PreToolUse"
+// The daemon may answer with hook output for Claude Code (a prompt's topic context); that is
+// printed, and nothing else is.
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
@@ -27,12 +29,15 @@ try {
   // PowerShell may hand the JSON over with a byte-order mark in front.
   const payload = (text.charCodeAt(0) === 0xfeff ? text.slice(1) : text).trim() || "{}";
   const body = `{"henrySession":${JSON.stringify(process.env.HENRY_SESSION ?? "")},"henryHookEvent":${JSON.stringify(process.argv[2] ?? "")},"payload":${payload}}`;
-  await fetch(`http://127.0.0.1:${daemonPort()}/hook`, {
+  const res = await fetch(`http://127.0.0.1:${daemonPort()}/hook`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body,
     signal: AbortSignal.timeout(1000),
   });
+  const out = await res.text();
+  // Exit only once stdout has taken it: a pipe write can still be in flight when write returns.
+  if (out.startsWith('{"hookSpecificOutput"')) await new Promise((done) => process.stdout.write(out + "\n", done));
 } catch {
   // a stopped daemon costs the session nothing
 }

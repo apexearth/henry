@@ -29,6 +29,7 @@ import * as phone from "./phone";
 import { revealSpec } from "./platform";
 import * as seen from "./seen";
 import { sessions } from "./sessions";
+import * as topics from "./topics";
 import * as voice from "./voice";
 
 const uiDist = join(import.meta.dir, "../../ui/dist");
@@ -95,7 +96,12 @@ export function broadcast(msg: ServerMessage): void {
   // wants and not what a window wants: a window's table covers every session in its rail, so
   // replacing it with the local half blanks the context of every federated session until the
   // next update from that peer. Windows get the merged usage; peers get ours.
-  toWindows(msg.type === "usage:update" ? { type: "usage:update", usage: federation.mergeUsage(msg.usage) } : msg);
+  // The topic list is the same: a window holds every machine's, a peer is sent ours.
+  toWindows(
+    msg.type === "usage:update" ? { type: "usage:update", usage: federation.mergeUsage(msg.usage) }
+    : msg.type === "topics:update" ? { type: "topics:update", topics: federation.mergeTopics(msg.topics) }
+    : msg,
+  );
   federation.fanout(msg);
 }
 
@@ -142,7 +148,7 @@ export function buildState(): StateSnapshot {
   return federation.merge(localState());
 }
 
-/** What a peer is shown: our sessions, repos, flags, usage, playbook. Never the config (keys). */
+/** What a peer is shown: our sessions, repos, flags, usage, playbook, topics. Never the config (keys). */
 function peerState(): FedState {
   const { config: _config, uiBuild: _build, firstRun: _first, ...rest } = localState();
   return rest;
@@ -157,6 +163,7 @@ function localState(): StateSnapshot {
     repos: git.getAllSessionRepos(),
     flags: db.listFlags({ limit: federation.STATE_FLAGS }),
     attention: attention.open(),
+    topics: topics.list(),
     usage,
     playbook: db.listPlaybook(undefined, federation.STATE_PLAYBOOK),
     config,
@@ -223,8 +230,13 @@ async function handleMessage(client: Client, msg: ClientMessage): Promise<void> 
   // A session relayed from a paired machine: its link answers, in the same shapes. Not for a
   // peer, though: pairing is between two machines, and a peer must not reach our other peers
   // through us (its own pairing with them is the only way).
-  const link = "sessionId" in msg && msg.sessionId ? federation.linkOf(msg.sessionId) : undefined;
-  if (client.fromPeer && (link || (msg.type === "session:create" && msg.peer))) {
+  // A topic's machine is where its coordinator and members run; a session named alongside it
+  // decides first, since it can only join a topic on its own machine.
+  const link =
+    ("sessionId" in msg && msg.sessionId ? federation.linkOf(msg.sessionId) : undefined) ??
+    ("topicId" in msg && msg.topicId ? federation.linkOfTopic(msg.topicId) : undefined);
+  const elsewhere = (msg.type === "session:create" || msg.type === "topic:create") && !!msg.peer;
+  if (client.fromPeer && (link || elsewhere)) {
     console.error(`[fed] refused ${msg.type} from a peer aimed at another peer`);
     return;
   }
@@ -274,7 +286,10 @@ async function handleMessage(client: Client, msg: ClientMessage): Promise<void> 
       // A fork copies the conversation this daemon has on disk, so the source is looked up here.
       const source = msg.fork ? sessions.get(msg.fork) : undefined;
       if (msg.fork && !source?.claudeSessionId) return console.error(`[ws] session:create fork of ${msg.fork}: no Claude conversation to copy`);
+      // Looked up before the new row exists, which would carry the same Claude id.
+      const prior = msg.resume ? db.getSessionByClaudeId(msg.resume) : source;
       const session = await sessions.create({
+        ...topics.inherit(prior, !!msg.resume),
         cwd: source?.cwd ?? msg.cwd,
         title: msg.title,
         kind: source ? "claude" : msg.kind,
@@ -306,6 +321,23 @@ async function handleMessage(client: Client, msg: ClientMessage): Promise<void> 
     case "session:remind":
       seen.remind(msg.sessionId, msg.at);
       return;
+    case "topic:create":
+    case "topic:join":
+    case "topic:brief":
+    case "topic:rename":
+    case "topic:suggestion":
+    case "topic:coordinator":
+    case "topic:close": {
+      if (msg.type === "topic:create" && msg.peer) {
+        const remote = federation.linkNamed(msg.peer);
+        if (!remote) return console.error(`[ws] topic:create on ${msg.peer}: no such connected peer`);
+        remote.send({ ...msg, peer: undefined });
+        return;
+      }
+      const r = await topicMessage(msg);
+      if (!r.ok) console.error(`[ws] ${msg.type}: ${r.reason}`);
+      return;
+    }
     case "playbook:request":
       for (const entry of db.listPlaybook(msg.sessionId).reverse()) client.send({ type: "playbook:update", entry });
       return;
@@ -317,6 +349,25 @@ async function handleMessage(client: Client, msg: ClientMessage): Promise<void> 
     case "state:request":
       client.send({ type: "state", ...buildState() });
       return;
+  }
+}
+
+async function topicMessage(msg: Extract<ClientMessage, { type: `topic:${string}` }>): Promise<topics.Result<unknown>> {
+  switch (msg.type) {
+    case "topic:create":
+      return topics.create(msg.name, msg.sessionId);
+    case "topic:join":
+      return topics.join(msg.sessionId, msg.topicId);
+    case "topic:brief":
+      return topics.setBrief(msg.topicId, msg.brief);
+    case "topic:rename":
+      return topics.rename(msg.topicId, msg.name);
+    case "topic:suggestion":
+      return topics.answerSuggestion(msg.topicId, msg.sessionId, msg.accept);
+    case "topic:coordinator":
+      return topics.startCoordinator(msg.topicId);
+    case "topic:close":
+      return topics.close(msg.topicId);
   }
 }
 
@@ -346,7 +397,17 @@ function handleRemote(client: Client, msg: ClientMessage, link: PeerLink): void 
     case "repo:diff":
     case "session:seen":
     case "session:remind":
+    case "topic:join":
+    case "topic:brief":
+    case "topic:rename":
+    case "topic:suggestion":
+    case "topic:coordinator":
+    case "topic:close":
       link.send(msg);
+      return;
+    case "topic:create":
+      // With a session of that machine's: the topic is made there, around it.
+      link.send({ ...msg, peer: undefined });
       return;
   }
 }
@@ -413,6 +474,8 @@ export async function startServer(): Promise<void> {
   });
   attention.setWindowCount(windowCount);
   attention.start();
+  topics.setBroadcast(broadcast);
+  topics.start();
   // Held apart from the port so the alias listeners can reuse them verbatim.
   const opts = {
     hostname: "127.0.0.1",
@@ -426,7 +489,9 @@ export async function startServer(): Promise<void> {
       }
       if (req.method === "POST" && pathname === "/hook") {
         try {
-          hooks.ingestHook(await readJson(req));
+          // The script prints this for Claude Code (a prompt's topic context); anything else is ignored.
+          const out = hooks.hookOutput(hooks.ingestHook(await readJson(req)));
+          if (out) return json(out);
         } catch (e) {
           console.error("[hook] ingest failed:", e);
         }

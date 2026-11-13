@@ -5,6 +5,10 @@ How Claude Code's hooks, status line and transcript reach the daemon, and what b
 - **Henry never edits `~/.claude/settings.json` on its own.** `henry install`
   merges hooks + statusLine idempotently and preserves everything else.
   `henry uninstall` removes only what it added.
+- **A hook's only answer is a topic's context.** On `UserPromptSubmit`, for a session in a topic
+  whose brief, notes or members changed since its last prompt, `/hook` replies with
+  `additionalContext` and the script prints it. Every other reply is `{"ok":true}`, which the
+  scripts drop. Nothing Henry answers ever blocks or denies ([topics.md](topics.md)).
 
 ## Data flow
 

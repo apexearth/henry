@@ -31,6 +31,10 @@ export interface CreateOptions {
   cols?: number;
   rows?: number;
   parentSessionId?: string;
+  /** Appended to the Claude flags Henry adds (a coordinator's system prompt and tool limits). */
+  extraArgs?: string[];
+  topicId?: string;
+  coordinator?: boolean;
 }
 
 interface Live {
@@ -267,7 +271,7 @@ class SessionManager extends EventEmitter<SessionEvents> {
     // A fork keeps the pin: Claude Code takes --session-id with --resume only beside --fork-session.
     const idArgs = opts.fork ? ["--resume", opts.fork, "--fork-session", "--session-id", id] : [opts.resume ? "--resume" : "--session-id", claudeId];
     const henryArgs = isClaude
-      ? [...idArgs, "--settings", writeLaunchSettings(henryDir), ...(mcpPath ? ["--mcp-config", mcpPath] : [])]
+      ? [...idArgs, "--settings", writeLaunchSettings(henryDir), ...(mcpPath ? ["--mcp-config", mcpPath] : []), ...(opts.extraArgs ?? [])]
       : shell?.args ?? [];
     const args = opts.args ?? henryArgs;
     const session: Session = {
@@ -282,6 +286,8 @@ class SessionManager extends EventEmitter<SessionEvents> {
       parentSessionId: opts.parentSessionId,
       host: localHost(),
     };
+    if (opts.topicId) session.topicId = opts.topicId;
+    if (opts.coordinator) session.coordinator = true;
     this.hold(id, { session });
     db.insertSession(session);
     // What this session will name for the rest of its life, hooks and MCP url alike. The
@@ -348,6 +354,16 @@ class SessionManager extends EventEmitter<SessionEvents> {
       db.dismissSession(id);
       if (l.local === undefined) this.client.send({ op: "kill", id });
     }
+  }
+
+  /** Which topic a session is in (topics.ts decides). Exited sessions keep theirs as history. */
+  setTopic(id: string, topicId: string | undefined, coordinator = false): void {
+    const l = this.live.get(id);
+    if (!l || (l.session.topicId === topicId && !!l.session.coordinator === coordinator)) return;
+    l.session.topicId = topicId;
+    l.session.coordinator = coordinator || undefined;
+    db.updateSession(id, { topicId, coordinator });
+    this.emit("update", l.session);
   }
 
   /** Rename a session (terminal title from the PTY, or /rename seen in the transcript). */

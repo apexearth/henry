@@ -12,10 +12,15 @@ area's doc is edited to say the new rule — edited, not appended to.
 
 ## Open
 
+- **Topics, still to do** (`docs/topics.md`). A "these look related" hint on the "no topic"
+  header, from a shared repo and overlapping files written, with no LLM call, so a topic nobody
+  has made yet gets noticed; today only a running coordinator suggests, and only into its own
+  topic.
 - **Henry as an interlocutor**: the overseer given the wide tool list and a conversation thread,
   so "what did I forget", "what is most urgent" and "which session was I doing xyz in" are
   asked rather than inferred from a panel. The voice slice of this is built, thread included
-  (`docs/voice.md`); what remains is the tools and the index. Needs an FTS index over event
+  (`docs/voice.md`); topic coordinators are the terminal slice. What remains is a global one and
+  the index. Needs an FTS index over event
   summaries, prompts and playbook text (prompts are the highest-signal text), and a cheap
   daily digest, since a day's raw events answer "what did I focus on yesterday" neither in a
   prompt nor after the retention sweep. The chat runs only when asked, so unlike the playbook
@@ -33,8 +38,11 @@ area's doc is edited to say the new rule — edited, not appended to.
 
 ## Ruled out
 
-- **Cross-session writes.** A session leaving an advisory note for whoever comes next
-  ("churning `packages/shared` for the next hour") is data and stays on the table. A session
-  typing into another session's PTY, or steering it, is not: it would make the rail's
-  attribution meaningless and put the daemon in the loop where the user is. Voice's `TELL:`
-  and `OPEN:` stop at the prompt, unsent, for this reason (`docs/voice.md`).
+- **Cross-session writes on a session's own initiative.** A session leaving an advisory note
+  for whoever comes next ("churning `packages/shared` for the next hour") is data and stays on
+  the table. A session typing into another session's PTY, or steering it, because it decided
+  to, is not: it would make the rail's attribution meaningless and put the daemon in the loop
+  where the user is. Voice's `TELL:` and `OPEN:` stop at the prompt, unsent, for this reason
+  (`docs/voice.md`). The one exception is a topic's coordinator sending a prompt the user told
+  it to send, to a session in its own topic, labelled as the coordinator's: the user is still
+  the one routing, only with one keystroke fewer.

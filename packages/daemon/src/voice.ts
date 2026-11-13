@@ -512,14 +512,14 @@ export async function speak(text: string): Promise<Uint8Array> {
  * output, fetched pages. Anything Henry can read can try to say "TELL:". The stripping and the
  * cap are what keep the worst case at "a strange sentence appears in your prompt, unsent".
  */
-export function relaySafe(text: string): string {
+export function relaySafe(text: string, max = MAX_RELAY_CHARS): string {
   return text
     .replace(/[\r\n\t]+/g, " ")
     // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping controls is the point
     .replace(/[\x00-\x1f\x7f]/g, "")
     .replace(/ {2,}/g, " ")
     .trim()
-    .slice(0, MAX_RELAY_CHARS);
+    .slice(0, max);
 }
 
 /**

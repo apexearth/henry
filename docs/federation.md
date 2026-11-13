@@ -5,7 +5,7 @@ files, so a daemon cannot be remote. What crosses machines is a **link between d
 never a window talking to a far daemon: the UI keeps its one WebSocket, and no credential
 ever reaches a browser. The daemon a window is attached to dials each paired peer, mirrors
 the peer's sessions into the state it already serves (tagged `peer`, with their repos,
-flags, usage and playbook), and relays terminal traffic, `session:create`, kill, diffs and
+flags, usage, playbook and topics), and relays terminal traffic, `session:create`, kill, diffs and
 the `/api/*` calls those sessions need (`?peer=` or a relayed `sessionId` routes a request
 to the peer's copy of the same handler). A dropped link takes its sessions out of the rail
 until it is back. Two machines that both listen dial each other, so each window sees both.
@@ -49,7 +49,7 @@ until it is back. Two machines that both listen dial each other, so each window 
   one is not merely thin: a window replaces its usage table wholesale, so a local-only
   `usage:update` blanks the context of every federated session until that peer speaks
   again. `broadcast` therefore merges peer rows into what goes to windows and leaves what
-  goes over the link alone. A row on its own (`usage:session`) names its session and needs
+  goes over the link alone; `topics:update` is merged the same way. A row on its own (`usage:session`) names its session and needs
   no merging; a link stores it and passes it through. The snapshot's flags and playbook are
   capped after the merge, so a window's first frame is one cap's worth, not one per machine.
 - **Trust is not transitive.** A peer sees and drives this daemon's own sessions only.

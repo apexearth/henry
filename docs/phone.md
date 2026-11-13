@@ -41,7 +41,11 @@ through that machine's peers, so one phone reaches every Henry the desk reaches.
   session filling the screen, the two rails behind buttons — ☰ opens the rail as a drawer, ⋮ opens
   Files/History/Flags/Playbook/Usage as a sheet — and an ask, when there is one, as a bar under the header.
   The panels themselves are the desktop's, bound to the store once in `panels/bound.tsx` and used
-  by both. `?mobile=1` / `?desktop=1` force either shape, which is how the phone layout gets looked
+  by both. The drawer and the sheet are as tall as the visible viewport, like the app under them,
+  so the rail's footer (grouping, "+ topic", closed sessions) is never behind Safari's toolbar;
+  the drawer's list keeps every drag it starts (`overscroll-behavior: contain`), since one handed
+  on to the locked page stopped the list half a row in. Its rows, headers and footer are
+  thumb-sized, and ⧉ is gone there: a phone has no second window. `?mobile=1` / `?desktop=1` force either shape, which is how the phone layout gets looked
   at from a desk.
 - **The terminal is zoomed, not reflowed.** Claude Code draws for 80 columns and wraps into a mess
   below that, so the phone's answer is a smaller cell: − / + in the header set the xterm font size

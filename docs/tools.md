@@ -4,7 +4,9 @@ Henry hosts 3–4 sessions that share repos, which makes it a multi-agent system
 it is described as one. The question is the shape. Henry stays a **star with the user at the
 centre**: sessions may *read* what their neighbours are doing, and they may *call the user*,
 and nothing more. A session cannot type into another session, message it, or change Henry's
-config. The user is the only router, and the rail stays a truthful record of who did what.
+config. The user is the only router, and the rail stays a truthful record of who did what. The
+one session that writes to others is a topic's coordinator, and only to its own topic's members,
+in words labelled as its own, sent only when the user said so ([topics.md](topics.md)).
 
 - **The tools are an MCP server on the daemon** (`daemon/src/mcp.ts`), `POST /mcp`, JSON-RPC
   2.0, no SDK: one endpoint answering initialize / ping / tools/list / tools/call is not worth
@@ -21,6 +23,8 @@ config. The user is the only router, and the rail stays a truthful record of who
   today `henry_activity` and `henry_attention`, under 2.2 KB of schema together, and adding a
   third has to be worth the same cost in all four sessions. A client that connects without it
   gets the wide list, where one process pays once; that is where the overseer's own tools go.
+  A caller that is a topic's coordinator gets the narrow list plus its own five, decided by the
+  calling session rather than the url, since the file is shared ([topics.md](topics.md)).
 - **A call names its own session** through `session=${HENRY_SESSION:-}` in the `launch-mcp.json`
   url: Claude Code expands `${VAR}` in an mcp config (verified 2026-09-04 against the CLI, both
   set and unset), so one shared file still tells the daemon which tab is calling. An unexpanded

@@ -36,6 +36,8 @@ henry/
       src/rules.ts             # ~/.henry/config.json rules → classify events
       src/mcp.ts               # POST /mcp: Henry's tools; henry_activity + henry_attention for hosted sessions
       src/attention.ts         # asks: a session calling for the user, with a deadline and a way to answer
+      src/topics.ts            # topics: membership, brief + notes, a member's prompt context, a coordinator's prompts
+      src/coordinator.ts       # the coordinator's MCP tools: henry_topic, _session, _brief, _membership, _prompt
       src/activity.ts          # working | needsInput | waiting | idle, derived from hooks
       src/engagement.ts        # my prompts + keystrokes per session: lastInputAt, prompt sparkline
       src/seen.ts              # unseen marks (cleared by looking or typing) and rail reminders
@@ -74,6 +76,7 @@ henry/
       src/PrsMenu.tsx          # topbar open-PR count + the list behind it
       src/RefCard.tsx          # the card behind `#157` in a terminal
       src/RepoPicker.tsx       # "+ new": typed picker over repos × {claude, terminal}
+      src/TopicModal.tsx       # a topic up close (brief, notes, members, coordinator), and "new topic"
       src/FilePicker.tsx       # ⌘K: find a file to peek at
       src/FilesPane.tsx        # ⌘F / the Files tool: the folder tree, its filter and the search's toggles
       src/FilesRoot.tsx        # a root row of that tree: the repo card on one line, its log / PR folds and modals

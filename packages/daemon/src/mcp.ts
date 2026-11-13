@@ -11,11 +11,16 @@
  * to the user: `henry_attention`. A session can see what its neighbours are doing and it can
  * ask the human to come; it cannot type into another session, and it cannot change Henry's
  * config. The user stays the only one routing between sessions.
+ *
+ * A topic's coordinator is the third audience: the session list plus its own tools
+ * (coordinator.ts), decided by who is calling rather than by the url, since every hosted session
+ * shares one `launch-mcp.json`. Only coordinators pay for those definitions.
  */
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { isClaudeSession, type ChangedFile, type Session } from "@henry/shared";
 import * as attention from "./attention";
+import { COORDINATOR_TOOLS } from "./coordinator";
 import { config, expandHome } from "./config";
 import * as db from "./db";
 import * as git from "./git";
@@ -38,11 +43,11 @@ const CACHE_MS = 5_000;
 // ---- tools ----
 
 /** What the daemon knows about the caller. `sessionId` is "" when it could not tell. */
-interface CallContext {
+export interface CallContext {
   sessionId: string;
 }
 
-interface ToolDef {
+export interface ToolDef {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
@@ -85,8 +90,9 @@ const SESSION_TOOLS: ToolDef[] = [activityTool, attentionTool];
 
 export type Audience = "session" | "full";
 
-function toolsFor(audience: Audience): ToolDef[] {
-  return audience === "session" ? SESSION_TOOLS : ALL_TOOLS;
+function toolsFor(audience: Audience, ctx: CallContext): ToolDef[] {
+  if (audience !== "session") return ALL_TOOLS;
+  return liveSessions().some((s) => s.id === ctx.sessionId && s.coordinator) ? [...SESSION_TOOLS, ...COORDINATOR_TOOLS] : SESSION_TOOLS;
 }
 
 // ---- henry_activity ----
@@ -102,7 +108,7 @@ export function setSessionsForTests(fn: (() => Session[]) | null): void {
 }
 
 /** Repos a live session is in: the ones it has touched, plus the repo its cwd sits in. */
-function reposOfSession(s: Session): string[] {
+export function reposOfSession(s: Session): string[] {
   const paths = git.getSessionRepos(s.id).map((r) => r.path);
   const cwdRepo = git.resolveRepo(s.cwd);
   if (cwdRepo && !paths.includes(cwdRepo.path)) paths.push(cwdRepo.path);
@@ -144,7 +150,7 @@ const WRITE_EVENT_LIMIT = 400;
  * hands every dirty file to both of them. Bash writes leave no `file_path`, so a file missing
  * here means "not traced", never "nobody touched it" — the caller words it that way.
  */
-function writtenPaths(sessionId: string, repoPath: string): Set<string> {
+export function writtenPaths(sessionId: string, repoPath: string): Set<string> {
   const out = new Set<string>();
   for (const e of db.listEvents({ sessionId, limit: WRITE_EVENT_LIMIT })) {
     if (!e.toolName || !WRITE_TOOLS.has(e.toolName)) continue;
@@ -161,9 +167,9 @@ function writtenPaths(sessionId: string, repoPath: string): Set<string> {
   return out;
 }
 
-const short = (p: string) => (p.startsWith(homedir() + "/") ? "~" + p.slice(homedir().length) : p);
+export const short = (p: string) => (p.startsWith(homedir() + "/") ? "~" + p.slice(homedir().length) : p);
 
-function age(ts: number, now: number): string {
+export function age(ts: number, now: number): string {
   const s = Math.max(0, Math.round((now - ts) / 1000));
   if (s < 90) return `${s}s`;
   const m = Math.round(s / 60);
@@ -172,7 +178,7 @@ function age(ts: number, now: number): string {
   return h < 48 ? `${h}h` : `${Math.round(h / 24)}d`;
 }
 
-function activityPhrase(s: Session, now: number): string {
+export function activityPhrase(s: Session, now: number): string {
   const since = s.activitySince ? ` ${age(s.activitySince, now)}` : "";
   switch (s.activity) {
     case "working":
@@ -364,11 +370,11 @@ async function dispatch(msg: RpcRequest, audience: Audience, ctx: CallContext): 
       return result(msg.id, {});
     case "tools/list":
       return result(msg.id, {
-        tools: toolsFor(audience).map(({ name, description, inputSchema }) => ({ name, description, inputSchema })),
+        tools: toolsFor(audience, ctx).map(({ name, description, inputSchema }) => ({ name, description, inputSchema })),
       });
     case "tools/call": {
       const name = String(msg.params?.name ?? "");
-      const tool = toolsFor(audience).find((t) => t.name === name);
+      const tool = toolsFor(audience, ctx).find((t) => t.name === name);
       if (!tool) return failure(msg.id, -32602, `unknown tool: ${name}`);
       const args = (msg.params?.arguments ?? {}) as Record<string, unknown>;
       try {

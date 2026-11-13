@@ -1,5 +1,5 @@
 // WebSocket protocol (/ws) and REST shapes. Every frame is one JSON object with a `type`.
-import type { Attention, Flag, HenryConfig, HenryEvent, Notice, PeerStatus, PlaybookEntry, RepoState, Session, SessionKind, SessionUsage, Usage } from "./types";
+import type { Attention, Flag, HenryConfig, HenryEvent, Notice, PeerStatus, PlaybookEntry, RepoState, Session, SessionKind, SessionUsage, Topic, Usage } from "./types";
 
 export type ClientMessage =
   /** `reqId` is echoed on the pty:scrollback reply; a daemon relaying for several windows needs it, the UI does not. */
@@ -44,6 +44,20 @@ export type ClientMessage =
   | { type: "session:seen"; sessionId: string; seen: boolean }
   /** Bring the session back as unseen, with a notice, at `at`; null cancels. Setting one also marks it seen. */
   | { type: "session:remind"; sessionId: string; at: number | null }
+  /** Make a topic; its coordinator starts with it. `sessionId` joins that session straight away
+   * and the topic is made on that session's machine; otherwise on `peer` (PeerStatus.name), or here. */
+  | { type: "topic:create"; name: string; sessionId?: string; peer?: string }
+  /** Put a session in a topic, or take it out (null). Coordinators stay where they are, and a
+   * session joins only a topic on its own machine. A topic's machine is routed by topicId. */
+  | { type: "topic:join"; sessionId: string; topicId: string | null }
+  | { type: "topic:brief"; topicId: string; brief: string }
+  | { type: "topic:rename"; topicId: string; name: string }
+  /** Accept (the session joins) or dismiss a coordinator's suggestion. */
+  | { type: "topic:suggestion"; topicId: string; sessionId: string; accept: boolean }
+  /** Start the topic's coordinator again when none is running. */
+  | { type: "topic:coordinator"; topicId: string }
+  /** Close the topic: its coordinator exits and its sessions are in no topic. */
+  | { type: "topic:close"; topicId: string }
   | { type: "playbook:request"; sessionId: string | null }
   | { type: "repo:diff"; sessionId: string; repoPath: string }
   | { type: "state:request" };
@@ -56,6 +70,8 @@ export interface StateMessage {
   flags: Flag[];
   /** Live asks only (daemon/attention.ts); a finished one is history and leaves the snapshot. */
   attention: Attention[];
+  /** Open topics: this machine's, and to a window each connected peer's too, tagged `peer`. */
+  topics?: Topic[];
   usage: Usage;
   playbook: PlaybookEntry[];
   config: HenryConfig;
@@ -90,6 +106,8 @@ export type ServerMessage =
   /** One session's row changed. What a window gets many times a minute, so it is one row, not the table. */
   | { type: "usage:session"; sessionId: string; usage: SessionUsage; updatedAt: number }
   | { type: "playbook:update"; entry: PlaybookEntry }
+  /** The whole list: a handful of rows, changed by hand or by a coordinator. */
+  | { type: "topics:update"; topics: Topic[] }
   | { type: "repo:diff"; sessionId: string; repoPath: string; diff: string; baseline: string }
   /** ui/dist was rebuilt; windows served from the daemon reload themselves. */
   | { type: "ui:build"; build: string }

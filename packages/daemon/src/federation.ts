@@ -13,7 +13,7 @@ import { chmodSync, existsSync, readFileSync, renameSync, writeFileSync } from "
 import { networkInterfaces } from "node:os";
 import { join } from "node:path";
 import type { ServerWebSocket } from "bun";
-import type { ClientMessage, FederationStatus, HostUsage, PeerStatus, ServerMessage, Session, StateSnapshot, Usage } from "@henry/shared";
+import type { ClientMessage, FederationStatus, HostUsage, PeerStatus, ServerMessage, Session, StateSnapshot, Topic, Usage } from "@henry/shared";
 import { config, henryDir, onConfigReload } from "./config";
 import { FED_VERSION, Handshake, fingerprint, isHello, newIdentity, newPairingCode, normalizeCode, proofsEqual, signTranscript, verifyTranscript, type Derived, type IdentityKeys } from "./fed-crypto";
 import { PeerLink, type FedState, type LinkDeps } from "./fed-peer";
@@ -488,6 +488,13 @@ export function linkOf(sessionId: string | null | undefined): PeerLink | undefin
   return undefined;
 }
 
+/** The link to the machine that holds this topic, if it is a peer's. */
+export function linkOfTopic(topicId: string | null | undefined): PeerLink | undefined {
+  if (!topicId) return undefined;
+  for (const l of links.values()) if (l.topics.some((t) => t.id === topicId)) return l;
+  return undefined;
+}
+
 export function linkNamed(name: string | undefined): PeerLink | undefined {
   if (!name) return undefined;
   for (const l of links.values()) if (l.rec.name === name) return l;
@@ -558,7 +565,13 @@ export function merge(local: StateSnapshot): StateSnapshot {
   out.attention = [...local.attention, ...all.flatMap((l) => l.attention)].sort((a, b) => a.ts - b.ts);
   out.playbook = [...local.playbook, ...all.flatMap((l) => l.playbook)].sort((a, b) => b.ts - a.ts).slice(0, STATE_PLAYBOOK);
   out.usage = mergeUsage(local.usage);
+  out.topics = mergeTopics(local.topics ?? []);
   return out;
+}
+
+/** This daemon's topics and every connected peer's, for a window, which replaces its list whole. */
+export function mergeTopics(local: Topic[]): Topic[] {
+  return [...local, ...connectedLinks().flatMap((l) => l.topics)];
 }
 
 /** This daemon's usage rows plus every connected peer's, and one 7d window per machine. A

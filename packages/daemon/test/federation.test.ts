@@ -2,7 +2,7 @@
 // scratch homes on loopback ports that pair, relay a session from beta into alpha's state,
 // drive its PTY through alpha, proxy /api/*, and part ways. Never touches ~/.henry or :14711.
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, statSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ClientMessage, FederationStatus, ServerMessage, StateSnapshot } from "@henry/shared";
@@ -102,6 +102,17 @@ interface Daemon {
 }
 const daemons: Daemon[] = [];
 
+/** A `claude` that only waits, first on the daemons' PATH: a topic starts its coordinator as a
+ * Claude session, and a test must not launch the real one. */
+const fakeBin = mkdtempSync(join(tmpdir(), "henry-fed-bin-"));
+if (isWindows) writeFileSync(join(fakeBin, "claude.cmd"), "@ping -n 600 127.0.0.1 >nul\r\n");
+else {
+  writeFileSync(join(fakeBin, "claude"), "#!/bin/sh\nsleep 600\n");
+  chmodSync(join(fakeBin, "claude"), 0o755);
+}
+const pathKey = Object.keys(process.env).find((k) => k.toUpperCase() === "PATH") ?? "PATH";
+const fakePath = `${fakeBin}${isWindows ? ";" : ":"}${process.env[pathKey] ?? ""}`;
+
 async function startDaemon(name: string): Promise<Daemon> {
   const home = mkdtempSync(join(tmpdir(), `henry-fed-${name}-`));
   const port = randomPort();
@@ -109,7 +120,7 @@ async function startDaemon(name: string): Promise<Daemon> {
   writeFileSync(join(home, "config.json"), JSON.stringify({ host: name, federation: { listen: "127.0.0.1", port: fedPort } }));
   const proc = Bun.spawn(["bun", "src/index.ts", "start"], {
     cwd: daemonDir,
-    env: { ...process.env, HENRY_NO_PUBLIC_LISTENERS: "1", HENRY_HOME: home, HENRY_PORT: String(port) },
+    env: { ...process.env, [pathKey]: fakePath, HENRY_NO_PUBLIC_LISTENERS: "1", HENRY_HOME: home, HENRY_PORT: String(port) },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -249,6 +260,7 @@ afterAll(async () => {
     await stopSessiond(d.home);
     rmSync(d.home, { recursive: true, force: true });
   }
+  rmSync(fakeBin, { recursive: true, force: true });
 });
 
 /** A statusline body with a context reading: `pct` percent of a 200k window. */
@@ -439,18 +451,6 @@ describe("two daemons", () => {
     expect(notImage.status).toBe(415);
   }, 30000);
 
-  test("a listener that does not know the code cannot get itself paired", async () => {
-    const fake = fakeListener();
-    try {
-      const before = (await fedStatus(alpha)).peers.length;
-      const res = await post(alpha, "/api/federation/pair", { address: `127.0.0.1:${fake.port}`, code: newPairingCode() });
-      expect(res.status).toBe(502);
-      expect(((await res.json()) as { error: string }).error).toContain("does not know this pairing code");
-      expect((await fedStatus(alpha)).peers.length).toBe(before);
-    } finally {
-      fake.stop();
-    }
-  }, 30000);
   test("a peer's model file crosses the link as bytes, up to the relay cap", async () => {
     const model = new Uint8Array(9 * 1024 * 1024).map((_, i) => (i * 13) & 255);
     const path = join(beta.home, "part.stl");
@@ -464,6 +464,18 @@ describe("two daemons", () => {
     expect((await fetch(`${beta.base}/api/file/bytes?path=${encodeURIComponent(path)}`)).status).toBe(200);
   }, 30000);
 
+  test("a listener that does not know the code cannot get itself paired", async () => {
+    const fake = fakeListener();
+    try {
+      const before = (await fedStatus(alpha)).peers.length;
+      const res = await post(alpha, "/api/federation/pair", { address: `127.0.0.1:${fake.port}`, code: newPairingCode() });
+      expect(res.status).toBe(502);
+      expect(((await res.json()) as { error: string }).error).toContain("does not know this pairing code");
+      expect((await fedStatus(alpha)).peers.length).toBe(before);
+    } finally {
+      fake.stop();
+    }
+  }, 30000);
 
   test("a peer cannot reach our other peers through us", async () => {
     // gamma pairs with alpha only. beta, dialed in to alpha, must not see or drive gamma.
@@ -499,9 +511,45 @@ describe("two daemons", () => {
     wg.send({ type: "pty:input", sessionId: gammaSession, data: echoExpr("mine", "1+1") });
     await wg.seen(gammaSession, "mine-2");
     expect(wg.output.get(gammaSession)).not.toContain("leaked-10");
+    // Gamma's topics are relayed to alpha's windows, but beta cannot make or close one through alpha.
+    wg.send({ type: "topic:create", name: "gamma's" });
+    const gTopic = await waitFor("gamma's topic in alpha", async () => (await state(alpha)).topics?.find((t) => t.peer === "gamma"));
+    asBeta.send({ type: "topic:close", topicId: gTopic.id });
+    asBeta.send({ type: "topic:create", name: "via-alpha", peer: "gamma" });
+    asBeta.send({ type: "state:request" });
+    await asBeta.next("state", 5000);
+    expect((await state(gamma)).topics?.map((t) => t.name)).toEqual(["gamma's"]);
     asBeta.close();
     wg.close();
   }, 60000);
+
+  test("a window on alpha makes a topic on beta and drives it there", async () => {
+    const wa = await new Win().open(alpha);
+    wa.send({ type: "topic:create", name: "fortress", peer: "beta" });
+    const listed = await wa.next("topics:update", (m) => m.topics.some((t) => t.name === "fortress"));
+    const topic = listed.topics.find((t) => t.name === "fortress")!;
+    expect(topic.peer).toBe("beta");
+    const onBeta = (await state(beta)).topics?.find((t) => t.id === topic.id);
+    expect(onBeta?.peer).toBeUndefined();
+    // Nothing was made here, and the coordinator runs on beta.
+    expect((await state(alpha)).topics?.filter((t) => !t.peer)).toEqual([]);
+    const coord = await waitFor("coordinator on beta", async () => (await state(beta)).sessions.find((s) => s.topicId === topic.id && s.coordinator));
+    expect((await state(alpha)).sessions.find((s) => s.id === coord.id)?.peer).toBe("beta");
+
+    wa.send({ type: "topic:brief", topicId: topic.id, brief: "goal: the fortress" });
+    await wa.next("topics:update", (m) => m.topics.some((t) => t.id === topic.id && t.brief === "goal: the fortress"));
+    expect((await state(beta)).topics?.find((t) => t.id === topic.id)?.brief).toBe("goal: the fortress");
+    wa.send({ type: "topic:join", sessionId: betaSession, topicId: topic.id });
+    await waitFor("beta's session joined", async () => ((await state(beta)).sessions.find((s) => s.id === betaSession)?.topicId === topic.id ? true : undefined));
+
+    wa.send({ type: "topic:close", topicId: topic.id });
+    await wa.next("topics:update", (m) => !m.topics.some((t) => t.id === topic.id));
+    const after = await state(beta);
+    expect(after.topics).toEqual([]);
+    expect(after.sessions.find((s) => s.id === betaSession)?.topicId).toBeUndefined();
+    await waitFor("coordinator exited", async () => ((await state(beta)).sessions.find((s) => s.id === coord.id)?.status !== "running" ? true : undefined));
+    wa.close();
+  }, 30000);
 
   test("re-pointing a peer redials the new address without pairing again", async () => {
     const wrong = `127.0.0.1:${beta.fedPort + 1000}`;

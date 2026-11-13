@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
-import { isClaudeSession, type Session, type SessionActivity } from "@henry/shared";
+import { isClaudeSession, type Session, type SessionActivity, type Topic } from "@henry/shared";
 import { RepoPicker } from "./RepoPicker";
+import { NewTopic, TopicModal } from "./TopicModal";
 import { MOD, baseName, isMac } from "./platform";
 import { inShell, onMenu } from "./shell";
 import { hueText, nameHue } from "./theme";
 import { popOutSession, showSession } from "./dock";
 import { isPoppedOut, usePoppedOut } from "./popout";
 import { markUnread } from "./seen";
-import { activeRowIndex, answerAttention, busy, canFork, duplicateSession, forkSession, hiddenCount, hideSessions, isUnseen, killSession, markSeen, railGroups, railRows, remindSession, resumeSession, setActive, setGroupBy, showAllSessions, terminalHere, toggleMachine, toggleShowClosed, useStore, type GroupBy } from "./ws";
+import { activeRowIndex, answerAttention, answerSuggestion, busy, canFork, duplicateSession, forkSession, hiddenCount, hideSessions, isUnseen, joinTopic, killSession, markSeen, railGroups, railRows, remindSession, resumeSession, setActive, setGroupBy, showAllSessions, terminalHere, toggleMachine, toggleShowClosed, useStore, type GroupBy } from "./ws";
 
 const base = baseName;
 
@@ -130,10 +131,22 @@ function useNow(everyMs: number): number {
 
 const FORK_KEY = isMac ? "⌘⇧D" : "Alt+Shift+D";
 
-/** A rail row's right-click menu: read / unread, a fork, and a reminder to come back. */
-function RowMenu({ x, y, session, now, onClose }: { x: number; y: number; session: Session; now: number; onClose: () => void }) {
+/** A coordinator's row reads as its topic's: Claude Code retitles the terminal as it likes. */
+function rowTitle(s: Session, topics: Topic[], underTopic: boolean): string {
+  if (!s.coordinator) return s.title;
+  if (underTopic) return "coordinator";
+  return `${topics.find((t) => t.id === s.topicId)?.name ?? "topic"} coordinator`;
+}
+
+/** A rail row's right-click menu: read / unread, a fork, a topic, and a reminder to come back. */
+function RowMenu({ x, y, session, now, onClose, onNewTopic }: { x: number; y: number; session: Session; now: number; onClose: () => void; onNewTopic: (sessionId: string) => void }) {
   // The row's session as the store has it now, not as it was when the menu opened.
   const s = useStore((st) => st.sessions.find((v) => v.id === session.id)) ?? session;
+  // A session joins only a topic on its own machine, and a coordinator stays with the one it keeps.
+  const all = useStore((st) => st.topics);
+  const topics = all.filter((t) => t.peer === s.peer);
+  const current = topics.find((t) => t.id === s.topicId);
+  const canTopic = !s.coordinator;
   const act = (fn: () => void) => () => {
     fn();
     onClose();
@@ -150,6 +163,18 @@ function RowMenu({ x, y, session, now, onClose }: { x: number; y: number; sessio
           <button onClick={act(() => forkSession(s))} title="a new tab that starts from a copy of this conversation; this one carries on untouched">
             fork into a new tab ({FORK_KEY})
           </button>
+        )}
+        {canTopic && (
+          <>
+            <div className="menu-sep" />
+            {topics.filter((t) => t.id !== s.topicId).map((t) => (
+              <button key={t.id} onClick={act(() => joinTopic(s.id, t.id))} title={t.brief || "no brief yet"}>
+                {current ? "move" : "add"} to topic “{t.name}”
+              </button>
+            ))}
+            {current && <button onClick={act(() => joinTopic(s.id, null))}>take out of “{current.name}”</button>}
+            <button onClick={act(() => onNewTopic(s.id))}>new topic with this session…</button>
+          </>
         )}
         <div className="menu-sep" />
         {REMIND.map(([label, at]) => (
@@ -170,6 +195,7 @@ const GROUP_LABEL: Record<GroupBy, string> = {
   cwd: "by folder",
   repos: "by repo",
   attention: "by attention",
+  topic: "by topic",
 };
 
 /**
@@ -234,10 +260,14 @@ function Rail({ onNew }: { onNew: () => void }) {
   const active = useStore((s) => s.activeSessionId);
   const flags = useStore((s) => s.flags);
   const attention = useStore((s) => s.attention);
+  const topics = useStore((s) => s.topics);
   const now = useNow(15000);
   const [menu, setMenu] = useState<{ x: number; y: number; session: Session } | null>(null);
+  const [topicOpen, setTopicOpen] = useState<string | null>(null);
+  const [newTopic, setNewTopic] = useState<{ sessionId?: string } | null>(null);
   // Not a native <select>: WebView2 on Windows places that popup off the bottom of the screen.
   const [groupMenu, setGroupMenu] = useState<{ left: number; bottom: number } | null>(null);
+  const suggested = (id: string) => topics.flatMap((t) => t.suggestions.filter((x) => x.sessionId === id).map((x) => ({ topic: t, reason: x.reason })));
   const out = usePoppedOut();
 
   // The repo sub-label repeats the header under "by folder" / "by repo", so it only shows
@@ -277,7 +307,10 @@ function Rail({ onNew }: { onNew: () => void }) {
             )}
             {g.label && (
               <div className="rail-group-h" title={g.title}>
-                <span className="name" style={g.hue !== undefined ? { color: hueText(g.hue) } : undefined}>{g.label}</span>
+                {g.topicId
+                  ? <button className="name topic" style={{ color: hueText(g.hue!) }} onClick={() => setTopicOpen(g.topicId!)}
+                      title={`${g.title}\nclick: the brief, the notes and the coordinator`}>{g.label}</button>
+                  : <span className="name" style={g.hue !== undefined ? { color: hueText(g.hue) } : undefined}>{g.label}</span>}
                 <span className="n">{g.sessions.length}</span>
                 <button className="hide" title={"hide " + (g.sessions.length === 1 ? "this session" : "these " + g.sessions.length + " sessions") + " — they leave the rail everywhere, not just here"}
                   onClick={() => hideSessions(g.sessions.map((x) => x.id))}>⊘</button>
@@ -307,6 +340,9 @@ function Rail({ onNew }: { onNew: () => void }) {
               const remindAt = on ? s.remindAt : undefined;
               // The parent's title when it is still listed; a fork outliving it still says it is one.
               const forkedFrom = s.parentSessionId ? sessions.find((x) => x.id === s.parentSessionId)?.title ?? "an earlier session" : undefined;
+              const title = rowTitle(s, topics, !!g.topicId);
+              const chips = on && !s.topicId ? suggested(s.id) : [];
+              const topicName = !g.topicId && !s.coordinator ? topics.find((t) => t.id === s.topicId && t.peer === s.peer)?.name : undefined;
               return (
                 <div key={g.key + "\n" + s.id} className={"rail-item" + mark + (on ? "" : " off") + (fade ? " neglect-" + fade : "") + (ask.length ? " asking" : "") + (fresh ? " unseen" : "")} onClick={() => { setActive(s.id, g.key); showSession(s.id); }}
                   onContextMenu={(e) => {
@@ -315,14 +351,21 @@ function Rail({ onNew }: { onNew: () => void }) {
                     e.preventDefault();
                     setMenu({ x: e.clientX, y: e.clientY, session: s });
                   }}
-                  title={`${ask.map((a) => `asking you: ${a.message} (${until(a.deadline, now)})\n`).join("")}${fresh ? `not seen yet${since(s.unseenSince, now) ? `, for ${since(s.unseenSince, now)}` : ""}\n` : ""}${remindAt ? `reminder at ${clock(remindAt, now)}\n` : ""}${forkedFrom ? `forked from ${forkedFrom}\n` : ""}${what}, ${state}${on && s.activity ? ` — ${ACTIVITY_TEXT[s.activity]}${ago && busy(s) ? ` for ${ago}` : ""}` : ""}${yours}\n${s.cwd}${s.peer ? `\non ${s.peer} (remote, via its own Henry daemon)` : s.host ? `\non ${s.host}` : ""}${i >= 0 && i < 9 ? `\n${MOD}${i + 1}` : ""}${on ? `\nright click: mark unread, ${canFork(s) ? "fork, " : ""}remind me later` : ""}`}>
+                  title={`${ask.map((a) => `asking you: ${a.message} (${until(a.deadline, now)})\n`).join("")}${fresh ? `not seen yet${since(s.unseenSince, now) ? `, for ${since(s.unseenSince, now)}` : ""}\n` : ""}${remindAt ? `reminder at ${clock(remindAt, now)}\n` : ""}${forkedFrom ? `forked from ${forkedFrom}\n` : ""}${s.coordinator ? "this topic's coordinator: it reads what the topic's sessions are doing and keeps their brief\n" : topicName ? `in the topic “${topicName}”\n` : ""}${what}, ${state}${on && s.activity ? ` — ${ACTIVITY_TEXT[s.activity]}${ago && busy(s) ? ` for ${ago}` : ""}` : ""}${yours}\n${s.cwd}${s.peer ? `\non ${s.peer} (remote, via its own Henry daemon)` : s.host ? `\non ${s.host}` : ""}${i >= 0 && i < 9 ? `\n${MOD}${i + 1}` : ""}${on ? `\nright click: mark unread, ${canFork(s) ? "fork, " : ""}${!s.coordinator ? "topic, " : ""}remind me later` : ""}`}>
                   {on && claude && <Spark prompts={s.prompts} now={now} />}
                   {/* Idle greys Clawd only once the row has begun to fade: in your working set it is still your move. */}
                   {claude ? <ClaudeMark on={on} activity={on ? (s.activity === "idle" && !fade ? "waiting" : s.activity) : undefined} /> : <ShellMark on={on} />}
                   {fresh && <span className="unseen-dot" aria-label="not seen yet" />}
                   {forkedFrom && <span className="forked" aria-label={`forked from ${forkedFrom}`}>⑂</span>}
-                  <span className="title">{s.title}</span>
-                  {s.title !== repo && showSub && <span className="sub" style={{ color: hueText(nameHue(repo)) }}>{repo}</span>}
+                  {s.coordinator && <span className="coord" aria-label="coordinator">◆</span>}
+                  <span className="title">{title}</span>
+                  {s.title !== repo && showSub && !s.coordinator && <span className="sub" style={{ color: hueText(nameHue(repo)) }}>{repo}</span>}
+                  {chips.slice(0, 1).map(({ topic, reason }) => (
+                    <span key={topic.id} className="sugg" onClick={(e) => e.stopPropagation()}>
+                      <button title={`${topic.name}'s coordinator thinks this belongs there: ${reason}\nclick: add it`} onClick={() => answerSuggestion(topic.id, s.id, true)}>→ {topic.name}?</button>
+                      <button className="x" title="no: it does not belong there" onClick={() => answerSuggestion(topic.id, s.id, false)}>×</button>
+                    </span>
+                  ))}
                   {/* The time is in the tooltip: the rail is narrow and the title matters more. */}
                   {remindAt && <span className="remind" aria-label={`reminder at ${clock(remindAt, now)}`}>⏰</span>}
                   {ago && <span className={"act act-" + s.activity}>{ago}</span>}
@@ -352,9 +395,12 @@ function Rail({ onNew }: { onNew: () => void }) {
           </div>
         ))}
       </div>
-      {menu && <RowMenu {...menu} now={Date.now()} onClose={() => setMenu(null)} />}
+      {menu && <RowMenu {...menu} now={Date.now()} onClose={() => setMenu(null)} onNewTopic={(sessionId) => setNewTopic({ sessionId })} />}
+      {topicOpen && <TopicModal topicId={topicOpen} onClose={() => setTopicOpen(null)} />}
+      {newTopic && <NewTopic sessionId={newTopic.sessionId} onClose={() => setNewTopic(null)} />}
       <div className="rail-new-wrap">
         <button className="rail-new" title={`new session (${isMac ? (inShell ? "⌘N" : "⌃N") : inShell ? "Ctrl+N" : "Alt+N"})`} onClick={onNew}>+ new session</button>
+        {groupBy === "topic" && <button className="rail-new topic" title="a named set of sessions, with a coordinator that keeps them aware of each other" onClick={() => setNewTopic({})}>+ topic</button>}
       </div>
       <div className="rail-foot">
         <span title={`${working} working`}>

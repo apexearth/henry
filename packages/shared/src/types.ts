@@ -62,6 +62,42 @@ export interface Session {
   /** When a window last held the session in view (to the minute). With lastInputAt it is how
    * recently you were with the session, which is what the rail's fade measures. Persisted. */
   lastSeenAt?: number;
+  /** The topic this session belongs to (daemon/topics.ts), on the machine that hosts it. Persisted. */
+  topicId?: string;
+  /** This session is its topic's coordinator. Persisted. */
+  coordinator?: boolean;
+}
+
+/** A named set of sessions working on one subject, kept by its coordinator (daemon/topics.ts).
+ * It lives on one machine, with its coordinator and members; windows anywhere see it. */
+export interface Topic {
+  id: string;
+  name: string;
+  /** Set like Session.peer on a topic relayed from a paired machine; absent on this machine's. */
+  peer?: string;
+  /** Goal, decisions, who owns what, what is off-limits. Written by the coordinator or by hand;
+   * members get it as added context on their next prompt after it changes. */
+  brief: string;
+  /** Short-lived lines ("churning packages/shared for the next hour"), live ones only. */
+  notes: TopicNote[];
+  /** A coordinator's proposals that a session in no topic belongs here; the rail shows each as
+   * a chip on that row, and nothing joins until you accept. */
+  suggestions: TopicSuggestion[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface TopicNote {
+  id: string;
+  text: string;
+  ts: number;
+  expiresAt?: number;
+}
+
+export interface TopicSuggestion {
+  sessionId: string;
+  reason: string;
+  ts: number;
 }
 
 export interface RepoState {

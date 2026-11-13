@@ -73,6 +73,33 @@ CREATE TABLE IF NOT EXISTS attention (
 );
 CREATE INDEX IF NOT EXISTS attention_session_ts ON attention(session_id, ts);
 
+-- Topics (topics.ts): a named set of sessions with a brief. A closed topic keeps its row, so a
+-- session that was in it still says what it was part of.
+CREATE TABLE IF NOT EXISTS topics (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  brief TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  closed_at INTEGER
+);
+CREATE TABLE IF NOT EXISTS topic_notes (
+  id TEXT PRIMARY KEY,
+  topic_id TEXT NOT NULL,
+  text TEXT NOT NULL,
+  ts INTEGER NOT NULL,
+  expires_at INTEGER
+);
+-- A dismissed suggestion keeps its row so the coordinator does not raise it again.
+CREATE TABLE IF NOT EXISTS topic_suggestions (
+  topic_id TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  ts INTEGER NOT NULL,
+  dismissed_at INTEGER,
+  PRIMARY KEY (topic_id, session_id)
+);
+
 CREATE TABLE IF NOT EXISTS playbook (
   id TEXT PRIMARY KEY,
   session_id TEXT,
@@ -142,6 +169,8 @@ if (!(db.prepare("PRAGMA table_info(playbook)").all() as { name: string }[]).som
   if (!cols.has("unseen_since")) db.exec("ALTER TABLE sessions ADD COLUMN unseen_since INTEGER");
   if (!cols.has("remind_at")) db.exec("ALTER TABLE sessions ADD COLUMN remind_at INTEGER");
   if (!cols.has("last_seen_at")) db.exec("ALTER TABLE sessions ADD COLUMN last_seen_at INTEGER");
+  if (!cols.has("topic_id")) db.exec("ALTER TABLE sessions ADD COLUMN topic_id TEXT");
+  if (!cols.has("coordinator")) db.exec("ALTER TABLE sessions ADD COLUMN coordinator INTEGER");
 }
 
 // repo_baselines.touched_at / hidden_at: when the session last named a path in the repo, and
@@ -172,6 +201,8 @@ interface SessionRow {
   unseen_since: number | null;
   remind_at: number | null;
   last_seen_at: number | null;
+  topic_id: string | null;
+  coordinator: number | null;
 }
 
 function rowToSession(r: SessionRow): Session {
@@ -188,12 +219,14 @@ function rowToSession(r: SessionRow): Session {
   if (r.unseen_since != null) s.unseenSince = r.unseen_since;
   if (r.remind_at != null) s.remindAt = r.remind_at;
   if (r.last_seen_at != null) s.lastSeenAt = r.last_seen_at;
+  if (r.topic_id) s.topicId = r.topic_id;
+  if (r.coordinator === 1) s.coordinator = true;
   return s;
 }
 
 const qInsertSession = db.prepare(`
-  INSERT INTO sessions (id, claude_session_id, cwd, title, command, pid, created_at, status, exit_code, parent_session_id, host, kind, claude_active)
-  VALUES ($id, $claudeSessionId, $cwd, $title, $command, $pid, $createdAt, $status, $exitCode, $parentSessionId, $host, $kind, $claudeActive)`);
+  INSERT INTO sessions (id, claude_session_id, cwd, title, command, pid, created_at, status, exit_code, parent_session_id, host, kind, claude_active, topic_id, coordinator)
+  VALUES ($id, $claudeSessionId, $cwd, $title, $command, $pid, $createdAt, $status, $exitCode, $parentSessionId, $host, $kind, $claudeActive, $topicId, $coordinator)`);
 
 export function insertSession(s: Session): void {
   qInsertSession.run({
@@ -210,6 +243,8 @@ export function insertSession(s: Session): void {
     $host: s.host ?? null,
     $kind: s.kind ?? null,
     $claudeActive: s.claudeActive === undefined ? null : s.claudeActive ? 1 : 0,
+    $topicId: s.topicId ?? null,
+    $coordinator: s.coordinator ? 1 : null,
   });
 }
 
@@ -229,6 +264,8 @@ const sessionColumns: Record<string, string> = {
   unseenSince: "unseen_since",
   remindAt: "remind_at",
   lastSeenAt: "last_seen_at",
+  topicId: "topic_id",
+  coordinator: "coordinator",
 };
 
 export function updateSession(id: string, patch: Partial<Session>): void {
@@ -349,6 +386,18 @@ export function listPromptTimes(since: number, sessionId?: string): { ts: number
   return rows.filter((r) => !isSyntheticPrompt(r.head ?? undefined)).map((r) => ({ ts: r.ts, sessionId: r.session_id }));
 }
 
+/** A session's latest prompts from you, newest first, each cut to `chars`: what a coordinator
+ * reads to know what a session was asked. Claude Code's own prompts are left out. */
+export function listPrompts(sessionId: string, limit: number, chars = 300): { ts: number; prompt: string }[] {
+  const rows = db
+    .prepare(
+      `SELECT ts, substr(json_extract(payload, '$.prompt'), 1, ?3) AS prompt FROM events
+       WHERE session_id = ?1 AND hook_event = 'UserPromptSubmit' ORDER BY ts DESC LIMIT ?2`,
+    )
+    .all(sessionId, limit * 2, chars) as { ts: number; prompt: string | null }[];
+  return rows.filter((r) => r.prompt && !isSyntheticPrompt(r.prompt)).slice(0, limit).map((r) => ({ ts: r.ts, prompt: r.prompt! }));
+}
+
 /** Oldest event still in the log; how far back any history claim can honestly reach. */
 export function oldestEventTs(): number | undefined {
   const row = db.prepare("SELECT MIN(ts) AS ts FROM events").get() as { ts: number | null } | undefined;
@@ -420,6 +469,62 @@ export function upsertAttention(a: Attention): void {
 /** Live asks, oldest first: a daemon restart picks up where it left off. */
 export function listOpenAttention(): Attention[] {
   return (db.prepare("SELECT * FROM attention WHERE done IS NULL ORDER BY ts ASC").all() as AttentionRow[]).map(rowToAttention);
+}
+
+// ---- topics ----
+
+export interface TopicRow { id: string; name: string; brief: string; created_at: number; updated_at: number; closed_at: number | null }
+export interface TopicNoteRow { id: string; topic_id: string; text: string; ts: number; expires_at: number | null }
+export interface TopicSuggestionRow { topic_id: string; session_id: string; reason: string; ts: number; dismissed_at: number | null }
+
+export function listOpenTopics(): TopicRow[] {
+  return db.prepare("SELECT * FROM topics WHERE closed_at IS NULL ORDER BY created_at ASC").all() as TopicRow[];
+}
+
+export function insertTopic(t: { id: string; name: string; brief: string; createdAt: number }): void {
+  db.prepare("INSERT INTO topics (id, name, brief, created_at, updated_at) VALUES (?, ?, ?, ?, ?)").run(t.id, t.name, t.brief, t.createdAt, t.createdAt);
+}
+
+export function updateTopic(id: string, patch: { name?: string; brief?: string }, ts: number): void {
+  if (patch.name !== undefined) db.prepare("UPDATE topics SET name = ?, updated_at = ? WHERE id = ?").run(patch.name, ts, id);
+  if (patch.brief !== undefined) db.prepare("UPDATE topics SET brief = ?, updated_at = ? WHERE id = ?").run(patch.brief, ts, id);
+}
+
+export function closeTopic(id: string, ts: number): void {
+  db.prepare("UPDATE topics SET closed_at = ? WHERE id = ?").run(ts, id);
+}
+
+/** Notes that have not expired, oldest first. */
+export function listTopicNotes(now: number): TopicNoteRow[] {
+  return db.prepare("SELECT * FROM topic_notes WHERE expires_at IS NULL OR expires_at > ? ORDER BY ts ASC").all(now) as TopicNoteRow[];
+}
+
+export function insertTopicNote(n: { id: string; topicId: string; text: string; ts: number; expiresAt?: number }): void {
+  db.prepare("INSERT INTO topic_notes (id, topic_id, text, ts, expires_at) VALUES (?, ?, ?, ?, ?)").run(n.id, n.topicId, n.text, n.ts, n.expiresAt ?? null);
+}
+
+export function deleteTopicNote(id: string): void {
+  db.prepare("DELETE FROM topic_notes WHERE id = ?").run(id);
+}
+
+export function listTopicSuggestions(): TopicSuggestionRow[] {
+  return db.prepare("SELECT * FROM topic_suggestions ORDER BY ts ASC").all() as TopicSuggestionRow[];
+}
+
+/** A dismissed suggestion stays dismissed: raising it again changes nothing. */
+export function upsertTopicSuggestion(s: { topicId: string; sessionId: string; reason: string; ts: number }): void {
+  db.prepare(`INSERT INTO topic_suggestions (topic_id, session_id, reason, ts) VALUES (?, ?, ?, ?)
+    ON CONFLICT(topic_id, session_id) DO UPDATE SET reason = excluded.reason, ts = excluded.ts WHERE dismissed_at IS NULL`)
+    .run(s.topicId, s.sessionId, s.reason, s.ts);
+}
+
+export function dismissTopicSuggestion(topicId: string, sessionId: string, ts: number): void {
+  db.prepare("UPDATE topic_suggestions SET dismissed_at = ? WHERE topic_id = ? AND session_id = ?").run(ts, topicId, sessionId);
+}
+
+/** Every open suggestion for a session: it joined a topic, so none of them is a question any more. */
+export function clearTopicSuggestions(sessionId: string): void {
+  db.prepare("DELETE FROM topic_suggestions WHERE session_id = ? AND dismissed_at IS NULL").run(sessionId);
 }
 
 // ---- playbook ----

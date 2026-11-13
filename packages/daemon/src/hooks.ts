@@ -16,11 +16,22 @@ import * as overseer from "./overseer";
 import * as rules from "./rules";
 import { broadcast } from "./server";
 import { sessions } from "./sessions";
+import * as topics from "./topics";
 import * as transcript from "./transcript";
 
 export interface IngestResult {
   event?: HenryEvent;
   flag?: Flag;
+  /** Text for Claude Code to add to the prompt being submitted: the session's topic, when it
+   * changed since its last prompt (topics.ts). Only ever set on UserPromptSubmit. */
+  context?: string;
+}
+
+/** The hook's answer on stdout, in the shape Claude Code reads; the hook scripts print a body
+ * only when it starts this way, so an older daemon's `{"ok":true}` is never mistaken for one. */
+export function hookOutput(r: IngestResult): object | undefined {
+  if (!r.context) return undefined;
+  return { hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: r.context } };
 }
 
 type Dict = Record<string, unknown>;
@@ -144,6 +155,13 @@ function ingestHookInner(body: HookBody): IngestResult {
   activity.note(session.id, hookEvent, payload, event.ts);
   engagement.note(session.id, hookEvent, event.ts, str(payload.prompt));
   const result: IngestResult = { event };
+  if (hookEvent === "UserPromptSubmit") {
+    try {
+      result.context = topics.contextFor(session.id);
+    } catch (e) {
+      console.error("[hook] topic context failed:", e);
+    }
+  }
 
   if (event.severity !== "info") {
     const flag: Flag = {

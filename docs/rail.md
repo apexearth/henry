@@ -22,10 +22,11 @@ One line per session on the left: titles, order, grouping, hiding.
 - **Grouping is a rail-footer choice, persisted per browser.** Off by default; "by folder"
   buckets sessions on `cwd`, "by repo" on the repos the git watcher has seen the session
   touch, so a session working across two repos is listed under both (one that has touched
-  none falls into a last "no repo" bucket). Machines are split before any of that: this
+  none falls into a last "no repo" bucket), and "by topic" on the topic you put it in, each
+  topic's coordinator first and "no topic" last ([topics.md](topics.md)). Machines are split before any of that: this
   machine's sessions first, then each paired peer's under a delimiter bearing its name, with
   the chosen grouping applied inside each (no delimiters at all while every session is
-  local). Groups are alphabetical by name ("no repo" last); order within a group, and the keyboard
+  local). Groups are alphabetical by name ("no repo" and "no topic" last); order within a group, and the keyboard
   order, stay the running-then-exited rail order. The active *row* is the one you picked (session
   plus group): it alone gets the full highlight (the accent bar and an accent-tinted background, so it never reads as
   a hovered row), the same session's rows under other repos

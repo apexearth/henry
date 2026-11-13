@@ -191,11 +191,21 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 .rail-group-h .hide { flex: none; opacity: 0; background: none; border: none; padding: 0 2px; color: var(--fg-dim); font-size: 11px; }
 .rail-group-h:hover .hide { opacity: 1; }
 .rail-group-h .hide:hover { color: var(--fg); }
+/* A topic's header opens the topic: its brief, its notes, its coordinator. */
+.rail-group-h .name.topic { background: none; border: none; padding: 0; font: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; }
+.rail-group-h .name.topic:hover { text-decoration: underline; }
+.rail-item .coord { flex: none; color: var(--accent); font-size: 9px; }
+/* A coordinator's suggestion that this session belongs in its topic: accept, or ×. */
+.rail-item .sugg { flex: 0 1 auto; min-width: 0; display: inline-flex; align-items: center; max-width: 55%; border: 1px dashed var(--border); border-radius: 8px; font-size: 10px; }
+.rail-item .sugg button { min-width: 0; background: none; border: none; padding: 0 4px; color: var(--accent); font: inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rail-item .sugg button.x { flex: none; overflow: visible; color: var(--fg-dim); padding: 0 5px 0 1px; }
+.rail-item .sugg button:hover { color: var(--fg); }
 .rail-groupby { background: none; border: none; padding: 0; color: var(--fg-dim); font: inherit; font-size: 11px; }
 .rail-groupby:hover { color: var(--fg); }
 .rail-menu button.on { color: var(--accent); }
-.rail-new-wrap { flex: none; padding: 8px 10px; border-top: 1px solid var(--border); }
-.rail-new { width: 100%; }
+.rail-new-wrap { flex: none; display: flex; gap: 6px; padding: 8px 10px; border-top: 1px solid var(--border); }
+.rail-new { flex: 1; }
+.rail-new.topic { flex: none; }
 /* Whole items wrap to a second line when the rail is narrow; no item breaks inside itself. */
 .rail-foot { padding: 6px 10px; border-top: 1px solid var(--border); color: var(--fg-dim); font-size: 11px; display: flex; flex-wrap: wrap; gap: 2px 10px; justify-content: space-between; align-items: center; }
 .rail-foot > * { white-space: nowrap; }
@@ -780,21 +790,41 @@ html.m-lock, html.m-lock body { overflow: hidden; overscroll-behavior: none; }
 .m-note { color: var(--warn); font-size: 11px; padding: 2px 2px 4px; }
 
 /* Drawer (sessions) and sheet (tools): the two rails, as menus. */
+/* Both are as tall as --m-vh, like the app under them, not pinned to bottom: 0: that is the
+   layout viewport's bottom, which on an iPhone can sit behind Safari's toolbar, and the drawer's
+   footer — the grouping and "+ topic" — went with it. */
 .m-scrim { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 20; }
-.m-drawer { position: fixed; top: 0; left: 0; bottom: 0; width: min(86vw, 340px); z-index: 21; background: var(--bg-2); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom) env(safe-area-inset-left); }
-.m-sheet { position: fixed; left: 0; right: 0; bottom: 0; top: 20%; z-index: 21; background: var(--bg-2); border-top: 1px solid var(--border); border-radius: 10px 10px 0 0; display: flex; flex-direction: column; padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+.m-drawer { position: fixed; top: 0; left: 0; height: var(--m-vh, 100dvh); width: min(86vw, 340px); z-index: 21; background: var(--bg-2); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: env(safe-area-inset-top) 0 0 env(safe-area-inset-left); overscroll-behavior: contain; }
+.m-sheet { position: fixed; left: 0; right: 0; top: calc(var(--m-vh, 100dvh) * 0.2); height: calc(var(--m-vh, 100dvh) * 0.8); z-index: 21; background: var(--bg-2); border-top: 1px solid var(--border); border-radius: 10px 10px 0 0; display: flex; flex-direction: column; padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
 .m-sheet-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 6px 6px 12px; flex: none; border-bottom: 1px solid var(--border); color: var(--fg-dim); font-size: 12px; }
 .m-sheet-top span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .m-tabs { display: flex; gap: 4px; padding: 6px; flex: none; overflow-x: auto; }
 .m-tab { flex: 1; background: none; border: 1px solid transparent; color: var(--fg-dim); height: 36px; }
 .m-tab.on { background: var(--bg-3); border-color: var(--border); color: var(--fg); }
-.m-sheet-body { flex: 1; overflow: auto; -webkit-overflow-scrolling: touch; }
+.m-sheet-body { flex: 1; overflow: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
 /* A file peek fills the screen, above the sheet that may have opened it; its own ← and × close it. */
 .m-peek { position: fixed; inset: 0; z-index: 22; background: var(--bg); padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
-/* Rows in the drawer are finger-sized, and their hover-only buttons are always there. */
+/* The rail in the drawer takes what is left under the drawer's own header, so its footer is on
+   screen. The list keeps every drag it starts: chaining one into the locked page let iOS take the
+   rest of the gesture, and the list moved half a row and stopped until the finger came back.
+   Rows are finger-sized, never start a text selection, and their hover-only buttons are always
+   there — except ⧉: a phone has no second window to pop a session into. */
+.m-drawer .rail { flex: 1; min-height: 0; height: auto; }
+.m-drawer .rail-list { overscroll-behavior: contain; touch-action: pan-y; -webkit-overflow-scrolling: touch; }
+.m-drawer :is(.rail-item, .rail-group-h, .rail-machine-h, .rail-foot) { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 .m-drawer .rail-item { height: 44px; }
 .m-drawer .rail-item .close { opacity: 1; padding: 0 10px; }
-.m-drawer .rail-new { height: 44px; }
+.m-drawer .rail-item .close.popout { display: none; }
+.m-drawer .rail-group-h { padding: 10px 10px 4px; font-size: 11px; }
+.m-drawer .rail-group-h .hide { opacity: 1; padding: 0 8px; font-size: 14px; }
+.m-drawer .rail-new-wrap { gap: 8px; padding: 8px 10px; }
+.m-drawer .rail-new { height: 44px; border-radius: 8px; }
+.m-drawer .rail-new.topic { padding: 0 14px; }
+/* The footer is where grouping lives: thumb-sized, and as clear of the bottom edge as the
+   composer. */
+.m-drawer .rail-foot { padding: 4px 12px max(16px, calc(env(safe-area-inset-bottom) + 8px)); font-size: 13px; gap: 4px 12px; }
+.m-drawer .rail-groupby, .m-drawer .rail-foot .rail-toggle { min-height: 44px; font-size: 16px; color: var(--fg); }
+.m-drawer .rail-menu button { min-height: 44px; font-size: 16px; }
 .m-drawer .modal-bg { padding-top: 6vh; }
 /* The settings tab: the desk's toggles at a size a thumb can use. */
 .m-settings { padding: 8px 14px 16px; font-size: 13px; }

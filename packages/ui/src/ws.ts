@@ -4,14 +4,15 @@ import { useSyncExternalStore } from "react";
 import { baseName } from "./platform";
 import { soloSessionId } from "./popout";
 import { nameHue } from "./theme";
-import { isClaudeSession, type Attention, type ClientMessage, type Flag, type HenryConfig, type HenryEvent, type Notice, type PeerStatus, type PlaybookEntry, type RepoState, type ServerMessage, type Session, type SessionKind, type Usage } from "@henry/shared";
+import { isClaudeSession, type Attention, type ClientMessage, type Flag, type HenryConfig, type HenryEvent, type Notice, type PeerStatus, type PlaybookEntry, type RepoState, type ServerMessage, type Session, type SessionKind, type Topic, type Usage } from "@henry/shared";
 
 export type PtyMessage = Extract<ServerMessage, { type: "pty:data" | "pty:scrollback" | "pty:exit" }>;
 
 /** How the rail buckets sessions within a machine: not at all, by working directory, by every
- * repo touched, or by who owes whom a move (your move first, longest-unanswered at the top).
- * Machines are always split: this one first, then each paired peer (buildGroups). */
-export type GroupBy = "none" | "cwd" | "repos" | "attention";
+ * repo touched, by who owes whom a move (your move first, longest-unanswered at the top), or by
+ * the topic you put them in. Machines are always split: this one first, then each paired peer
+ * (buildGroups). */
+export type GroupBy = "none" | "cwd" | "repos" | "attention" | "topic";
 
 export interface UiState {
   connected: boolean;
@@ -24,6 +25,8 @@ export interface UiState {
   flags: Flag[];
   /** Sessions asking for you (henry_attention), oldest first. Live ones only. */
   attention: Attention[];
+  /** Every connected machine's open topics (daemon/topics.ts), a peer's tagged `peer`. */
+  topics: Topic[];
   usage: Usage;
   playbook: PlaybookEntry[];
   config: HenryConfig | null;
@@ -63,6 +66,7 @@ let state: UiState = {
   repos: {},
   flags: [],
   attention: [],
+  topics: [],
   usage: { perSession: {}, updatedAt: 0 },
   playbook: [],
   config: null,
@@ -90,7 +94,7 @@ function readShowClosed(): boolean {
 function readGroupBy(): GroupBy {
   try {
     const v = localStorage.getItem("henry.groupBy");
-    return v === "cwd" || v === "repos" || v === "attention" ? v : "none";
+    return v === "cwd" || v === "repos" || v === "attention" || v === "topic" ? v : "none";
   } catch {
     return "none";
   }
@@ -240,6 +244,7 @@ function handle(m: ServerMessage): void {
         repos: m.repos,
         flags: m.flags,
         attention: m.attention ?? [],
+        topics: m.topics ?? [],
         usage: m.usage,
         playbook: m.playbook,
         config: m.config,
@@ -282,6 +287,9 @@ function handle(m: ServerMessage): void {
     }
     case "repos:update":
       setState({ repos: { ...state.repos, [m.sessionId]: m.repos } });
+      return;
+    case "topics:update":
+      setState({ topics: m.topics });
       return;
     case "usage:update":
       setState({ usage: m.usage });
@@ -334,6 +342,8 @@ export interface RailGroup {
   hue?: number;
   /** The paired machine whose sessions these are; unset for this machine's. */
   peer?: string;
+  /** Under "by topic": the topic this group is. */
+  topicId?: string;
   /** The machine is folded: one group carrying all its sessions so the header still counts
    * them, but the rail draws no rows and they are out of the ⌘1..9 order. */
   hidden?: boolean;
@@ -354,7 +364,7 @@ function buildGroups(order: Session[], s: UiState): RailGroup[] {
       out.push({ key: `${peer ?? ""}\n hidden`, label: "", title: "", peer, hidden: true, sessions: mine });
       continue;
     }
-    for (const g of machineGroups(mine, s)) out.push({ ...g, key: `${peer ?? ""}\n${g.key}`, peer });
+    for (const g of machineGroups(mine, s, peer)) out.push({ ...g, key: `${peer ?? ""}\n${g.key}`, peer });
   }
   return out;
 }
@@ -364,7 +374,7 @@ export function machineKey(peer: string | undefined): string {
   return peer ?? "";
 }
 
-function machineGroups(order: Session[], s: UiState): RailGroup[] {
+function machineGroups(order: Session[], s: UiState, peer: string | undefined): RailGroup[] {
   if (s.groupBy === "none") return [{ key: "all", label: "", title: "", sessions: order }];
   const groups = new Map<string, RailGroup>();
   const add = (key: string, label: string, title: string, session: Session) => {
@@ -373,6 +383,7 @@ function machineGroups(order: Session[], s: UiState): RailGroup[] {
     g.sessions.push(session);
   };
   if (s.groupBy === "attention") return attentionGroups(order, s);
+  if (s.groupBy === "topic") return topicGroups(order, s, peer);
   for (const session of order) {
     if (s.groupBy === "cwd") {
       add(session.cwd, basename(session.cwd), session.cwd, session);
@@ -423,6 +434,32 @@ function attentionGroups(order: Session[], s: UiState): RailGroup[] {
   return groups;
 }
 
+const NO_TOPIC = "\u0000no-topic";
+
+/** The topic a session is in. A topic and its sessions are always on the same machine. */
+export function topicOf(x: Session, s: UiState = state): Topic | undefined {
+  return x.topicId ? s.topics.find((t) => t.id === x.topicId && t.peer === x.peer) : undefined;
+}
+
+/** One group per open topic on this machine (`peer`), its coordinator first, empty ones included
+ * so a topic whose coordinator exited can still be opened; then everything in no topic. */
+function topicGroups(order: Session[], s: UiState, peer: string | undefined): RailGroup[] {
+  const groups = new Map<string, RailGroup>();
+  for (const t of s.topics.filter((x) => x.peer === peer)) {
+    groups.set(t.id, { key: "topic:" + t.id, label: t.name, title: t.brief || "no brief yet", hue: nameHue(t.name), topicId: t.id, sessions: [] });
+  }
+  const rest: Session[] = [];
+  for (const x of order) {
+    const t = topicOf(x, s);
+    if (t && groups.has(t.id)) groups.get(t.id)!.sessions.push(x);
+    else rest.push(x);
+  }
+  for (const g of groups.values()) g.sessions.sort((a, b) => Number(!!b.coordinator) - Number(!!a.coordinator));
+  const out = [...groups.values()].sort((a, b) => byTitle(a.label, b.label));
+  if (rest.length) out.push({ key: NO_TOPIC, label: "no topic", title: "sessions you have not put in a topic", sessions: rest });
+  return out;
+}
+
 const basename = baseName;
 
 // Memoised on its inputs: useSyncExternalStore needs the same array back until something
@@ -439,7 +476,8 @@ function railCache(s: UiState): { groups: RailGroup[]; flat: Session[]; rows: Ra
     c.s.hiddenMachines === s.hiddenMachines &&
     c.s.hiddenSessions === s.hiddenSessions &&
     c.s.repos === s.repos &&
-    c.s.attention === s.attention
+    c.s.attention === s.attention &&
+    c.s.topics === s.topics
   )
     return c;
   const groups = buildGroups(baseOrder(s), s);
@@ -655,6 +693,42 @@ export function unseenRows(s: UiState = state): RailRow[] {
 /** The asks a session has open, oldest first. */
 export function asksFor(sessionId: string, s: UiState = state): Attention[] {
   return s.attention.filter((a) => a.sessionId === sessionId);
+}
+
+// ---- topics ----
+
+/** Made on the session's machine when there is one, else on `peer`, else here. */
+export function createTopic(name: string, sessionId?: string, peer?: string): void {
+  send({ type: "topic:create", name, sessionId, peer: sessionId ? undefined : peer });
+}
+
+export function joinTopic(sessionId: string, topicId: string | null): void {
+  send({ type: "topic:join", sessionId, topicId });
+}
+
+export function setTopicBrief(topicId: string, brief: string): void {
+  send({ type: "topic:brief", topicId, brief });
+}
+
+export function renameTopic(topicId: string, name: string): void {
+  send({ type: "topic:rename", topicId, name });
+}
+
+export function answerSuggestion(topicId: string, sessionId: string, accept: boolean): void {
+  send({ type: "topic:suggestion", topicId, sessionId, accept });
+}
+
+export function startCoordinator(topicId: string): void {
+  send({ type: "topic:coordinator", topicId });
+}
+
+export function closeTopic(topicId: string): void {
+  send({ type: "topic:close", topicId });
+}
+
+/** Coordinators' open suggestions that this session joins their topic. */
+export function suggestionsFor(sessionId: string, s: UiState = state): { topic: Topic; reason: string }[] {
+  return s.topics.flatMap((t) => t.suggestions.filter((x) => x.sessionId === sessionId).map((x) => ({ topic: t, reason: x.reason })));
 }
 
 export function requestPlaybook(sessionId: string | null): void {

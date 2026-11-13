@@ -2,7 +2,7 @@
 // mirrors that daemon's sessions (tagged `peer`) and relays PTY traffic and requests for
 // the windows attached here. When the link drops, its sessions leave the rail until it is
 // back; nothing about them is persisted here, the peer's own DB has all of it.
-import type { Attention, Flag, PlaybookEntry, RepoState, ServerMessage, Session, StateSnapshot, Usage } from "@henry/shared";
+import type { Attention, Flag, PlaybookEntry, RepoState, ServerMessage, Session, StateSnapshot, Topic, Usage } from "@henry/shared";
 import { FED_VERSION, Handshake, fingerprint, isHello, proofsEqual, signTranscript, verifyTranscript, type Channel, type Derived, type IdentityKeys } from "./fed-crypto";
 import type { FedRequest, FedResponse, PeerRecord } from "./federation";
 
@@ -110,6 +110,8 @@ export class PeerLink {
   /** The peer's whole usage: its rows and its own 7d window, which is not ours. */
   usage: Usage = { perSession: {}, updatedAt: 0 };
   playbook: PlaybookEntry[] = [];
+  /** The peer's open topics, tagged with `peer`: their coordinators and members run there. */
+  topics: Topic[] = [];
 
   private ws?: WebSocket;
   private channel?: Channel;
@@ -184,6 +186,8 @@ export class PeerLink {
     this.attention = [];
     this.usage = { perSession: {}, updatedAt: 0 };
     this.playbook = [];
+    const hadTopics = this.topics.length > 0;
+    this.topics = [];
     for (const w of this.httpWaiters.values()) w({ type: "http:res", id: "", status: 502, contentType: "application/json", body: JSON.stringify({ error: `${this.rec.name}: ${why}` }) });
     this.httpWaiters.clear();
     this.attachWaiters.clear();
@@ -192,7 +196,7 @@ export class PeerLink {
     if (this.closed) return;
     if (had) console.error(`[fed] lost ${this.rec.name}: ${why}`);
     this.setStatus("offline");
-    if (gone) this.deps.toWindows({ type: "state", ...this.deps.buildState() });
+    if (gone || hadTopics) this.deps.toWindows({ type: "state", ...this.deps.buildState() });
     this.retry = setTimeout(() => this.connect(), this.backoff);
     this.backoff = Math.min(this.backoff * 2, BACKOFF_MAX_MS);
   }
@@ -205,8 +209,9 @@ export class PeerLink {
     try {
       ws?.close(1000, "link closed");
     } catch {}
-    const gone = this.sessions.size > 0;
+    const gone = this.sessions.size > 0 || this.topics.length > 0;
     this.sessions.clear();
+    this.topics = [];
     if (gone) this.deps.toWindows({ type: "state", ...this.deps.buildState() });
   }
 
@@ -224,6 +229,10 @@ export class PeerLink {
     return { ...s, peer: this.rec.name };
   }
 
+  private tagTopics(topics: Topic[]): Topic[] {
+    return topics.map((t) => ({ ...t, peer: this.rec.name }));
+  }
+
   private tagAsk(a: Attention): Attention {
     return { ...a, peer: this.rec.name };
   }
@@ -238,6 +247,8 @@ export class PeerLink {
         this.attention = (m.attention ?? []).map((a) => this.tagAsk(a));
         this.usage = m.usage;
         this.playbook = m.playbook.filter((p) => p.sessionId !== null);
+        // A peer from before topics sends none.
+        this.topics = this.tagTopics(m.topics ?? []);
         this.deps.toWindows({ type: "state", ...this.deps.buildState() });
         return;
       }
@@ -288,6 +299,11 @@ export class PeerLink {
         this.deps.toWindows({ type: "attention:update", attention: ask });
         return;
       }
+      case "topics:update":
+        this.topics = this.tagTopics(m.topics);
+        // A window replaces its whole list, so it gets every machine's.
+        this.deps.toWindows({ type: "topics:update", topics: this.deps.buildState().topics ?? [] });
+        return;
       case "playbook:update":
         if (m.entry.sessionId === null) return;
         this.playbook = [m.entry, ...this.playbook.filter((p) => p.id !== m.entry.id)].slice(0, KEEP_PLAYBOOK);

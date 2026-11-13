@@ -14,6 +14,7 @@ A changed decision edits the sentence that is now wrong; nothing here is a histo
 - [usage.md](usage.md) — 5h/7d windows, per-session tokens and context, the status strip
 - [overseer.md](overseer.md) — the playbook writer: altitude, backends, cadence, off by default
 - [tools.md](tools.md) — the MCP server: `henry_activity`, `henry_attention`, and why nothing more
+- [topics.md](topics.md) — named sets of sessions, each with a coordinator that keeps their brief
 - [federation.md](federation.md) — daemon-to-daemon links over the tailnet, pairing, keys, trust
 - [phone.md](phone.md) — the phone listener, invites, the mobile shape, touch and the composer
 - [voice.md](voice.md) — push-to-talk questions, directives, TTS, what voice may and may not do
