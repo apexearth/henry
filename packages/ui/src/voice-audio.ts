@@ -130,18 +130,56 @@ const TAP_SOURCE = `registerProcessor("henry-tap", class extends AudioWorkletPro
 });`;
 const tapLoaded = new WeakSet<BaseAudioContext>();
 
+/**
+ * A browser audio call that has not answered by `ms` is taken as never going to. Chromium's
+ * getUserMedia, AudioContext.resume and worklet loading can each hang for good after an audio
+ * device comes or goes, and an await on one of them left voice stuck until the app restarted.
+ */
+export function within<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${what} did not answer`)), ms);
+    p.then(
+      (v) => (clearTimeout(timer), resolve(v)),
+      (e) => (clearTimeout(timer), reject(e)),
+    );
+  });
+}
+
+/** How long the microphone gets to open: long enough to answer a permission prompt. */
+export const MIC_OPEN_MS = 15_000;
+
+/** The capture device, given up on after MIC_OPEN_MS. One that opens after that is closed again
+ * as it arrives, so a late answer does not leave the microphone live with nobody holding it. */
+export async function openMic(): Promise<MediaStream> {
+  const opening = navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+  try {
+    return await within(opening, MIC_OPEN_MS, "the microphone");
+  } catch (e) {
+    void opening.then(
+      (s) => s.getTracks().forEach((t) => t.stop()),
+      () => {},
+    );
+    throw e;
+  }
+}
+
 /** A node that calls `onBlock` with every block of what is connected to it. */
 export async function tapNode(ctx: AudioContext, onBlock: (block: Float32Array) => void): Promise<AudioWorkletNode> {
   if (!tapLoaded.has(ctx)) {
     const url = URL.createObjectURL(new Blob([TAP_SOURCE], { type: "application/javascript" }));
     try {
-      await ctx.audioWorklet.addModule(url);
+      await within(ctx.audioWorklet.addModule(url), 5_000, "the audio worklet");
     } finally {
       URL.revokeObjectURL(url);
     }
     tapLoaded.add(ctx);
   }
-  const node = new AudioWorkletNode(ctx, "henry-tap", { numberOfInputs: 1, numberOfOutputs: 0 });
+  // One silent output, routed through a muted gain to the speakers: Safari renders only what
+  // leads to the destination, and a node with no way there never sees a sample.
+  const node = new AudioWorkletNode(ctx, "henry-tap", { numberOfInputs: 1, numberOfOutputs: 1 });
+  const mute = ctx.createGain();
+  mute.gain.value = 0;
+  node.connect(mute).connect(ctx.destination);
   node.port.onmessage = (e: MessageEvent<Float32Array>) => onBlock(e.data);
   return node;
 }
@@ -171,89 +209,122 @@ function encodeWav(samples: Float32Array, rate: number): ArrayBuffer {
   return buf;
 }
 
+/**
+ * Whisper ends every clip with a full stop, whether the sentence ended or the segmenter cut at a
+ * breath. So the stop is held back and the next clip settles it: one starting in lower case
+ * carries the sentence on, and the stop was only the cut.
+ */
+export function splitStop(text: string): { body: string; stop: string } {
+  return /[^.]\.$/.test(text) ? { body: text.slice(0, -1), stop: "." } : { body: text, stop: "" };
+}
+export const carriesOn = (text: string): boolean => /^[a-z]/.test(text);
+
+/** Waits before each retry of a transcription. A daemon restarting under `bun run dev` is back
+ * within a few seconds; a whisper that failed because the machine was busy may need longer. */
+const RETRY_WAITS_MS = [1_000, 3_000, 8_000];
+
+/**
+ * A clip through the daemon's whisper, retried while the failure is one that passes: the daemon
+ * restarting, a dropped connection, whisper failing or timing out. Not retried when voice is off
+ * or the clip itself was refused. `session` biases toward that session's vocabulary; `after` is
+ * what the same dictation typed just before, so the clip continues it.
+ */
+export async function transcribeWav(wav: ArrayBuffer, session?: string, after?: string): Promise<string> {
+  const query = new URLSearchParams();
+  if (session) query.set("session", session);
+  if (after?.trim()) query.set("after", after.slice(-200));
+  const qs = query.toString();
+  const url = `/api/voice/transcribe${qs ? `?${qs}` : ""}`;
+  for (let attempt = 0; ; attempt++) {
+    let error: Error;
+    let passing = true;
+    try {
+      const res = await fetch(url, { method: "POST", headers: { "content-type": "audio/wav" }, body: wav });
+      const body = (await res.json().catch(() => ({}))) as { text?: string; error?: string };
+      if (res.ok) return body.text?.trim() ?? "";
+      error = new Error(body.error ?? `transcribe failed (${res.status})`);
+      passing = res.status >= 500 && res.status !== 503;
+    } catch (e) {
+      error = e instanceof Error ? e : new Error(String(e));
+    }
+    const wait = RETRY_WAITS_MS[attempt];
+    if (!passing || wait === undefined) throw error;
+    await new Promise((r) => setTimeout(r, wait));
+  }
+}
+
 /** Whether this page can record at all. A phone reaching Henry over plain http is not a secure
  * origin, and an insecure origin has no `mediaDevices` — serve the phone listener with
  * `phone.tls` (a `tailscale cert` pair) to give it one. */
 export const canRecord = (): boolean => !!navigator.mediaDevices?.getUserMedia;
 
-/**
- * Hold to record, release to get text back. The phone's half of push-to-talk: no keyboard, so
- * the gesture is the button itself, and the touch that starts it is also what unlocks audio
- * playback on iOS.
- *
- * Transcription only — what comes back goes in the composer for the user to read and send.
- * Dictated words are the user's, and they reach the session the same way typed ones do.
- */
-export function holdToTalk(onState: (state: "idle" | "arming" | "recording" | "working") => void) {
-  let recorder: MediaRecorder | undefined;
-  let stream: MediaStream | undefined;
-  let held = false;
-  /** A getUserMedia still in flight. A press while it is pending rides on it rather than
-   * opening a second microphone that nothing would ever stop. */
-  let opening = false;
-  const chunks: Blob[] = [];
 
-  const cleanup = () => {
-    for (const t of stream?.getTracks() ?? []) t.stop();
-    stream = undefined;
-    recorder = undefined;
+/**
+ * The phone's microphone, held or latched by a tap. Raw audio cut at each pause, like the
+ * strip's continuous dictation, so the words arrive while you talk and a long thought is a run
+ * of short clips: a busy machine that fails one costs one phrase, not everything you said. The
+ * press that starts it is also the gesture iOS wants before audio will run.
+ *
+ * Each clip comes out as a 16 kHz WAV, in order; transcribing it is the caller's, so the words
+ * go in the composer for the user to read and send, the way typed ones do.
+ */
+export function liveMic(onState: (state: "idle" | "arming" | "recording") => void, onClip: (wav: ArrayBuffer) => void) {
+  let run: { ctx: AudioContext; stream: MediaStream; src: MediaStreamAudioSourceNode; node: AudioWorkletNode; seg: Segmenter } | undefined;
+  /** False once the press that opened the mic has let go, so an open that lands late shuts. */
+  let wanted = false;
+  let opening = false;
+  let order = Promise.resolve();
+
+  const stop = () => {
+    wanted = false;
+    const r = run;
+    run = undefined;
+    if (!r) return;
+    r.seg.flush();
+    r.node.port.onmessage = null;
+    r.src.disconnect();
+    r.node.disconnect();
+    for (const t of r.stream.getTracks()) t.stop();
+    // On iOS a live AudioContext holds the audio session in playback, and the next getUserMedia
+    // waits on it with the button saying "opening mic".
+    void r.ctx.close().catch(() => {});
+    onState("idle");
   };
 
   return {
     /** Rejects when the microphone will not open, so the caller can say why. */
     async start(): Promise<void> {
-      if (recorder || !canRecord()) return;
-      held = true;
+      if (run || !canRecord()) return;
+      wanted = true;
       onState("arming");
       if (opening) return;
       opening = true;
+      // Made before any await, while the press is still a user gesture: iOS starts audio from one.
+      const ctx = new AudioContext();
+      void ctx.resume().catch(() => {});
+      let stream: MediaStream | undefined;
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+        stream = await openMic();
+        const src = ctx.createMediaStreamSource(stream);
+        const rate = ctx.sampleRate;
+        const seg = new Segmenter(rate, (clip) => {
+          order = order.then(() => pcmToWav16k(clip, rate).then(onClip)).catch(() => {});
+        });
+        const node = await tapNode(ctx, (block) => seg.push(block));
+        src.connect(node);
         opening = false;
-        if (!held) return cleanup();
-        const rec = new MediaRecorder(stream);
-        chunks.length = 0;
-        rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
-        recorder = rec;
-        rec.start();
+        run = { ctx, stream, src, node, seg };
+        if (!wanted) return stop();
         onState("recording");
       } catch (e) {
         opening = false;
-        cleanup();
+        for (const t of stream?.getTracks() ?? []) t.stop();
+        void ctx.close().catch(() => {});
         onState("idle");
-        if (held) throw e;
+        if (wanted) throw e;
       }
     },
-    /** The clip, as text. Empty when nothing was said or the hold never really started. */
-    async stop(sessionId?: string): Promise<string> {
-      held = false;
-      const rec = recorder;
-      if (!rec) {
-        cleanup();
-        onState("idle");
-        return "";
-      }
-      const type = rec.mimeType;
-      const done = new Promise<void>((r) => {
-        rec.onstop = () => r();
-      });
-      if (rec.state !== "inactive") rec.stop();
-      await done;
-      cleanup();
-      onState("working");
-      // Closed as soon as the clip is decoded: on iOS a live AudioContext keeps the audio session
-      // in playback, and the next getUserMedia waits on it with the button saying "opening mic".
-      const ctx = new AudioContext();
-      try {
-        const wav = await toWav16k(await new Blob(chunks, { type }).arrayBuffer(), ctx).finally(() => void ctx.close().catch(() => {}));
-        const url = sessionId ? `/api/voice/transcribe?session=${encodeURIComponent(sessionId)}` : "/api/voice/transcribe";
-        const res = await fetch(url, { method: "POST", headers: { "content-type": "audio/wav" }, body: wav });
-        const body = (await res.json()) as { text?: string; error?: string };
-        if (!res.ok) throw new Error(body.error ?? "transcribe failed");
-        return body.text?.trim() ?? "";
-      } finally {
-        onState("idle");
-      }
-    },
+    /** Stop listening. What was said since the last pause still comes out as a clip. */
+    stop,
   };
 }

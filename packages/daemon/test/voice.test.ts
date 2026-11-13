@@ -1,7 +1,7 @@
 // Answer parsing and session matching (src/voice.ts). Pure: no whisper, no daemon, no audio.
 import { describe, expect, test } from "bun:test";
 import type { Session } from "@henry/shared";
-import { biasFrom, canonicalize, hasSpeech, matchSession, parseAnswer, recentThread, relaySafe, remember, resetThreadForTests, resolveOpen, threadBlock } from "../src/voice";
+import { biasFrom, canonicalize, hasSpeech, matchSession, parseAnswer, recentThread, relaySafe, remember, resetThreadForTests, resolveOpen, smoothDictation, threadBlock } from "../src/voice";
 
 const session = (id: string, title: string) => ({ id, title }) as Session;
 
@@ -178,6 +178,28 @@ describe("canonicalize", () => {
   });
 });
 
+// Whisper hears a pause as "...": "make it... Better", or a clip ending "make it...".
+describe("smoothDictation", () => {
+  const terms = [{ term: "Henry", source: "you" as const }];
+
+  test("a pause's dots go and the next word continues the sentence", () => {
+    expect(smoothDictation("So... I'm curious if we can make it... Better.", [])).toBe("So I'm curious if we can make it better.");
+    expect(smoothDictation("If we can make it…", [])).toBe("If we can make it");
+    expect(smoothDictation("... and then", [])).toBe("and then");
+  });
+
+  test("whisper's own casing and full stops are left alone", () => {
+    expect(smoothDictation("Then run it.", [])).toBe("Then run it.");
+    expect(smoothDictation("Why not?", [])).toBe("Why not?");
+  });
+
+  test("I, known names and acronyms keep their capitals after a pause", () => {
+    expect(smoothDictation("and... I'm not sure", [])).toBe("and I'm not sure");
+    expect(smoothDictation("wait... Henry knows", terms)).toBe("wait Henry knows");
+    expect(smoothDictation("the... API calls", [])).toBe("the API calls");
+  });
+});
+
 describe("biasFrom", () => {
   const term = (t: string, source: "you" | "repo" = "repo") => ({ term: t, source });
 
@@ -192,6 +214,11 @@ describe("biasFrom", () => {
   test("your own words are first, so a full list cannot push them out", () => {
     const { used } = biasFrom([term("subsquid", "you"), ...Array.from({ length: 200 }, (_, i) => term(`filler-${i}`))]);
     expect(used[0]?.term).toBe("subsquid");
+  });
+
+  test("a smaller budget leaves room for what was just said", () => {
+    const many = Array.from({ length: 200 }, (_, i) => term(`repository-number-${i}`));
+    expect(biasFrom(many, 500).prompt.length).toBeLessThanOrEqual(500);
   });
 
   test("no terms is no prompt at all", () => {

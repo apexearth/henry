@@ -112,7 +112,11 @@ through that machine's peers, so one phone reaches every Henry the desk reaches.
   are looking at the terminal. It is hidden where the API is missing.
 - **Henry's own ear is tapped or held, and a drifting thumb never ends it.** With whisper on the
   daemon, talk mode's slab records: a press shorter than a third of a second, or one let go before
-  the mic has opened, latches it open until the next tap; a longer one stops on release. A mic that
+  the mic has opened, latches it open until the next tap; a longer one stops on release. Either
+  way it is the desktop's continuous dictation: raw audio cut at each pause, each clip's words
+  added to the box while you keep talking, joined into sentences the same way, and a clip that
+  fails after retries kept behind a "tap to try again" line. The worklet reaches the speakers
+  through a muted gain, because Safari renders nothing that does not lead there. A mic that
   will not open says why under the box. The slab claims every pan (`touch-action:
   none`), and if the browser takes the touch anyway its cancel latches rather than stops. Locking
   the phone, swiping home or going back to the keyboard stops the recording and keeps what it

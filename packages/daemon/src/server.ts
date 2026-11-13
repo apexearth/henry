@@ -50,6 +50,13 @@ type Ws = ServerWebSocket<WsData>;
 
 type HenryServer = ReturnType<typeof Bun.serve<WsData>>;
 
+/** Bun closes a connection after 10 s without a byte, and a request still waiting on its
+ * handler counts. Whisper on a busy machine, or an answer's model, outlasts that, and the clip
+ * was lost to a dropped socket. Voice requests wait for as long as their own timeouts allow. */
+function unhurried(req: Request, pathname: string, srv: HenryServer): void {
+  if (pathname.startsWith("/api/voice/")) srv.timeout(req, 0);
+}
+
 let server: HenryServer | undefined;
 /** The phone listener, when phone.ts has one up. Windows attach here too, so it takes the
  * same broadcasts as the loopback server (see toWindows). */
@@ -488,6 +495,7 @@ export async function startServer(): Promise<void> {
     async fetch(req: Request, srv: HenryServer) {
       const url = new URL(req.url);
       const { pathname } = url;
+      unhurried(req, pathname, srv);
       if (fromSandbox(req, pathname)) return json({ error: "forbidden" }, 403);
       if (pathname.startsWith(files.RAW_PREFIX)) return files.serveRaw(pathname);
       if (pathname === "/ws") {
@@ -545,6 +553,7 @@ export async function startServer(): Promise<void> {
   // Its own fetch decides what a phone may ask for before any of the routing above runs.
   const phoneFetch = async (req: Request, srv: HenryServer): Promise<Response | undefined> => {
     const url = new URL(req.url);
+    unhurried(req, url.pathname, srv);
     const verdict = phone.verdict(req, url);
     if (!verdict.allow) return json({ error: verdict.error }, verdict.status);
     if (fromSandbox(req, url.pathname)) return json({ error: "forbidden" }, 403);
@@ -689,7 +698,7 @@ export async function handleApi(req: Request, url: URL, origin: ApiOrigin): Prom
         if (!wav.byteLength) return json({ error: "no audio" }, 400);
         if (wav.byteLength > voice.MAX_CLIP_BYTES) return json({ error: "clip too long" }, 413);
         try {
-          return json({ text: await voice.transcribe(wav, url.searchParams.get("session") ?? undefined) });
+          return json({ text: await voice.transcribe(wav, url.searchParams.get("session") ?? undefined, url.searchParams.get("after") ?? undefined) });
         } catch (e) {
           return json({ error: e instanceof Error ? e.message : String(e) }, 502);
         }

@@ -17,7 +17,7 @@ import { isClaudeSession, type Session } from "@henry/shared";
 import { send, useStore } from "../ws";
 import { attachImage } from "./attach";
 import { dictationSupported, listen, type Dictation } from "./dictation";
-import { canRecord, holdToTalk } from "../voice-audio";
+import { canRecord, carriesOn, liveMic, splitStop, transcribeWav } from "../voice-audio";
 
 /** The keys a phone keyboard has no way to send, and the answers a permission prompt wants. */
 interface Key {
@@ -74,7 +74,7 @@ export function Composer({ session }: { session: Session }) {
   const [note, setNote] = useState<string | null>(null);
   /** Henry's own ear, when this page can record and the daemon has whisper. Preferred over the
    * browser's recogniser because it knows what your sessions, repos and files are called. */
-  const [holdState, setHoldState] = useState<"idle" | "arming" | "recording" | "working">("idle");
+  const [holdState, setHoldState] = useState<"idle" | "arming" | "recording">("idle");
   const [whisper, setWhisper] = useState(false);
   /** "held" while a finger is on the button; "latched" once it was a tap, or once the browser
    * took the touch away. A latched mic stays open until the next tap. */
@@ -82,17 +82,67 @@ export function Composer({ session }: { session: Session }) {
   const [latched, setLatched] = useState(false);
   const pressedAt = useRef(0);
   const recording = useRef(false);
-  const hold = useRef(
-    holdToTalk((state) => {
-      recording.current = state === "recording";
-      // The recorder gave up (no permission, no device) under a finger or a latch.
-      if (state === "idle" && phase.current !== "idle") {
-        phase.current = "idle";
-        setLatched(false);
+  /** Read by clips finishing after a render: the box so far is what the next clip continues. */
+  const textRef = useRef("");
+  textRef.current = text;
+  /** Clips go to whisper one at a time, so the words land in the order they were said. */
+  const chain = useRef<Promise<void>>(Promise.resolve());
+  const [pending, setPending] = useState(0);
+  /** The last clip's words as they went into the box. */
+  const lastClip = useRef("");
+  /** Clips whisper could not write down even after retrying, kept for a tap on "retry". */
+  const kept = useRef<ArrayBuffer[]>([]);
+  const [keptCount, setKeptCount] = useState(0);
+  const hearClip = (wav: ArrayBuffer) => {
+    const sessionId = session.id;
+    setPending((n) => n + 1);
+    chain.current = chain.current.then(async () => {
+      try {
+        const said = await transcribeWav(wav, sessionId, textRef.current);
+        if (!said) return;
+        const last = lastClip.current;
+        lastClip.current = said;
+        setText((t) => {
+          let base = t.replace(/\s+$/, "");
+          if (!base) return said;
+          // Whisper's full stop at the last cut, taken back when this clip carries the sentence
+          // on. Only when the box still ends with that clip: a stop you typed is yours.
+          if (carriesOn(said) && last && base.endsWith(last) && splitStop(last).stop) base = base.slice(0, -1);
+          return `${base} ${said}`;
+        });
+      } catch (e) {
+        kept.current.push(wav);
+        setKeptCount(kept.current.length);
+        setNote(e instanceof Error ? e.message : "could not write that down");
+      } finally {
+        setPending((n) => n - 1);
       }
-      setHoldState(state);
-    }),
+    });
+  };
+  const retryKept = () => {
+    const clips = kept.current;
+    kept.current = [];
+    setKeptCount(0);
+    setNote(null);
+    for (const wav of clips) hearClip(wav);
+  };
+  const mic = useRef(
+    liveMic(
+      (state) => {
+        recording.current = state === "recording";
+        // The microphone gave up (no permission, no device) under a finger or a latch.
+        if (state === "idle" && phase.current !== "idle") {
+          phase.current = "idle";
+          setLatched(false);
+        }
+        setHoldState(state);
+      },
+      (wav) => hearRef.current(wav),
+    ),
   );
+  // The mic is made once; the clip handler it calls is this render's.
+  const hearRef = useRef(hearClip);
+  hearRef.current = hearClip;
   /** Set when the swap to type mode was a request to edit, so the keyboard comes up with it. */
   const wantsBox = useRef(false);
   const box = useRef<HTMLTextAreaElement>(null);
@@ -105,7 +155,13 @@ export function Composer({ session }: { session: Session }) {
   const uploading = attached.some((a) => !a.path);
 
   // Leaving the session (or the page) with the microphone open would keep listening.
-  useEffect(() => () => speech.current?.stop(), []);
+  useEffect(
+    () => () => {
+      speech.current?.stop();
+      mic.current.stop();
+    },
+    [],
+  );
 
   // Asked again on every reconnect: on iPhone Chrome whisper is the only ear, so one status call
   // lost to a daemon restart or a waking tailnet would otherwise hide the mic until a reload.
@@ -229,21 +285,13 @@ export function Composer({ session }: { session: Session }) {
     setDictating(true);
   };
 
-  /** Stop: transcribe and put the words in the box, never straight into the session. */
-  async function finishHold() {
-    // A release, a second tap and the page going away can all land on one recording; a second
-    // stop() would wait on an `onstop` that has already fired.
+  /** Stop listening. The words go in the box as each pause is written down, never straight into
+   * the session; what was said since the last pause follows. */
+  function finishHold() {
     if (phase.current === "idle") return;
     phase.current = "idle";
     setLatched(false);
-    try {
-      const said = await hold.current.stop(session.id);
-      if (!said) return;
-      setText((t) => (t.trim() ? `${t.replace(/\s+$/, "")} ${said}` : said));
-      box.current?.focus();
-    } catch (e) {
-      setNote(e instanceof Error ? e.message : "could not transcribe that");
-    }
+    mic.current.stop();
   }
 
   // A phone that locks, or a swipe home, ends the recording: keep what was said rather than
@@ -264,7 +312,7 @@ export function Composer({ session }: { session: Session }) {
     phase.current = "held";
     pressedAt.current = Date.now();
     setNote(null);
-    hold.current.start().catch((err: unknown) => {
+    mic.current.start().catch((err: unknown) => {
       const name = err instanceof Error ? err.name : "";
       setNote(name === "NotAllowedError" ? "microphone permission refused" : `the microphone would not open${name ? ` (${name})` : ""}`);
     });
@@ -287,18 +335,25 @@ export function Composer({ session }: { session: Session }) {
   // Henry's own ear when the daemon has whisper, else the browser's recogniser, else no mic.
   const canTalk = whisper || dictationSupported();
 
+  const retry = keptCount > 0 && (
+    <button className="m-note" onClick={retryKept} style={{ width: "100%", textAlign: "left", fontWeight: 600 }}>
+      {keptCount === 1 ? "one clip was not written down" : `${keptCount} clips were not written down`} — tap to try again
+    </button>
+  );
+
   if (mode === "talk" && canTalk) {
     const label =
       holdState === "arming"
         ? "opening mic…"
         : holdState === "recording"
-          ? latched ? "listening — tap to stop" : "listening — release to stop"
-          : holdState === "working"
+          ? (latched ? "listening — tap to stop" : "listening — release to stop") + (pending ? " · writing…" : "")
+          : pending
             ? "writing it down…"
             : "tap or hold to talk";
     return (
       <div className="m-composer">
         {note && <div className="m-note" onClick={() => setNote(null)}>{note}</div>}
+        {retry}
         {chips}
         {/* What it heard, still yours: tap to fix a word, send when it says what you meant. */}
         <div className="m-heard-row">
@@ -322,7 +377,6 @@ export function Composer({ session }: { session: Session }) {
               onPointerUp={releaseMic}
               onPointerCancel={cancelMic}
               onContextMenu={(e) => e.preventDefault()}
-              disabled={holdState === "working"}
               aria-label="hold to talk"
             >
               {label}
@@ -358,6 +412,7 @@ export function Composer({ session }: { session: Session }) {
         </button>
       </div>
       {note && <div className="m-note" onClick={() => setNote(null)}>{note}</div>}
+      {retry}
       {chips}
       <div className="m-input">
         {claude && (

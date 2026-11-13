@@ -32,11 +32,17 @@ const WAV_HEADER_BYTES = 44;
 const FRAME_SAMPLES = 320;
 const VOICED_RMS = 0.01;
 const VOICED_FRAMES = 6;
-const STT_TIMEOUT_MS = 30_000;
+/** Generous: whisper on a machine busy building something can take many times its usual
+ * second, and a clip killed for being slow is words you have to say again. */
+const STT_TIMEOUT_MS = 120_000;
 const TTS_TIMEOUT_MS = 30_000;
 const ANSWER_TIMEOUT_MS = 30_000;
 /** whisper takes n_text_ctx/2 tokens of initial prompt; this stays well inside it. */
 const BIAS_CHARS = 700;
+/** Continuous dictation's last words, carried into the next clip's prompt. Taken out of the
+ * bias budget rather than added to it: whisper keeps the *end* of an overlong prompt, so an
+ * overflow would cut your own vocabulary, which leads the list. */
+const AFTER_CHARS = 200;
 /** A relayed message is a sentence, not a payload. */
 const MAX_RELAY_CHARS = 1_000;
 /** Sessions described in detail in one answer's context, across every machine. Each machine
@@ -132,7 +138,7 @@ export async function vocabulary(sessionId?: string): Promise<VocabTerm[]> {
  * falls off the end used to do so silently — a word could be absent for no visible reason and
  * no way to find out. Now the overflow is returned so the panel can show it.
  */
-export function biasFrom(terms: VocabTerm[]): { prompt: string; used: VocabTerm[]; dropped: VocabTerm[] } {
+export function biasFrom(terms: VocabTerm[], budget = BIAS_CHARS): { prompt: string; used: VocabTerm[]; dropped: VocabTerm[] } {
   if (!terms.length) return { prompt: "", used: [], dropped: [] };
   const lead = "The speaker is a developer talking about these projects and sessions: ";
   const used: VocabTerm[] = [];
@@ -140,7 +146,7 @@ export function biasFrom(terms: VocabTerm[]): { prompt: string; used: VocabTerm[
   let length = lead.length + 1;
   for (const t of terms) {
     const cost = t.term.length + 2;
-    if (length + cost > BIAS_CHARS) dropped.push(t);
+    if (length + cost > budget) dropped.push(t);
     else {
       used.push(t);
       length += cost;
@@ -191,6 +197,22 @@ export function canonicalize(text: string, terms: VocabTerm[]): string {
     }
   }
   return tokens.map((t, i) => (i % 2 === 0 ? (words[i] ?? t) : words[i] === "" ? "" : t)).join("");
+}
+
+const DOTS = String.raw`(?:\.{2,}|…)+`;
+const SEAM = new RegExp(String.raw`\s*${DOTS}\s+([A-Za-z][\w']*)`, "g");
+const EDGE_DOTS = new RegExp(String.raw`^\s*${DOTS}\s*|\s*${DOTS}\s*$`, "g");
+
+/**
+ * Pauses out of dictated text. Whisper hears a breath as "make it... Better", and a clip cut at
+ * a pause as ending "make it...". Every "..." is a pause, not something you said: it goes, and
+ * the word after it continues the sentence. "I" and your known names keep their capital.
+ * Whether a clip's first word continues the clip before is whisper's call (see `transcribe`).
+ */
+export function smoothDictation(heard: string, terms: VocabTerm[]): string {
+  const keep = new Set(terms.map((t) => t.term.split(/\s+/)[0]!));
+  const lower = (w: string) => (/^I('|$)/.test(w) || keep.has(w) || !/^[A-Z][a-z']*$/.test(w) ? w : w.toLowerCase());
+  return heard.replace(SEAM, (_, w: string) => ` ${lower(w)}`).replace(EDGE_DOTS, "").trim();
 }
 
 /**
@@ -453,8 +475,12 @@ export function hasSpeech(wav: Uint8Array): boolean {
 
 /** 16 kHz mono WAV in, text out. The panel does the resampling, because the browser already
  * has an AudioContext and the daemon would otherwise need ffmpeg on two platforms.
- * `sessionId` (dictation) adds that session's own vocabulary to the bias. */
-export async function transcribe(wav: Uint8Array, sessionId?: string): Promise<string> {
+ * `sessionId` (dictation) adds that session's own vocabulary to the bias. `after` is what
+ * continuous dictation typed just before this clip: it ends the prompt, so whisper hears the
+ * clip as what follows it. Its last full stop is left off, because whisper puts one at every
+ * cut whether the sentence ended or not; without it whisper decides, and starts a clip that
+ * carries on the sentence in lower case and a new sentence with a capital. */
+export async function transcribe(wav: Uint8Array, sessionId?: string, after?: string): Promise<string> {
   const model = config.voice.sttModel;
   if (!model) throw new Error("voice.sttModel is not set");
   // Enforced here rather than at the route, so every path into whisper is capped.
@@ -465,7 +491,11 @@ export async function transcribe(wav: Uint8Array, sessionId?: string): Promise<s
   try {
     await Bun.write(clip, wav);
     const terms = await vocabulary(sessionId);
-    const { prompt } = biasFrom(terms);
+    let tail = (after ?? "").replace(/[\x00-\x1f\x7f]+/g, " ").trim();
+    if (tail.length > AFTER_CHARS) tail = tail.slice(-AFTER_CHARS).replace(/^\S*\s+/, "");
+    tail = tail.replace(/\s*(?:\.+|…)$/, "");
+    const { prompt: bias } = biasFrom(terms, tail ? BIAS_CHARS - AFTER_CHARS : BIAS_CHARS);
+    const prompt = [bias, tail].filter(Boolean).join(" ");
     const args = ["-m", model, "-f", clip, "-l", "en", "-nt", "-np"];
     if (prompt) args.push("--prompt", prompt);
     const { ok, stdout, stderr } = await run(config.voice.stt, args, STT_TIMEOUT_MS);
@@ -473,7 +503,7 @@ export async function transcribe(wav: Uint8Array, sessionId?: string): Promise<s
     // -nt still leaves blank lines and whisper's bracketed non-speech markers ([BLANK_AUDIO]).
     const heard = stdout.replace(/\[[A-Z_ ]+\]/g, " ").replace(/\s+/g, " ").trim();
     // Biasing makes a word likelier, not certain; this puts the ones it still mis-spells back.
-    return canonicalize(heard, terms);
+    return smoothDictation(canonicalize(heard, terms), terms);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

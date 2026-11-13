@@ -14,6 +14,19 @@ strip, records and plays.
   because you turned it on, shown in the warn colour the whole time, and it turns itself off
   after ten minutes without a word. Turning it off by hand (the button or the key) gives the
   keyboard to the session in view, so Enter sends; the ten-minute timeout moves nothing.
+- **Clips join into sentences.** Whisper hears each clip as a whole utterance, so a clip cut at a
+  breath ends in "..." or a full stop and the next starts with a capital. The last 200
+  characters a run typed end the next clip's whisper prompt, without their final full stop
+  (taken out of the vocabulary's room, since whisper cuts an overlong prompt from the front):
+  given an unfinished sentence, whisper itself starts a continuation in lower case and a new
+  sentence with a capital. Every "..." is dropped and the word after it lowercased, except "I"
+  and vocabulary names (`smoothDictation`). A clip's final full stop is held back until the next
+  clip: a lower-case start drops it, anything else types it first, and stopping types it.
+- **A clip is never lost to a busy machine.** Bun closes a connection after 10 s without a byte,
+  pending handler or not, so voice routes lift that limit and whisper gets two minutes. The
+  window retries a failed transcription three times over about twelve seconds (a daemon
+  restarting, whisper timing out); a dictated clip that still fails is kept in memory and the
+  strip shows "retry" until it lands or the page reloads.
 - **Its own system prompt, not the overseer's.** The overseer writes to be *read*: backticks
   around every name, `HEADLINE:`/`CHANGED:` labels, bullets. All of that is unspeakable. Voice
   shares the overseer's per-session description (`sessionDetail`: summary, latest entries,
@@ -66,6 +79,14 @@ strip, records and plays.
 - **The UI resamples, so the daemon needs no ffmpeg.** MediaRecorder gives webm/opus and
   whisper.cpp wants 16 kHz mono PCM; the browser already has an AudioContext, so the conversion
   happens there rather than adding a media dependency on two platforms.
+- **Nothing in the strip waits forever.** The shell has no reload key, so a hung promise used to
+  hold voice until the app restarted. Opening the microphone gives up after 15 s (and closes a
+  device that opens late), a context that will not resume in 2 s is rebuilt once and then
+  reported, the worklet gets 5 s to load, and playback ends at the clip's length if `ended`
+  never fires. A warm stream whose track went muted is reopened rather than reused. Continuous
+  dictation with no audio blocks for 3 s stops and rebuilds the context. Behind all of it, a
+  phase that outlives its limit (25 s opening the mic, 15 s past the hold cap recording)
+  resets the strip and says which phase it was stuck in.
 - **The strip's AudioContext does not outlive the speakers.** One context serves the waveform,
   the mic and playback, but a context binds its output device when it is made and Chrome can
   keep rendering to one that has since been unplugged — a dock's speakers — so an answer played
@@ -145,7 +166,7 @@ strip, records and plays.
   Without it the listener still comes up, says so on the console, and reports `secure: false` so
   the panel can explain the missing microphone instead of failing at a bare TypeError.
 - **On a phone the gesture is the button.** There is no modifier to hold, so the composer's mic
-  is press-and-hold, and the press doubles as the gesture iOS requires before audio will play.
+  is tapped or held, and the press doubles as the gesture iOS requires before audio will play.
   It transcribes into the composer, never into the session: the same rule the desktop holds to,
   for the same reason. Henry's ear is preferred over the browser's recogniser when the daemon
   has whisper, because only Henry's knows what your sessions, repos and files are called; the

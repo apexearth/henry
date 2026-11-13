@@ -20,7 +20,7 @@ import { showSession } from "./dock";
 import { focusTerminal } from "./Terminal";
 import { isMac } from "./platform";
 import { cssVar, onTheme } from "./theme";
-import { pcmToWav16k, Segmenter, tapNode, toWav16k } from "./voice-audio";
+import { carriesOn, openMic, pcmToWav16k, Segmenter, splitStop, tapNode, toWav16k, transcribeWav, within } from "./voice-audio";
 import { createSession, getState, send, useStore, whenSession } from "./ws";
 
 const SAMPLE_RATE = 16_000;
@@ -42,6 +42,16 @@ const TAP_MS = 300;
 /** Continuous dictation turns itself off after this long without a word, so a window left
  * alone does not keep a microphone open for days. */
 const IDLE_OFF_MS = 10 * 60_000;
+/** Continuous dictation with no audio blocks for this long has a dead context under it. */
+const NO_AUDIO_MS = 3_000;
+/** Longest each phase may last before the strip calls itself stuck and resets. Each is well past
+ * what the phase's own timeouts allow: the watchdog is for a hang nobody anticipated. */
+const PHASE_LIMIT_MS: Partial<Record<Phase, number>> = {
+  arming: 25_000,
+  recording: MAX_MS + 15_000,
+  thinking: 10 * 60_000,
+  speaking: 5 * 60_000,
+};
 
 // The panel kept a log of every exchange here; it has none now, so drop what an old one left.
 try {
@@ -54,6 +64,13 @@ try {
 type Phase = "idle" | "arming" | "recording" | "thinking" | "speaking" | "streaming";
 /** Who the held key is talking to: Henry, or the session you are looking at. */
 type Mode = "ask" | "dictate";
+/** What one run of continuous dictation has typed, and where: the next clip continues it. `held`
+ * is the last clip's full stop, not typed until the next clip shows whether it was one. */
+interface Said {
+  target: string;
+  text: string;
+  held: string;
+}
 
 /** One physical key for both, and a bare modifier at that: it types nothing, so it collides with
  * nothing — not a system chord, not a password manager, not a TUI. Shift aims the same hold. */
@@ -106,10 +123,14 @@ export function VoiceStrip() {
   /** The right-option release after a press that turned dictation off: swallowed, not a hold. */
   const swallowUp = useRef(false);
   /** Continuous dictation's audio graph, while it runs. */
-  const live = useRef<{ mic: MediaStream; src: MediaStreamAudioSourceNode; node: AudioWorkletNode; seg: Segmenter; idle: ReturnType<typeof setInterval>; heardAt: number } | null>(null);
+  const live = useRef<{ mic: MediaStream; src: MediaStreamAudioSourceNode; node: AudioWorkletNode; seg: Segmenter; said: Said; idle: ReturnType<typeof setInterval>; heardAt: number; blockAt: number } | null>(null);
   /** Clips are transcribed one at a time, so the words land in the order they were said. */
   const chain = useRef<Promise<void>>(Promise.resolve());
   const [pending, setPending] = useState(0);
+  /** Dictated clips whisper could not turn into words even after retrying, kept so a busy
+   * machine costs a click on "retry" rather than saying it all again. Gone on reload. */
+  const kept = useRef<{ wav: ArrayBuffer; target: string }[]>([]);
+  const [keptCount, setKeptCount] = useState(0);
   const unmounted = useRef(false);
 
   useEffect(() => {
@@ -120,6 +141,26 @@ export function VoiceStrip() {
   }, []);
 
   const context = () => (audioCtx.current ??= new AudioContext());
+
+  /**
+   * The context, running. One that will not resume (its device went away, or Chromium's resume
+   * simply never answers) is thrown away and built again on the current device, once; a second
+   * that will not start either is an error rather than a wait that never ends.
+   */
+  async function liveContext(): Promise<AudioContext> {
+    for (let attempt = 0; ; attempt++) {
+      const ctx = context();
+      if (ctx.state === "running") return ctx;
+      await within(ctx.resume(), 2_000, "the audio device").catch(() => {});
+      if ((ctx.state as AudioContextState) === "running") return ctx;
+      void ctx.close().catch(() => {});
+      if (audioCtx.current === ctx) {
+        audioCtx.current = null;
+        analyser.current = null;
+      }
+      if (attempt) throw new Error("the audio device would not start");
+    }
+  }
 
   // A context binds its output device when it is made, and Chrome can keep rendering to one
   // that has since gone — a dock's speakers after the unplug — so an answer plays into nothing.
@@ -268,11 +309,15 @@ export function VoiceStrip() {
       warmTimer.current = null;
     }
     const existing = stream.current;
-    if (existing?.active) {
+    // A muted track is one its device has stopped feeding (taken by another app, asleep): it
+    // would record silence for as long as it stays warm, so it is replaced rather than reused.
+    if (existing?.active && !existing.getAudioTracks().some((t) => t.muted)) {
       for (const t of existing.getTracks()) t.enabled = true;
       return existing;
     }
-    const fresh = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+    for (const t of existing?.getTracks() ?? []) t.stop();
+    stream.current = null;
+    const fresh = await openMic();
     stream.current = fresh;
     setWarm(true);
     return fresh;
@@ -392,6 +437,29 @@ export function VoiceStrip() {
     setPhase("idle");
   }, [stop]);
 
+  // The last resort. A phase that outlives its limit is a hang nothing above caught, and the
+  // strip used to stay in it, deaf to keys and buttons, until the app was restarted. Everything
+  // is let go — recorder, microphone, context — and the message says where it was stuck.
+  useEffect(() => {
+    const limit = PHASE_LIMIT_MS[phase];
+    if (!limit) return;
+    const timer = setTimeout(() => {
+      if (phaseRef.current !== phase) return;
+      console.warn(`[voice] stuck in "${phase}" for ${limit / 1000}s; resetting`);
+      held.current = false;
+      latch.current = false;
+      discard.current = true;
+      stop();
+      stopStream();
+      release();
+      staleCtx.current = true;
+      setError(`voice was stuck ${phase === "arming" ? "opening the microphone" : phase} and has been reset`);
+      setPhase("idle");
+    }, limit);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase]);
+
   /**
    * Continuous dictation on an open microphone: raw audio through a worklet into the segmenter,
    * which cuts a clip at each pause; each clip is transcribed and typed in while you keep
@@ -401,12 +469,15 @@ export function VoiceStrip() {
     latch.current = false;
     if (unmounted.current) return;
     try {
-      const ctx = context();
-      await ctx.resume();
+      const ctx = await liveContext();
       for (const t of mic.getTracks()) t.enabled = true;
       const src = ctx.createMediaStreamSource(mic);
-      const seg = new Segmenter(ctx.sampleRate, (clip) => queueClip(clip, ctx.sampleRate));
-      const node = await tapNode(ctx, (block) => seg.push(block));
+      const said: Said = { target: "", text: "", held: "" };
+      const seg = new Segmenter(ctx.sampleRate, (clip) => queueClip(clip, ctx.sampleRate, said));
+      const node = await tapNode(ctx, (block) => {
+        if (live.current) live.current.blockAt = Date.now();
+        seg.push(block);
+      });
       src.connect(node);
       listenTo(src);
       live.current = {
@@ -414,10 +485,20 @@ export function VoiceStrip() {
         src,
         node,
         seg,
+        said,
         heardAt: Date.now(),
+        blockAt: Date.now(),
         idle: setInterval(() => {
-          if (live.current && Date.now() - live.current.heardAt > IDLE_OFF_MS) stopStream("stopped after ten quiet minutes");
-        }, 30_000),
+          const run = live.current;
+          if (!run) return;
+          if (Date.now() - run.heardAt > IDLE_OFF_MS) return stopStream("stopped after ten quiet minutes");
+          // The worklet sends a block every ~40 ms, silence or not. None for seconds means the
+          // context stopped rendering under us: listening to nothing would look like listening.
+          if (Date.now() - run.blockAt > NO_AUDIO_MS) {
+            staleCtx.current = true;
+            stopStream("no sound was reaching dictation; the audio device has been reset, so try again");
+          }
+        }, 1_000),
       };
       setError(null);
       setPhase("streaming");
@@ -449,8 +530,11 @@ export function VoiceStrip() {
     if (!run) return;
     clearInterval(run.idle);
     run.seg.flush();
+    // After the last clip lands: its held full stop, and the space the next words would want.
+    chain.current = chain.current.then(() => settle(run.said));
     run.node.port.onmessage = null;
     run.src.disconnect();
+    run.node.disconnect();
     listenTo(null);
     idleMic(run.mic);
     if (note) setError(note);
@@ -461,20 +545,39 @@ export function VoiceStrip() {
     setPhase("idle");
   }
 
-  /** One clip into the queue. The target is the session in view when the pause came. */
-  function queueClip(clip: Float32Array, rate: number) {
+  /** A run's last words finished off where they were typed: the held full stop and a space. */
+  function settle(said: Said) {
+    if (said.target && said.text) send({ type: "pty:input", sessionId: said.target, data: said.held + " " });
+    said.target = "";
+    said.text = "";
+    said.held = "";
+  }
+
+  /** One clip into the queue. The target is the session in view when the pause came. `said` is
+   * what this stream last typed there, so the daemon hears the clip as the rest of it. */
+  function queueClip(clip: Float32Array, rate: number, said: Said) {
     if (live.current) live.current.heardAt = Date.now();
     const target = getState().activeSessionId;
     setPending((n) => n + 1);
     chain.current = chain.current.then(async () => {
+      let wav: ArrayBuffer | undefined;
       try {
         if (!target) return setError("no active session to type into");
-        const text = await hear(await pcmToWav16k(clip, rate), target);
+        // Moved to another session mid-thought: the last one's sentence is finished as it stood.
+        if (said.target !== target) settle(said);
+        wav = await pcmToWav16k(clip, rate);
+        const text = await hear(wav, target, said.text);
         if (!text || unmounted.current) return;
+        const { body, stop } = splitStop(text);
+        const joint = said.text ? (carriesOn(body) ? " " : `${said.held} `) : "";
+        said.target = target;
+        said.text = `${said.text}${joint}${body}`.slice(-400);
+        said.held = stop;
         // No focus moves: you may be reading or clicking elsewhere while you talk, and the words
-        // go to the session in view anyway. The trailing space joins the next clip's words on.
-        send({ type: "pty:input", sessionId: target, data: text + " " });
+        // go to the session in view anyway.
+        send({ type: "pty:input", sessionId: target, data: joint + body });
       } catch (e) {
+        if (wav && target) keep(wav, target);
         setError(e instanceof Error ? e.message : String(e));
       } finally {
         setPending((n) => n - 1);
@@ -519,7 +622,13 @@ export function VoiceStrip() {
     // Captured when the hold ended, not now: whisper takes about a second, and switching tabs
     // while it runs would otherwise land the words in the session you moved to.
     if (!sessionId) return fail("no active session to type into");
-    const text = await hear(wav, sessionId);
+    let text: string;
+    try {
+      text = await hear(wav, sessionId);
+    } catch (e) {
+      keep(wav, sessionId);
+      throw e;
+    }
     if (!text) return fail("nothing heard");
     // Trailing space: two holds in a row are one sentence continuing, and without it the second
     // one arrives welded to the first ("...three.Wow, it's").
@@ -528,12 +637,34 @@ export function VoiceStrip() {
   }
 
   /** A clip through whisper. `sessionId` biases the decode toward that session's own vocabulary. */
-  async function hear(wav: ArrayBuffer, sessionId?: string): Promise<string> {
-    const url = sessionId ? `/api/voice/transcribe?session=${encodeURIComponent(sessionId)}` : "/api/voice/transcribe";
-    const res = await fetch(url, { method: "POST", headers: { "content-type": "audio/wav" }, body: wav });
-    const body = (await res.json()) as { text?: string; error?: string };
-    if (!res.ok) throw new Error(body.error ?? `transcribe failed (${res.status})`);
-    return body.text?.trim() ?? "";
+  const hear = transcribeWav;
+
+  function keep(wav: ArrayBuffer, target: string) {
+    kept.current.push({ wav, target });
+    setKeptCount(kept.current.length);
+  }
+
+  /** The kept clips again, in the order they were said, each typed into the session it was
+   * meant for. One that fails again is kept again. */
+  function retryKept() {
+    const clips = kept.current;
+    kept.current = [];
+    setKeptCount(0);
+    setError(null);
+    for (const { wav, target } of clips) {
+      setPending((n) => n + 1);
+      chain.current = chain.current.then(async () => {
+        try {
+          const text = await hear(wav, target);
+          if (text && !unmounted.current) send({ type: "pty:input", sessionId: target, data: text + " " });
+        } catch (e) {
+          keep(wav, target);
+          setError(e instanceof Error ? e.message : String(e));
+        } finally {
+          setPending((n) => n - 1);
+        }
+      });
+    }
   }
 
   /**
@@ -581,17 +712,18 @@ export function VoiceStrip() {
    */
   async function play(base64: string) {
     const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-    const ctx = context();
     try {
-      await ctx.resume();
+      const ctx = await liveContext();
       const buffer = await ctx.decodeAudioData(bytes.buffer.slice(0) as ArrayBuffer);
       const src = ctx.createBufferSource();
       src.buffer = buffer;
       listenTo(src);
       analyser.current?.connect(ctx.destination);
       setPhase("speaking");
+      // `ended` never comes from a context that stopped rendering; the length of the clip does.
       await new Promise<void>((done) => {
-        src.onended = () => done();
+        const late = setTimeout(done, buffer.duration * 1000 + 3_000);
+        src.onended = () => (clearTimeout(late), done());
         src.start();
       });
     } finally {
@@ -735,6 +867,16 @@ export function VoiceStrip() {
             {showVocab && anchor && <Vocabulary anchor={anchor} onEnter={keepVocab} onLeave={() => openVocab(false)} />}
           </span>
         </>
+      )}
+      {keptCount > 0 && (
+        <button
+          className="sb-item"
+          onClick={retryKept}
+          title={`${keptCount} dictated clip${keptCount === 1 ? "" : "s"} could not be transcribed and ${keptCount === 1 ? "is" : "are"} kept until you retry or reload; click to try again`}
+          style={{ color: "var(--warn)", fontWeight: 600 }}
+        >
+          retry {keptCount === 1 ? "clip" : `${keptCount} clips`}
+        </button>
       )}
       {message && (
         <button
