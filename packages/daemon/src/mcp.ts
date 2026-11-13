@@ -17,7 +17,7 @@
  * shares one `launch-mcp.json`. Only coordinators pay for those definitions.
  */
 import { homedir } from "node:os";
-import { isAbsolute, join, resolve } from "node:path";
+import { join } from "node:path";
 import { isClaudeSession, type ChangedFile, type Session } from "@henry/shared";
 import * as attention from "./attention";
 import { COORDINATOR_TOOLS } from "./coordinator";
@@ -25,6 +25,7 @@ import { config, expandHome } from "./config";
 import * as db from "./db";
 import * as git from "./git";
 import { sessions } from "./sessions";
+import { pathsOf, WRITE_TOOLS } from "./written";
 
 // Newest first. Claude Code asks for 2025-11-25; answering with an older one works, since the
 // four methods here have not changed across any of these, but echoing the client's version
@@ -139,8 +140,6 @@ function targetRepos(repoArg: string | undefined, live: Session[]): string[] {
   return underRoot ? [underRoot.path] : [];
 }
 
-/** Tools whose payload names the file they write. A Bash `sed -i` or `>` is not traced. */
-const WRITE_TOOLS = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit", "str_replace_editor"]);
 /** How far back to read a session's events when asking which files it wrote. */
 const WRITE_EVENT_LIMIT = 400;
 
@@ -154,12 +153,7 @@ export function writtenPaths(sessionId: string, repoPath: string): Set<string> {
   const out = new Set<string>();
   for (const e of db.listEvents({ sessionId, limit: WRITE_EVENT_LIMIT })) {
     if (!e.toolName || !WRITE_TOOLS.has(e.toolName)) continue;
-    const input = (e.payload as { tool_input?: Record<string, unknown> } | null)?.tool_input;
-    if (!input) continue;
-    for (const key of ["file_path", "notebook_path"]) {
-      const v = input[key];
-      if (typeof v !== "string" || !v) continue;
-      const abs = isAbsolute(v) ? v : resolve(e.cwd ?? repoPath, expandHome(v));
+    for (const abs of pathsOf(e, repoPath)) {
       const rel = git.relIn(repoPath, abs);
       if (rel) out.add(rel);
     }

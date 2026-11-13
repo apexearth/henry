@@ -63,14 +63,20 @@ export interface Turn {
   blocked: Set<string>;
   /** Thread of the latest call; a prompt belongs to it. */
   last: string;
+  /** The main thread's turn has stopped. A background agent's tool calls after that are its
+   * own work, not the session working: the move is mine until the main thread acts again. */
+  over: boolean;
 }
 
-export const newTurn = (): Turn => ({ pending: new Map(), blocked: new Set(), last: "" });
+export const newTurn = (): Turn => ({ pending: new Map(), blocked: new Set(), last: "", over: false });
 
 const reset = (turn: Turn) => {
   turn.pending.clear();
   turn.blocked.clear();
 };
+
+/** A background agent's prompt answered after the turn ended hands the move back to me. */
+const afterTurn = (wasBlocked: boolean): SessionActivity | undefined => (wasBlocked ? "waiting" : undefined);
 
 const signature = (p: Payload) => `${p.tool_name ?? ""}\0${JSON.stringify(p.tool_input ?? null)}`;
 
@@ -95,8 +101,11 @@ export function nextActivity(hookEvent: string, payload: Payload = {}, turn: Tur
   switch (hookEvent) {
     case "UserPromptSubmit":
       reset(turn);
+      turn.over = false;
       return "working";
-    case "PreToolUse":
+    case "PreToolUse": {
+      if (!thread) turn.over = false;
+      const wasBlocked = turn.blocked.size > 0;
       // Not a resolution of earlier calls (a batch fires all its PreToolUse first), but a
       // thread cannot issue one while its own prompt is up.
       for (const b of pendingOf(turn, (k, e) => e.thread === thread && turn.blocked.has(k))) turn.blocked.delete(b);
@@ -107,14 +116,19 @@ export function nextActivity(hookEvent: string, payload: Payload = {}, turn: Tur
         turn.blocked.add(id);
         return "needsInput";
       }
-      // Another thread carrying on while a prompt is up is a heartbeat.
-      return turn.blocked.size ? undefined : "working";
-    case "PostToolUse":
+      // Another thread carrying on while a prompt is up is a heartbeat, and so is a background
+      // agent carrying on after the turn ended.
+      return turn.blocked.size ? undefined : turn.over ? afterTurn(wasBlocked) : "working";
+    }
+    case "PostToolUse": {
+      const wasBlocked = turn.blocked.size > 0;
       if (id) {
         turn.pending.delete(id);
         turn.blocked.delete(id);
       }
-      return turn.blocked.size ? undefined : "working";
+      if (!thread) turn.over = false;
+      return turn.blocked.size ? undefined : turn.over ? afterTurn(wasBlocked) : "working";
+    }
     case "PermissionRequest": {
       const sig = signature(payload);
       const match = pendingOf(turn, (_, e) => e.sig === sig);
@@ -128,6 +142,7 @@ export function nextActivity(hookEvent: string, payload: Payload = {}, turn: Tur
     case "Stop":
       reset(turn);
       // stop_hook_active: another Stop hook sent Claude back for more, so the turn goes on.
+      turn.over = !payload.stop_hook_active;
       return payload.stop_hook_active ? "working" : "waiting";
     case "SubagentStop":
       // That thread's calls are over, hooks or no hooks; the turn itself carries on.
@@ -138,6 +153,7 @@ export function nextActivity(hookEvent: string, payload: Payload = {}, turn: Tur
       // the turn (or the prompt) simply carries on, so keep whatever state it was in.
       if (payload.source === "compact") return undefined;
       reset(turn);
+      turn.over = true;
       return "waiting";
     default:
       // PreCompact (auto-compact happens mid-turn, manual at the prompt) and anything new:

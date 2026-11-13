@@ -2,6 +2,7 @@
 // It applies on the click, not on Save: the setting is this browser's, not the daemon's.
 import type { CSSProperties } from "react";
 import { setWanted, useNotifyState } from "./notify";
+import { setChimeWanted, useChimeWanted } from "./chime";
 
 const st = {
   check: { display: "flex", alignItems: "center", gap: 8, padding: "3px 0" } as CSSProperties,
@@ -10,6 +11,7 @@ const st = {
 
 export function NotifyToggle({ id = "notify-toggle" }: { id?: string }) {
   const { wanted, permission } = useNotifyState();
+  const chime = useChimeWanted();
   const note =
     permission === "unsupported" ? "this browser cannot show notifications"
     : permission === "denied" ? "blocked by the browser: allow notifications for this site in its settings, then try again"
@@ -20,6 +22,10 @@ export function NotifyToggle({ id = "notify-toggle" }: { id?: string }) {
       <div style={st.check}>
         <input id={id} type="checkbox" checked={wanted} disabled={permission === "unsupported"} onChange={(e) => void setWanted(e.target.checked)} />
         <label htmlFor={id}>notify me when a session needs me</label>
+      </div>
+      <div style={st.check}>
+        <input id={`${id}-chime`} type="checkbox" checked={chime} onChange={(e) => setChimeWanted(e.target.checked)} />
+        <label htmlFor={`${id}-chime`}>play a sound: rising when it needs me, falling when it finished</label>
       </div>
       {note && <div style={st.note}>{note}</div>}
     </>

@@ -96,6 +96,7 @@ const SETTABLE = {
   phone: ["listen", "port"],
   files: ["roots"],
   github: ["repos", "pickModel"],
+  voice: ["announce", "announceModel"],
   rules: ["protectedBranches", "alarm", "notable", "crossRepoWrite", "commitOnProtected", "pushToProtected", "maxSubagentsPer10m", "repos"],
 } as const;
 
@@ -107,7 +108,7 @@ export function setConfig(patch: Partial<HenryConfig>): HenryConfig {
   const incoming = patch as Record<string, unknown>;
   const next: Record<string, unknown> = { ...user };
   for (const k of SETTABLE.root) if (k in incoming) next[k] = incoming[k];
-  for (const group of ["overseer", "mcp", "federation", "phone", "files", "github", "rules"] as const) {
+  for (const group of ["overseer", "mcp", "federation", "phone", "files", "github", "voice", "rules"] as const) {
     const sub = incoming[group];
     if (!sub || typeof sub !== "object") continue;
     const merged = { ...((user[group] as Record<string, unknown>) ?? {}) };

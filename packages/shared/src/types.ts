@@ -255,6 +255,11 @@ export interface Notice {
   ts: number;
   /** Set by the daemon on notices relayed from a paired machine, like Session.peer. */
   peer?: string;
+  /** The same notice sent again a few seconds later, said in one line by a small model from the
+   * end of the conversation (daemon/announce.ts, `voice.announce`), with that line spoken as a
+   * base64 WAV when the voice could make one. */
+  said?: string;
+  audio?: string;
 }
 
 export type PlaybookTrigger = "stop" | "flag" | "manual";
@@ -455,6 +460,12 @@ export interface HenryConfig {
      * ("subsquid", "sessiond"). They go first in the bias and are never dropped, and a
      * transcript that spells one differently ("sub-squid") is put back to this spelling. */
     vocabulary?: string[];
+    /** When a session finishes or needs you, a small model reads the end of its conversation and
+     * Henry says in one line what it did or what it wants (daemon/announce.ts). Needs only the
+     * overseer's backend and the speaker, not `enabled`. */
+    announce?: boolean;
+    /** The model for `announce`: small and fast, since it runs on every finished turn. */
+    announceModel?: string;
   };
   /** What `#157` in a session's output points at (daemon/github.ts). */
   github: {
@@ -558,6 +569,22 @@ export interface ChangedFile {
   committed?: true;
   /** Working-tree mtime, ms; absent for deleted files. */
   mtime?: number;
+}
+
+/** GET /api/session/writes: files the session's Write/Edit calls wrote, newest write first. */
+export interface SessionWrites {
+  sessionId: string;
+  /** Your last prompt to the session, ms. A file written at or after it is that prompt's. */
+  promptAt?: number;
+  files: {
+    /** Absolute. */
+    path: string;
+    /** Its latest write, ms. */
+    at: number;
+    /** The checkout it is in, and its path there with forward slashes. */
+    repo?: string;
+    rel?: string;
+  }[];
 }
 
 /** GET /api/session/files: every repo the session touched (plus the one its cwd is in). */

@@ -8,11 +8,11 @@ The dock, the stage, the status strip, the topbar and the backdrop behind the te
 │ ▣ Rail fi│                                      │ ▾ henry main ↑2 ±5 ⑂↗│
 │ ▣ Stealth│         xterm.js (WebGL)             │   ▸ packages         │
 │ >_ henry │         one per session              │   M PLAN.md          │
-│ ▢ arm ⚑2 │                                      │ ▸ arm feat/x ↑∅ ±0 ⑂ │
-│ + new    │                                      │                      │
-│ 3 running│                                      │                      │
+│ ▢ arm ⚑2 │                                      ├──────────────────────┤
+│ + new    │                                      │ Changes  a.ts  2m ago│
+│ 3 running│                                      │          b.ts  1h ago│
 ├──────────┴──────────────────────────────────────┴──────────────────────┤
-│ opus  ctx ▇▇▁ 41%  38k in 9k out  $1.20                           7d ▇▁▁ 18% 3d │
+│ opus  ctx ▇▇▁ 41%  38k in 9k out  $1.20   ● voice dictate ≡    7d ▇▁▁ 18% 3d │
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -20,9 +20,13 @@ That is the default arrangement, not a fixed one. The workspace is a Dockview gr
 (`dockview-react`): the rail, every terminal and each tool tab is a panel. Drag a tool tab
 to split a group (top/bottom/left/right), stack it as a tab, dock it on a window edge, or
 float it. Tabs have no close button and there is no view menu: tools are rearranged, never
-dismissed. The arrangement is saved to localStorage
-(`henry.layout.v3`; a v2 layout is read once and its usage pane folded into the tabs) and
-restored on load; "reset layout" restores the picture above.
+dismissed. Changes is a pane of its own under the tool tabs rather than a tab, since it is
+glanced at while another tool is in front. Voice is not in the dock at all: it sits in the
+middle of the status strip (voice.md). The arrangement is saved to localStorage
+(`henry.layout.v5`; a v3 or v4 layout is read once and gains the Changes pane, where its Voice
+pane was if it had one; a Voice pane in any saved layout is dropped on restore; a v2 layout has
+its usage pane folded into the tabs) and restored on load; "reset layout" restores the picture
+above.
 The selected session is saved too (`henry.active`, id + cwd), so a refresh reopens where you
 were; if that session is gone, Henry falls back to a running session in the same repo.
 

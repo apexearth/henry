@@ -5,7 +5,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FileDiff, FilePeek } from "@henry/shared";
 import { parseDiff } from "./DiffView";
-import { closePeek, filePanelId, peekFile, popoutPeek } from "./dock";
+import { closePeek, filePanelId, holdPeek, peekFile, popoutPeek } from "./dock";
 import type { EditorHandle } from "./Editor";
 import { noteRecent } from "./files";
 import { highlightLines, languageFor } from "./highlight";
@@ -267,6 +267,10 @@ export function FileView({ path, line, active, local = false, popped = false, ed
   const crlf = !!peek?.content.includes("\r\n");
   const text = useMemo(() => (crlf ? peek!.content.replace(/\r\n/g, "\n") : peek?.content ?? ""), [peek, crlf]);
   const dirty = editing && draft !== null && draft !== text;
+  useEffect(() => {
+    holdPeek(path, editing);
+    return () => holdPeek(path, false);
+  }, [path, editing]);
   const startEdit = () => {
     setDraft(text);
     setFind(null);

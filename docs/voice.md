@@ -1,18 +1,19 @@
 # Talking to Henry
 
-The first slice of "Henry as an interlocutor" (PLAN.md), done by voice: hold a key in the Voice
-panel, ask a question, hear an answer. `daemon/src/voice.ts` owns the round trip; the panel
-records and plays.
+The first slice of "Henry as an interlocutor" (PLAN.md), done by voice: hold a key, ask a question,
+hear an answer. `daemon/src/voice.ts` owns the round trip; `ui/VoiceStrip.tsx`, in the status
+strip, records and plays.
 
 - **Push-to-talk, or a tap that latches dictation on; never a wake word.** A held key ends the
-  utterance on release. A tap of the dictation key (under 300 ms), or the panel's "dictate"
+  utterance on release. A tap of the dictation key (under 300 ms), or the strip's "dictate"
   button, keeps the microphone open until the next tap: a worklet hands raw audio to a
   segmenter that cuts a clip at each pause (700 ms, shorter once a clip passes 15 s, and a hard
   cut at 25 s), and each clip is transcribed and typed into the session in view at the moment
   of the pause, in order, unsent, without moving focus. Raw samples rather than MediaRecorder,
   because restarting a recorder to cut a clip loses the audio in between. The mic is open only
   because you turned it on, shown in the warn colour the whole time, and it turns itself off
-  after ten minutes without a word.
+  after ten minutes without a word. Turning it off by hand (the button or the key) gives the
+  keyboard to the session in view, so Enter sends; the ten-minute timeout moves nothing.
 - **Its own system prompt, not the overseer's.** The overseer writes to be *read*: backticks
   around every name, `HEADLINE:`/`CHANGED:` labels, bullets. All of that is unspeakable. Voice
   shares the overseer's per-session description (`sessionDetail`: summary, latest entries,
@@ -49,21 +50,35 @@ records and plays.
   fuzzy-matches whatever still comes back wrong (`matchSession`: "dune versus squid" finds
   "dune vs squid"). Measured 2026-09-14: the bias prompt helps sometimes and not always; the
   fuzzy match is what makes it reliable.
+- **Known words are spelled back as written, but not ordinary words.** The bias list is your
+  `voice.vocabulary`, the open sessions, repos and branches, and the basenames of the files the
+  session touched; a transcribed run of up to three words whose letters match one is rewritten
+  to that spelling ("sub-squid" → subsquid). A name in capitals (TODO.md, ISSUES.md) is left
+  out of the list unless it is yours, and a word that differs from a known one only in case
+  keeps whisper's casing, so "to-do" and "issues" stay words instead of coming back as TODO
+  and ISSUES. Your own vocabulary overrides both.
 - **Silence never reaches whisper.** Given nothing to hear, whisper does not say so: it invents
   a sentence, and with a bias prompt it invents one out of the prompt, so a key held and released
   without a word came back as a string of session names. `transcribe` gates on the clip's own
   energy first (`hasSpeech`: 120 ms of frames above -40 dBFS RMS) and returns nothing when the
-  gate fails, which the panel and the phone already show as "nothing heard". The browser's noise
+  gate fails, which the strip and the phone already show as "nothing heard". The browser's noise
   suppression puts a silent room well under the line; a quiet word still clears it.
 - **The UI resamples, so the daemon needs no ffmpeg.** MediaRecorder gives webm/opus and
   whisper.cpp wants 16 kHz mono PCM; the browser already has an AudioContext, so the conversion
   happens there rather than adding a media dependency on two platforms.
-- **The panel's AudioContext does not outlive the speakers.** One context serves the waveform,
+- **The strip's AudioContext does not outlive the speakers.** One context serves the waveform,
   the mic and playback, but a context binds its output device when it is made and Chrome can
   keep rendering to one that has since been unplugged — a dock's speakers — so an answer played
   into nothing. Any `devicechange` throws the context away (once it is idle) and the next hold
   or answer makes a new one on the current default output.
-- **Speech is the nice-to-have.** A failed voice still answers in the panel. The platform voice
+- **Voice lives in the status strip and keeps no log.** It is driven from the keyboard, so it
+  takes no dock pane: the middle of the strip holds "voice" (hold it to ask), "dictate" and the
+  vocabulary list, with the key hints in the tooltip, and a small waveform of its own beside
+  "voice", animated only while the mic is recording or Henry is speaking. Dictated words are already in
+  the session's prompt and an answer is spoken, so a transcript of both would be a second copy.
+  The strip shows only an error, or an answer that came back without audio, cut to one line;
+  hover for all of it, click to dismiss.
+- **Speech is the nice-to-have.** A failed voice still answers in the strip. The platform voice
   (`say`, SAPI) is the zero-install default; `voice.tts` points at any command that reads text
   on stdin and writes a WAV on stdout, which is how a better local model gets wired in. One
   process per answer, on purpose: nothing resident, nothing to babysit. `scripts/kokoro-tts.py`
@@ -111,6 +126,15 @@ records and plays.
   the context is fetched fresh for every question, and the prompt says which wins when the two
   disagree.
 - **Off by default** (`voice.enabled`), like the overseer: it costs an LLM call per question.
+- **Henry says what finished, unprompted, when asked to** (`voice.announce`, a tick under
+  Settings → notifications; `daemon/announce.ts`). Each local notice except a reminder waits
+  1.5 s for the transcript to land, hands the same conversation tail to a small model
+  (`voice.announceModel`, Haiku by default, on the overseer's backend) with why it stopped,
+  and gets one sentence back: what it needs from you, or the result. The notice goes out again
+  with that line and its audio; windows with the sound on speak it once, one line at a time,
+  under the chime's quiet rule, and the OS notification swaps its text for the line. A newer
+  notice for the same session cancels a line still being written. It needs the speaker and the
+  backend, not `voice.enabled` or whisper. Peers relay the line like any notice.
 
 - **A phone records too, and that is what `phone.tls` is for.** A browser gives no microphone to
   an insecure origin — `navigator.mediaDevices` is not merely blocked, it is undefined — so the

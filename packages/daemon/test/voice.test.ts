@@ -160,6 +160,18 @@ describe("canonicalize", () => {
     expect(canonicalize("the off chain repo", terms)).toBe("the off-chain repo");
   });
 
+  test("a word in a capitalised filename stays an ordinary word", () => {
+    const files = [
+      { term: "TODO", source: "file" as const },
+      { term: "ISSUES", source: "file" as const },
+      { term: "Issues", source: "file" as const },
+    ];
+    expect(canonicalize("add it to the to-do list", files)).toBe("add it to the to-do list");
+    expect(canonicalize("any issues with it", files)).toBe("any issues with it");
+    // Your own word list still wins: you asked for that spelling.
+    expect(canonicalize("check the to-do", [{ term: "TODO", source: "you" as const }])).toBe("check the TODO");
+  });
+
   test("text with no known terms is untouched", () => {
     expect(canonicalize("nothing to see here", terms)).toBe("nothing to see here");
     expect(canonicalize("anything", [])).toBe("anything");

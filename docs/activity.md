@@ -13,7 +13,10 @@ What Claude is doing in a session, and whether you have been showing up to it.
   heartbeat that keeps a long tool call from ageing out. `SubagentStop` and `PreCompact` are
   heartbeats only: Claude Code fires SubagentStop for background agents that finish minutes
   after the turn ended (its "away summary"), and reading that as working pinned finished
-  sessions to orange. A permission prompt blocks on the tool call that opened it, not on
+  sessions to orange. For the same reason, once the main thread's turn has stopped, a
+  background agent's own tool calls are heartbeats, not working: the session stays my move
+  (or background) until the main thread acts again. That agent's permission prompt still
+  needs me, and answering it hands the move back. A permission prompt blocks on the tool call that opened it, not on
   the next `PostToolUse`: Claude issues several calls per message and Claude Code prompts for
   them one at a time, so the first approval must not read as working while the second prompt
   is up. Calls are tracked by `tool_use_id` from `PreToolUse` to `PostToolUse`.
@@ -74,7 +77,9 @@ What Claude is doing in a session, and whether you have been showing up to it.
   reads it off the activity transitions and asks the daemon already has, once, so every delivery
   says the same things: a permission prompt or a question opening, always; a turn ending after at least 10 s
   of work (a quicker turn was an answer, not work I walked away from), where a turn that waited on
-  its background work and the turn that read the result are one stretch; an ask, in its own words;
+  its background work and the turn that read the result are one stretch; a turn of that much work
+  ending into background work, since such a turn often ends by asking me something (the wake-up
+  turn's ending is then a second notice); an ask, in its own words;
   a reminder I set coming due.
   Reaching `waiting` any other way — startup, `/clear`, a resume, an approved prompt — says
   nothing, and nor does a daemon restart: the replayed activity is the baseline, not a
@@ -84,6 +89,10 @@ What Claude is doing in a session, and whether you have been showing up to it.
   tab of the phone's ⋮ sheet), since asking for permission unbidden is how a site gets
   blocked, and per browser, since the permission is. A window that is focused on that session
   stays quiet, because you are looking; one notification per session, replaced rather than
-  stacked; clicking it brings the window and the session forward. A phone gets them while a
+  stacked; clicking it brings the window and the session forward. The window also chimes
+  (`ui/chime.ts`, Web Audio, on by default, per browser, its own tick beside the notification
+  one): rising notes for a prompt or an ask, falling for a finished turn, one note for a
+  reminder; same quiet rule, one chime across windows, and the OS notification goes silent
+  while it is on. This is the sound to use instead of an `afplay` hook in `settings.json`. A phone gets them while a
   Henry tab is open, even in the background. iOS shows nothing from a page at all: true
   background delivery there is Web Push, which is in `PLAN.md`.

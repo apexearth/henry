@@ -8,7 +8,7 @@ import { themeDocument } from "./theme";
 import { focusPopout, isPoppedOut, popOut, watchPopouts } from "./popout";
 import { getState } from "./ws";
 
-export type ToolId = "sessions" | "files" | "history" | "flags" | "playbook" | "usage" | "voice";
+export type ToolId = "sessions" | "files" | "history" | "flags" | "playbook" | "usage" | "changes";
 export const TOOLS: { id: ToolId; title: string }[] = [
   { id: "sessions", title: "Sessions" },
   { id: "files", title: "Files" },
@@ -16,14 +16,20 @@ export const TOOLS: { id: ToolId; title: string }[] = [
   { id: "flags", title: "Flags" },
   { id: "playbook", title: "Playbook" },
   { id: "usage", title: "Usage" },
-  { id: "voice", title: "Voice" },
+  { id: "changes", title: "Changes" },
 ];
+/** Panes of their own under the tool tabs rather than more tabs. */
+const STACKED: ToolId[] = ["changes"];
+/** A pane that is gone from the dock (voice moved into the status strip). Its component stays
+ *  registered as nothing so a saved layout naming it still restores; the pane is then removed. */
+const RETIRED = ["voice"];
 
-// v3 put the usage gauges in the status strip and made Usage a tab again; v4 added the Voice
-// pane under the tools. A v3 layout is still read, and gains that pane once on the way in —
-// one-shot, because a panel the user then closes must stay closed.
-const STORAGE_KEY = "henry.layout.v4";
-const LEGACY_KEY = "henry.layout.v3";
+// v3 put the usage gauges in the status strip and made Usage a tab again; v4 added a Voice pane
+// under the tools; v5 the Changes pane, and voice has since left for the status strip. An older
+// layout is still read, and gains Changes once on the way in — one-shot, because a panel the
+// user then closes must stay closed.
+const STORAGE_KEY = "henry.layout.v5";
+const LEGACY_KEYS = ["henry.layout.v4", "henry.layout.v3"];
 export const TERM_PREFIX = "term:";
 export const termPanelId = (sessionId: string) => TERM_PREFIX + sessionId;
 export const FILE_PREFIX = "file:";
@@ -68,8 +74,9 @@ let fromLegacy = false;
 export function loadLayout(): SerializedDockview | null {
   try {
     let raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      raw = localStorage.getItem(LEGACY_KEY);
+    for (const key of LEGACY_KEYS) {
+      if (raw) break;
+      raw = localStorage.getItem(key);
       fromLegacy = !!raw;
     }
     if (!raw) return null;
@@ -79,6 +86,7 @@ export function loadLayout(): SerializedDockview | null {
     if (left) delete left.tabComponent;
     // The Repos tab became the Files tool. Renamed in place, so the tab keeps its slot.
     renamePanel(saved, "repos", "files");
+    for (const id of RETIRED) dropPanel(saved, id);
     // Only peeks pop out, and peeks don't come back; restoring one would open an empty window.
     delete saved.popoutGroups;
     return saved;
@@ -105,23 +113,60 @@ function renamePanel(saved: SerializedDockview, from: string, to: string) {
   walk(saved.popoutGroups);
 }
 
+type GridNode = { type: "leaf" | "branch"; data: unknown; size?: number };
+type LeafData = { views: string[]; activeView?: string };
+
+/** Take a panel out of a saved layout before Dockview reads it. A group it leaves empty goes
+ *  too, and hands its size to a neighbour so the rest keep their proportions. */
+function dropPanel(saved: SerializedDockview, id: string) {
+  if (!saved.panels?.[id]) return;
+  delete saved.panels[id];
+  const prune = (node: GridNode): boolean => {
+    if (node.type === "leaf") {
+      const leaf = node.data as LeafData;
+      leaf.views = leaf.views.filter((v) => v !== id);
+      if (leaf.activeView === id) leaf.activeView = leaf.views[0];
+      return leaf.views.length > 0;
+    }
+    const kids = node.data as GridNode[];
+    for (let i = kids.length - 1; i >= 0; i--) {
+      if (prune(kids[i]!)) continue;
+      const gone = kids.splice(i, 1)[0]!;
+      const heir = kids[i - 1] ?? kids[i];
+      if (heir && heir.size !== undefined && gone.size !== undefined) heir.size += gone.size;
+    }
+    return kids.length > 0;
+  };
+  const root = (saved.grid as { root?: GridNode } | undefined)?.root;
+  if (root) prune(root);
+  if (saved.floatingGroups) {
+    saved.floatingGroups = saved.floatingGroups.filter((g) => {
+      const d = g.data as unknown as LeafData;
+      d.views = d.views.filter((v) => v !== id);
+      if (d.activeView === id) d.activeView = d.views[0];
+      return d.views.length > 0;
+    });
+  }
+}
+
 export function saveLayout() {
   if (!api) return;
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(api.toJSON()));
-    localStorage.removeItem(LEGACY_KEY);
+    for (const key of LEGACY_KEYS) localStorage.removeItem(key);
   } catch {
     /* quota or private mode: layout just won't persist */
   }
 }
 
-/** A restored v3 layout predates the Voice pane; give it one, once. Run on the way in from the
- * old key only: a pane the user closes afterwards has to stay closed. */
+/** A restored older layout predates the Changes pane; give it one, once. A pane the user
+ * closes afterwards stays closed. (Retired panes were dropped in loadLayout.) */
 export function migrateRestoredLayout() {
   if (!api || !fromLegacy) return;
   fromLegacy = false;
-  const sibling = siblingTool("voice");
-  if (sibling && !api.getPanel("voice")) addVoicePanel(sibling);
+  const sibling = siblingTool(...STACKED);
+  if (!api.getPanel("changes") && sibling) addStacked("changes", sibling);
+  applyStackSizes();
 }
 
 /** The first tool panel that is actually in the layout, for positioning another beside it. */
@@ -129,10 +174,16 @@ function siblingTool(...except: ToolId[]): ToolId | undefined {
   return TOOLS.map((t) => t.id).find((t) => t !== "sessions" && !except.includes(t) && api!.getPanel(t));
 }
 
-/** Voice gets its own pane under the tools rather than another tab: you talk to Henry while
- * looking at something else, and a waveform behind a tab is a waveform nobody sees. */
-function addVoicePanel(reference: string) {
-  api?.addPanel({ id: "voice", component: "voice", title: "Voice", position: { referencePanel: reference, direction: "below" } });
+/** Changes gets a pane of its own under the tools rather than another tab: you glance at what
+ * the last prompt touched while looking at something else. */
+function addStacked(id: ToolId, reference: string, direction: "above" | "below" = "below") {
+  const title = TOOLS.find((t) => t.id === id)?.title ?? id;
+  api?.addPanel({ id, component: id, title, position: { referencePanel: reference, direction } });
+}
+
+/** Changes takes a short list. Needs a measured grid. */
+function applyStackSizes() {
+  requestAnimationFrame(() => api?.getPanel("changes")?.api.setSize({ height: 240 }));
 }
 
 /** rail | terminals | tool tabs; the pre-dock arrangement. */
@@ -142,10 +193,10 @@ export function buildDefaultLayout() {
   api.addPanel({ id: "sessions", component: "sessions", title: "Sessions" });
   api.addPanel({ id: "files", component: "files", title: "Files", position: { referencePanel: "sessions", direction: "right" } });
   for (const t of TOOLS.slice(2)) {
-    if (t.id === "voice") continue;
+    if (STACKED.includes(t.id)) continue;
     api.addPanel({ id: t.id, component: t.id, title: t.title, position: { referencePanel: "files", direction: "within" }, inactive: true });
   }
-  addVoicePanel("files");
+  addStacked("changes", "files");
   // The centre group exists even with no sessions, so the rail and tools keep their widths.
   styleTerminalGroup(api.addGroup({ id: "center", referencePanel: "files", direction: "left" }));
   for (const s of getState().sessions) ensureSessionPanel(s);
@@ -158,8 +209,8 @@ function applyDefaultSizes() {
   requestAnimationFrame(() => {
     api?.getPanel("sessions")?.api.setSize({ width: 220 });
     api?.getPanel("files")?.api.setSize({ width: 360 });
-    api?.getPanel("voice")?.api.setSize({ height: 200 });
   });
+  applyStackSizes();
 }
 
 export function resetLayout() {
@@ -276,6 +327,14 @@ export function setPeekSink(fn: typeof peekSink): () => void {
   };
 }
 
+/** Peeks open in the editor. They survive the next peek replacing the others. */
+const held = new Set<string>();
+export function holdPeek(path: string, hold: boolean) {
+  if (hold) held.add(filePanelId(path));
+  else held.delete(filePanelId(path));
+}
+
+/** One peek at a time: a new one replaces the ones already in the stage, except those held. */
 export function peekFile(path: string, line?: number) {
   if (!api) return void peekSink?.({ path, line });
   const g = stageGroup();
@@ -285,9 +344,10 @@ export function peekFile(path: string, line?: number) {
   if (existing) {
     existing.api.updateParameters({ path, line });
     existing.api.setActive();
-    return;
+  } else {
+    api.addPanel({ id, component: "file", title: baseName(path), params: { path, line }, position: { referenceGroup: g.id, direction: "within" } });
   }
-  api.addPanel({ id, component: "file", title: baseName(path), params: { path, line }, position: { referenceGroup: g.id, direction: "within" } });
+  for (const p of [...g.panels]) if (p.id !== id && isFilePanel(p.id) && !held.has(p.id)) api.removePanel(p);
 }
 
 export function closePeek(id?: string) {

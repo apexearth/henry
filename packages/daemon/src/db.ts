@@ -398,6 +398,29 @@ export function listPrompts(sessionId: string, limit: number, chars = 300): { ts
   return rows.filter((r) => r.prompt && !isSyntheticPrompt(r.prompt)).slice(0, limit).map((r) => ({ ts: r.ts, prompt: r.prompt! }));
 }
 
+/** A session's last prompt from you, skipping the ones Claude Code sent itself. */
+export function lastPromptAt(sessionId: string): number | undefined {
+  const rows = db
+    .prepare(
+      `SELECT ts, substr(json_extract(payload, '$.prompt'), 1, 24) AS head FROM events
+       WHERE session_id = ? AND hook_event = 'UserPromptSubmit' ORDER BY ts DESC LIMIT 50`,
+    )
+    .all(sessionId) as { ts: number; head: string | null }[];
+  return rows.find((r) => !isSyntheticPrompt(r.head ?? undefined))?.ts;
+}
+
+/** A session's most recent completed calls of the named tools, newest first. */
+export function listToolResults(sessionId: string, tools: string[], limit: number): HenryEvent[] {
+  if (!tools.length) return [];
+  const rows = db
+    .prepare(
+      `SELECT * FROM events WHERE session_id = ? AND hook_event = 'PostToolUse'
+       AND tool_name IN (${tools.map(() => "?").join(",")}) ORDER BY ts DESC LIMIT ?`,
+    )
+    .all(sessionId, ...tools, limit) as EventRow[];
+  return rows.map(rowToEvent);
+}
+
 /** Oldest event still in the log; how far back any history claim can honestly reach. */
 export function oldestEventTs(): number | undefined {
   const row = db.prepare("SELECT MIN(ts) AS ts FROM events").get() as { ts: number | null } | undefined;

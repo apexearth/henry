@@ -40,8 +40,12 @@ const notice = (s: Session, kind: Notice["kind"], body: string, ts: number): Not
 export function decide(prev: Seen | undefined, next: Session, now = Date.now()): Notice | undefined {
   if (!prev || next.status !== "running" || prev.activity === next.activity) return undefined;
   if (next.activity === "needsInput") return notice(next, "needsInput", "needs your answer", now);
-  if (next.activity === "waiting" && busy(prev.activity) && now - (prev.busySince ?? prev.activitySince ?? now) >= MIN_WORKED_MS) {
-    return notice(next, "waiting", "finished — your move", now);
+  const worked = now - (prev.busySince ?? prev.activitySince ?? now) >= MIN_WORKED_MS;
+  if (next.activity === "waiting" && busy(prev.activity) && worked) return notice(next, "waiting", "finished — your move", now);
+  // A turn that ends while its agent or build runs on often ends by asking you something; the
+  // wake-up turn later says "finished" again, which is a second, separate piece of news.
+  if (next.activity === "background" && prev.activity === "working" && worked) {
+    return notice(next, "waiting", "turn over — background work still running", now);
   }
   return undefined;
 }
