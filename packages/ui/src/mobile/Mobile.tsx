@@ -46,7 +46,7 @@ export function Mobile() {
   // A file peek. There is no dock to open it in, so it is a sheet over whatever asked for it:
   // closing one tapped in the files sheet lands back in the tree, one tapped in the terminal
   // lands back on the session.
-  const [peek, setPeek] = useState<{ path: string; line?: number } | null>(null);
+  const [peek, setPeek] = useState<{ path: string; line?: number; at?: string | null } | null>(null);
   useEffect(() => setPeekSink(setPeek), []);
   const { fontSize, zoom } = useFontSize();
   const { unread } = useSessionFlags();
@@ -132,7 +132,7 @@ export function Mobile() {
 
       {peek && (
         <div className="m-peek">
-          <FileView key={peek.path} path={peek.path} line={peek.line} active />
+          <FileView key={peek.path} path={peek.path} line={peek.line} machine={peek.at} active />
         </div>
       )}
     </div>

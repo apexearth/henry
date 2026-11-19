@@ -24,12 +24,18 @@ export function splitLineRef(ref: string): { path: string; line?: number } {
   return m ? { path: m[1], line: Number(m[2]) } : { path: ref };
 }
 
-export async function fetchPeek(path: string, cwd?: string, local = false): Promise<FilePeek | null> {
+/** Which machine a file is read on: a peer's name, `null` for this one, or (undefined) the
+ *  machine of the session in view, which is where a path clicked in its output lives. */
+export type At = string | null | undefined;
+
+function peerOf(at: At): string | undefined {
+  return at === null ? undefined : (at ?? getState().sessions.find((x) => x.id === getState().activeSessionId)?.peer);
+}
+
+export async function fetchPeek(path: string, cwd?: string, at?: At): Promise<FilePeek | null> {
   const q = new URLSearchParams({ path });
   if (cwd) q.set("cwd", cwd);
-  // Files are read where the session you are looking at runs: a relayed session's machine.
-  // The explorer browses this machine's repos, so it asks for local reads.
-  const peer = local ? undefined : getState().sessions.find((x) => x.id === getState().activeSessionId)?.peer;
+  const peer = peerOf(at);
   if (peer) q.set("peer", peer);
   const r = await fetch(`/api/file?${q}`);
   return r.ok ? ((await r.json()) as FilePeek) : null;
@@ -39,16 +45,16 @@ export async function fetchPeek(path: string, cwd?: string, local = false): Prom
  *  beside it as file:// would. Only this machine's files, and only through the loopback
  *  listener: a relayed session's file is on another disk, and the phone's cookie does not ride
  *  along with a sandboxed page's requests. */
-function rawServed(local: boolean): boolean {
+function rawServed(at: At): boolean {
   if (!["127.0.0.1", "localhost", "[::1]"].includes(location.hostname)) return false;
-  return local || !getState().sessions.find((x) => x.id === getState().activeSessionId)?.peer;
+  return !peerOf(at);
 }
 
 /** A 3D model's or PDF's bytes, parsed in Henry's own page, so unlike `/raw` they may come from
  *  a peer's disk (relayed) or reach the phone. */
-function bytesUrl(path: string, local: boolean): string {
+function bytesUrl(path: string, at: At): string {
   const q = new URLSearchParams({ path });
-  const peer = local ? undefined : getState().sessions.find((x) => x.id === getState().activeSessionId)?.peer;
+  const peer = peerOf(at);
   if (peer) q.set("peer", peer);
   return `/api/file/bytes?${q}`;
 }
@@ -63,17 +69,18 @@ const primed = new Map<string, FilePeek>();
 /** Peeks that open straight into the editor: a file just made from the tree. */
 const wantEdit = new Set<string>();
 
-/** Resolve `raw` (maybe relative to `cwd`) and open it; a path that isn't a file opens nothing. */
-export async function openPeek(raw: string, cwd?: string, line?: number, edit = false): Promise<boolean> {
-  const peek = await fetchPeek(raw, cwd);
+/** Resolve `raw` (maybe relative to `cwd`) and open it; a path that isn't a file opens nothing.
+ *  `at` pins the peek to a machine rather than the one of the session in view. */
+export async function openPeek(raw: string, cwd?: string, line?: number, edit = false, at?: At): Promise<boolean> {
+  const peek = await fetchPeek(raw, cwd, at);
   if (!peek) {
     console.info(`[henry] no file at ${raw}${cwd ? ` (cwd ${cwd})` : ""}`);
     return false;
   }
   primed.set(peek.path, peek);
   if (edit) wantEdit.add(peek.path);
-  noteRecent(peek.path);
-  peekFile(peek.path, line);
+  if (!peerOf(at)) noteRecent(peek.path); // ⌘K's recents are read on the session's machine
+  peekFile(peek.path, line, at);
   return true;
 }
 
@@ -190,15 +197,18 @@ interface Props {
   line?: number;
   /** In view and in the active group: takes focus so Esc and scrolling keys work. */
   active: boolean;
-  /** Explorer preview: read on this machine, changes vs HEAD, and no dock buttons. */
+  /** Search preview: no dock buttons. */
   local?: boolean;
+  /** The machine the file is on, when it is not the one of the session in view. */
+  machine?: At;
   /** In a window of its own: no pop-out button. */
   popped?: boolean;
   /** Offers the edit button. Not on the phone, and never for a peer's file: peers read. */
   editable?: boolean;
 }
 
-export function FileView({ path, line, active, local = false, popped = false, editable = false }: Props) {
+export function FileView({ path, line, active, local = false, machine, popped = false, editable = false }: Props) {
+  const at: At = machine !== undefined ? machine : local ? null : undefined;
   const [peek, setPeek] = useState<FilePeek | null | undefined>(() => primed.get(path));
   // Highlighted HTML per line; null until ready or when the file is plain text. Painted after
   // the text so a big file shows up immediately and colours in a beat later.
@@ -214,11 +224,11 @@ export function FileView({ path, line, active, local = false, popped = false, ed
     primed.delete(path);
     wantEdit.delete(path);
     if (cached) setPeek(cached);
-    else fetchPeek(path, undefined, local).then((p) => on && setPeek(p));
+    else fetchPeek(path, undefined, at).then((p) => on && setPeek(p));
     return () => {
       on = false;
     };
-  }, [path, local]);
+  }, [path, at]);
 
   useEffect(() => {
     let on = true;
@@ -237,8 +247,9 @@ export function FileView({ path, line, active, local = false, popped = false, ed
     if (!peek?.repoPath || peek.image) return;
     let on = true;
     const q = new URLSearchParams({ path: peek.path });
-    const sid = local ? null : getState().activeSessionId;
+    const sid = at !== undefined ? null : getState().activeSessionId;
     if (sid) q.set("sessionId", sid);
+    if (at) q.set("peer", at);
     fetch(`/api/file/diff?${q}`)
       .then((r) => (r.ok ? (r.json() as Promise<FileDiff>) : null))
       .then((d) => on && setFd(d))
@@ -246,7 +257,7 @@ export function FileView({ path, line, active, local = false, popped = false, ed
     return () => {
       on = false;
     };
-  }, [peek, local]);
+  }, [peek, at]);
   const tint = useMemo(() => (fd?.diff ? tintsOf(fd.diff) : null), [fd]);
 
   // Editing. `draft` is the editor's text, so dirty is "not what was read"; on save the peek
@@ -259,9 +270,8 @@ export function FileView({ path, line, active, local = false, popped = false, ed
   // An STL (binary, or ASCII text) is a 3D view, its bytes read whole like a PDF's.
   const isStl = !!peek && !peek.image && /\.stl$/i.test(path);
   // Fixed when the peek opens: the machine is the one whose session was in view then.
-  const bytes = useMemo(() => bytesUrl(path, local), [path, local]);
-  const canEdit = editable && !!peek && !peek.binary && !peek.image && !peek.truncated && !isStl
-    && !getState().sessions.find((x) => x.id === getState().activeSessionId)?.peer;
+  const bytes = useMemo(() => bytesUrl(path, at), [path, at]);
+  const canEdit = editable && !!peek && !peek.binary && !peek.image && !peek.truncated && !isStl && !peerOf(at);
   // CodeMirror joins lines with LF whatever the file used; a CRLF file is compared and written
   // back in its own line ends, or it would read as edited on opening and come out changed.
   const crlf = !!peek?.content.includes("\r\n");
@@ -350,7 +360,7 @@ export function FileView({ path, line, active, local = false, popped = false, ed
     if (!live.current.peek || live.current.peek.pdf) return;
     let on = true;
     const t = setTimeout(() => {
-      fetchPeek(path, undefined, local).then((p) => {
+      fetchPeek(path, undefined, at).then((p) => {
         const { peek: was, editing: ed, dirty: d } = live.current;
         if (!on || !p || !was || d || (p.mtime === was.mtime && p.size === was.size)) return;
         setPeek(p);
@@ -364,7 +374,7 @@ export function FileView({ path, line, active, local = false, popped = false, ed
       on = false;
       clearTimeout(t);
     };
-  }, [path, local, active, lastEvent, repos, focused]);
+  }, [path, at, active, lastEvent, repos, focused]);
   useEffect(() => {
     if (!active || !editing) return;
     const onEsc = (e: Event) => {
@@ -452,7 +462,7 @@ export function FileView({ path, line, active, local = false, popped = false, ed
   // choice is remembered for the next peek of that kind.
   const isText = !!peek && !peek.binary && !peek.image;
   const isMd = isText && languageFor(path) === "markdown";
-  const isHtml = isText && /\.html?$/i.test(path) && rawServed(local);
+  const isHtml = isText && /\.html?$/i.test(path) && rawServed(at);
   const kind: PageKind = isHtml ? "html" : "md";
   const [mdView, setMdView] = useState<MdView>(() => (line ? "source" : loadMdView(kind)));
   useEffect(() => {
@@ -477,10 +487,10 @@ export function FileView({ path, line, active, local = false, popped = false, ed
   }, [editing, showPage, draft]);
   // Images and links in the page resolve against the file's folder, on the machine it was read from.
   const loadImage = useCallback(
-    (src: string) => fetchPeek(src, dir, local).then((p) => (p?.image && p.content ? `data:${p.image};base64,${p.content}` : null)),
-    [dir, local],
+    (src: string) => fetchPeek(src, dir, at).then((p) => (p?.image && p.content ? `data:${p.image};base64,${p.content}` : null)),
+    [dir, at],
   );
-  const openLink = useCallback((href: string) => void openPeek(href.replace(/[#?].*$/, ""), dir), [dir]);
+  const openLink = useCallback((href: string) => void openPeek(href.replace(/[#?].*$/, ""), dir, undefined, false, at), [dir, at]);
 
   return (
     <div className={"peek" + (editing ? " editing" : "")}

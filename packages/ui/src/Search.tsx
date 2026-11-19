@@ -1,5 +1,6 @@
-// ⌘⇧F: search every repo on this machine without leaving Henry. Left: `git grep` over every
-// checkout under the repos root (or one repo, once picked), one row per hit; right: the
+// ⌘⇧F: search every repo, on this machine and each connected peer, without leaving Henry.
+// Left: `git grep` over every checkout under each machine's repos root (or one repo, once
+// picked), one row per hit; right: the
 // selected hit's file, read-only, scrolled to the line. Tab flips the filter to names: repos,
 // then every file in every repo. Where you were (repo, mode, query, selection) is remembered
 // per browser, so ⌘⇧F comes back to the same place.
@@ -9,13 +10,19 @@ import { focusOrigin, restoreFocus } from "./dock";
 import { FileView, openPeek } from "./FileView";
 import { repoIndex, splitPath } from "./files";
 import { matches } from "./match";
-import { joinPath } from "./platform";
+import { baseName, joinPath } from "./platform";
 import { hueText, nameHue } from "./theme";
+import { useStore } from "./ws";
+
+/** A repo on some machine: this one (no `peer`) or a paired one with a live link. */
+type MRepo = RepoState & { peer?: string };
+/** Same path on two machines is two repos. */
+const repoKey = (r: { path: string; peer?: string }) => `${r.peer ?? ""}\n${r.path}`;
 
 type Row =
-  | { kind: "repo"; key: string; repo: RepoState; score: number }
-  | { kind: "file"; key: string; abs: string; rel: string; repo: RepoState; status?: ChangedFile["status"]; score: number }
-  | { kind: "hit"; key: string; abs: string; rel: string; repo: RepoState; line: number; col: number; text: string; first: boolean };
+  | { kind: "repo"; key: string; repo: MRepo; score: number }
+  | { kind: "file"; key: string; abs: string; rel: string; repo: MRepo; status?: ChangedFile["status"]; score: number }
+  | { kind: "hit"; key: string; abs: string; rel: string; repo: MRepo; line: number; col: number; text: string; first: boolean };
 
 const MAX_ROWS = 400;
 const MIN_TEXT_QUERY = 2;
@@ -50,23 +57,42 @@ function save(s: Saved): void {
 }
 
 // Painted on reopen before the fresh fetch lands, so the list never flashes empty.
-let reposCache: RepoState[] | null = null;
+let reposCache: MRepo[] | null = null;
 
-async function fetchRepoStates(): Promise<RepoState[]> {
-  const r = await fetch("/api/repos/state");
-  return r.ok ? ((await r.json()) as RepoState[]) : [];
+// Every request names its machine; the daemon relays `peer=` to that machine's own handler.
+const on = (peer?: string) => (peer ? `&peer=${encodeURIComponent(peer)}` : "");
+
+async function fetchRepoStates(peer?: string): Promise<MRepo[]> {
+  const r = await fetch(`/api/repos/state?${on(peer)}`).catch(() => null);
+  return r?.ok ? ((await r.json()) as RepoState[]).map((x) => ({ ...x, peer })) : [];
 }
 
-async function fetchChanges(repoPath: string): Promise<ChangedFile[]> {
-  const r = await fetch(`/api/repo/changes?repo=${encodeURIComponent(repoPath)}`);
+async function fetchChanges(repo: MRepo): Promise<ChangedFile[]> {
+  const r = await fetch(`/api/repo/changes?repo=${encodeURIComponent(repo.path)}${on(repo.peer)}`);
   return r.ok ? ((await r.json()) as ChangedFile[]) : [];
 }
 
-async function fetchGrep(q: string, repoPath: string | undefined, signal: AbortSignal): Promise<GrepResult> {
-  const p = new URLSearchParams({ q });
-  if (repoPath) p.set("repo", repoPath);
-  const r = await fetch(`/api/repo/grep?${p}`, { signal });
-  return r.ok ? ((await r.json()) as GrepResult) : { hits: [], truncated: false };
+function fallbackRepo(path: string, peer?: string): MRepo {
+  return { path, name: baseName(path), branch: "", dirty: 0, ahead: 0, behind: 0, isWorktree: false, peer } as unknown as MRepo;
+}
+
+type MHit =GrepResult["hits"][number] & { peer?: string };
+
+/** One repo, or every checkout under each machine's repos root, all machines at once. A
+ *  machine that does not answer adds nothing rather than failing the rest. */
+async function fetchGrep(q: string, scope: MRepo | undefined, machines: (string | undefined)[], signal: AbortSignal): Promise<{ hits: MHit[]; truncated: boolean; error?: string }> {
+  const one = async (peer: string | undefined, repo?: string): Promise<GrepResult & { peer?: string }> => {
+    const p = new URLSearchParams({ q });
+    if (repo) p.set("repo", repo);
+    const r = await fetch(`/api/repo/grep?${p}${on(peer)}`, { signal }).catch((e) => (signal.aborted ? Promise.reject(e) : null));
+    return { ...(r?.ok ? ((await r.json()) as GrepResult) : { hits: [], truncated: false }), peer };
+  };
+  const res = await Promise.all(scope ? [one(scope.peer, scope.path)] : machines.map((m) => one(m)));
+  return {
+    hits: res.flatMap((r) => r.hits.map((h) => ({ ...h, peer: r.peer }))),
+    truncated: res.some((r) => r.truncated),
+    error: res.find((r) => r.error)?.error,
+  };
 }
 
 /** The matched span of a hit line: the server's column, checked against the text (smart case). */
@@ -92,7 +118,12 @@ export function Search({ onClose, text: textArg }: SearchProps) {
   const [text, setText] = useState(true);
   const [query, setQuery] = useState(textArg || (saved.text ? saved.query : ""));
   const [selKey, setSelKey] = useState<string | undefined>(textArg ? undefined : saved.sel);
-  const [repos, setRepos] = useState<RepoState[]>(reposCache ?? []);
+  const [repos, setRepos] = useState<MRepo[]>(reposCache ?? []);
+  const localHost = useStore((s) => s.host);
+  const peers = useStore((s) => s.peers);
+  const peerNames = useMemo(() => peers.filter((p) => p.link === "connected").map((p) => p.name), [peers]);
+  const machines = useMemo(() => [undefined, ...peerNames], [peerNames]);
+  const many = machines.length > 1;
   const [loaded, setLoaded] = useState(reposCache !== null);
   const [indexes, setIndexes] = useState<Record<string, string[]>>({});
   const [changes, setChanges] = useState<Record<string, ChangedFile[]>>({});
@@ -108,50 +139,53 @@ export function Search({ onClose, text: textArg }: SearchProps) {
   }, []);
 
   useEffect(() => {
-    let on = true;
-    fetchRepoStates().then((rs) => {
+    let live = true;
+    Promise.all(machines.map((m) => fetchRepoStates(m))).then((lists) => {
+      const rs = lists.flat();
       reposCache = rs;
-      if (on) {
+      if (live) {
         setRepos(rs);
         setLoaded(true);
       }
     });
     return () => {
-      on = false;
+      live = false;
     };
-  }, []);
+  }, [machines]);
 
-  const scopeRepo = useMemo(() => repos.find((r) => r.path === scope), [repos, scope]);
+  const scopeRepo = useMemo(() => repos.find((r) => repoKey(r) === scope), [repos, scope]);
   const tokens = useMemo(() => (text ? [] : query.toLowerCase().split(/\s+/).filter(Boolean)), [query, text]);
   const grepQuery = text ? query.trim() : "";
 
   // Indexes: the scoped repo's always; every repo's once you type a name without a scope.
   const wanted = useMemo(() => (scope ? (scopeRepo ? [scopeRepo] : []) : tokens.length ? repos : []), [scope, scopeRepo, tokens.length, repos]);
   useEffect(() => {
-    let on = true;
+    let live = true;
     for (const r of wanted) {
-      if (indexes[r.path]) continue;
-      repoIndex(r.path).then((files) => on && setIndexes((prev) => (prev[r.path] ? prev : { ...prev, [r.path]: files })));
+      const k = repoKey(r);
+      if (indexes[k]) continue;
+      repoIndex(r.path, r.peer).then((files) => live && setIndexes((prev) => (prev[k] ? prev : { ...prev, [k]: files })));
     }
     return () => {
-      on = false;
+      live = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wanted]);
 
   useEffect(() => {
-    if (!scopeRepo || changes[scopeRepo.path]) return;
-    let on = true;
-    fetchChanges(scopeRepo.path).then((c) => on && setChanges((prev) => ({ ...prev, [scopeRepo.path]: c })));
+    if (!scopeRepo || changes[repoKey(scopeRepo)]) return;
+    let live = true;
+    const k = repoKey(scopeRepo);
+    fetchChanges(scopeRepo).then((c) => live && setChanges((prev) => ({ ...prev, [k]: c })));
     return () => {
-      on = false;
+      live = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scopeRepo]);
 
   // Text mode: grep a beat after the last keystroke; a newer query aborts the one in flight.
   // `grep` holds the result and the query it answers, so a stale result is never painted.
-  const [grep, setGrep] = useState<{ q: string; scope?: string; res: GrepResult } | null>(null);
+  const [grep, setGrep] = useState<{ q: string; scope?: string; res: Awaited<ReturnType<typeof fetchGrep>> } | null>(null);
   const [searching, setSearching] = useState(false);
   useEffect(() => {
     if (grepQuery.length < MIN_TEXT_QUERY) {
@@ -162,7 +196,7 @@ export function Search({ onClose, text: textArg }: SearchProps) {
     const ctl = new AbortController();
     setSearching(true);
     const t = setTimeout(() => {
-      fetchGrep(grepQuery, scope, ctl.signal)
+      fetchGrep(grepQuery, scopeRepo, machines, ctl.signal)
         .then((res) => {
           if (ctl.signal.aborted) return;
           setGrep({ q: grepQuery, scope, res });
@@ -174,32 +208,35 @@ export function Search({ onClose, text: textArg }: SearchProps) {
       clearTimeout(t);
       ctl.abort();
     };
-  }, [grepQuery, scope]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [grepQuery, scope, machines]);
   const grepLive = grep && grep.q === grepQuery && grep.scope === scope ? grep.res : null;
 
   const rows = useMemo((): Row[] => {
     if (text) {
       const hits: Row[] = [];
       if (!grepLive) return hits;
-      const byPath = new Map(repos.map((r) => [r.path, r]));
+      const byKey = new Map(repos.map((r) => [repoKey(r), r]));
       let prev = "";
       for (const h of grepLive.hits) {
-        const repo = byPath.get(h.repo);
-        if (!repo) continue;
+        // A checkout the repo list has not caught up with still shows, under its folder name.
+        const repo = byKey.get(repoKey({ path: h.repo, peer: h.peer })) ?? fallbackRepo(h.repo, h.peer);
         const abs = joinPath(repo.path, h.rel);
-        hits.push({ kind: "hit", key: `${abs}:${h.line}`, abs, rel: h.rel, repo, line: h.line, col: h.col, text: h.text, first: abs !== prev });
-        prev = abs;
+        const file = repoKey({ path: abs, peer: repo.peer });
+        hits.push({ kind: "hit", key: `${file}:${h.line}`, abs, rel: h.rel, repo, line: h.line, col: h.col, text: h.text, first: file !== prev });
+        prev = file;
         if (hits.length >= MAX_ROWS) break;
       }
       return hits;
     }
     const out: Exclude<Row, { kind: "hit" }>[] = [];
     if (scopeRepo) {
-      const status = new Map((changes[scopeRepo.path] ?? []).map((c) => [c.path, c.status] as const));
-      for (const rel of indexes[scopeRepo.path] ?? []) {
+      const status = new Map((changes[repoKey(scopeRepo)] ?? []).map((c) => [c.path, c.status] as const));
+      for (const rel of indexes[repoKey(scopeRepo)] ?? []) {
         const sc = tokens.length ? matches(tokens, rel) : 0;
         if (sc === -Infinity) continue;
-        out.push({ kind: "file", key: joinPath(scopeRepo.path, rel), abs: joinPath(scopeRepo.path, rel), rel, repo: scopeRepo, status: status.get(rel), score: sc });
+        const abs = joinPath(scopeRepo.path, rel);
+        out.push({ kind: "file", key: repoKey({ path: abs, peer: scopeRepo.peer }), abs, rel, repo: scopeRepo, status: status.get(rel), score: sc });
       }
       out.sort((a, b) => b.score - a.score || (a as { rel: string }).rel.localeCompare((b as { rel: string }).rel));
       return out.slice(0, MAX_ROWS);
@@ -207,14 +244,15 @@ export function Search({ onClose, text: textArg }: SearchProps) {
     for (const repo of repos) {
       const sc = tokens.length ? matches(tokens, repo.name) : 0;
       if (sc === -Infinity) continue;
-      out.push({ kind: "repo", key: repo.path, repo, score: sc + 1000 });
+      out.push({ kind: "repo", key: repoKey(repo), repo, score: sc + 1000 });
     }
     if (tokens.length) {
       for (const repo of repos) {
-        for (const rel of indexes[repo.path] ?? []) {
+        for (const rel of indexes[repoKey(repo)] ?? []) {
           const sc = matches(tokens, `${repo.name}/${rel}`);
           if (sc === -Infinity) continue;
-          out.push({ kind: "file", key: joinPath(repo.path, rel), abs: joinPath(repo.path, rel), rel, repo, score: sc });
+          const abs = joinPath(repo.path, rel);
+          out.push({ kind: "file", key: repoKey({ path: abs, peer: repo.peer }), abs, rel, repo, score: sc });
         }
       }
     }
@@ -229,9 +267,10 @@ export function Search({ onClose, text: textArg }: SearchProps) {
   }, [sel, rows]);
 
   // The preview follows the selection a beat behind, so arrowing through files doesn't fetch each one.
-  const [preview, setPreview] = useState<{ path: string; line?: number } | undefined>();
+  const [preview, setPreview] = useState<{ path: string; line?: number; peer?: string } | undefined>();
   useEffect(() => {
-    const next = selected?.kind === "file" ? { path: selected.abs } : selected?.kind === "hit" ? { path: selected.abs, line: selected.line } : undefined;
+    const next = selected?.kind === "file" ? { path: selected.abs, peer: selected.repo.peer }
+      : selected?.kind === "hit" ? { path: selected.abs, line: selected.line, peer: selected.repo.peer } : undefined;
     const t = setTimeout(() => setPreview(next), 120);
     return () => clearTimeout(t);
   }, [selected]);
@@ -240,8 +279,8 @@ export function Search({ onClose, text: textArg }: SearchProps) {
     const next = rows[Math.min(Math.max(sel + d, 0), rows.length - 1)];
     if (next) setSelKey(next.key);
   };
-  const enterScope = (repo: RepoState) => {
-    setScope(repo.path);
+  const enterScope = (repo: MRepo) => {
+    setScope(repoKey(repo));
     if (!text) setQuery("");
     setSelKey(undefined);
   };
@@ -260,7 +299,7 @@ export function Search({ onClose, text: textArg }: SearchProps) {
     if (!row) return;
     if (row.kind === "repo") enterScope(row.repo);
     else {
-      void openPeek(row.abs, undefined, row.kind === "hit" ? row.line : undefined);
+      void openPeek(row.abs, undefined, row.kind === "hit" ? row.line : undefined, false, row.repo.peer ?? null);
       onClose();
     }
   };
@@ -289,10 +328,13 @@ export function Search({ onClose, text: textArg }: SearchProps) {
     }
   };
 
-  const indexed = scopeRepo ? indexes[scopeRepo.path]?.length : undefined;
-  const files = grepLive ? new Set(grepLive.hits.map((h) => h.repo + "\0" + h.rel)).size : 0;
+  const indexed = scopeRepo ? indexes[repoKey(scopeRepo)]?.length : undefined;
+  const files = grepLive ? new Set(grepLive.hits.map((h) => `${h.peer ?? ""}\0${h.repo}\0${h.rel}`)).size : 0;
+  // With paired machines on, a repo is named with its machine: two `henry`s are two places.
+  const label = (r: MRepo) => (many ? `${r.peer ?? localHost ?? "here"} · ${r.name}` : r.name);
+  const where = scopeRepo ? label(scopeRepo) : many ? `every repo on ${machines.length} machines` : "every repo";
   const foot = text
-    ? grepQuery.length < MIN_TEXT_QUERY ? `type ${MIN_TEXT_QUERY}+ characters to search ${scopeRepo ? scopeRepo.name : "every repo"}` : searching && !grepLive ? "searching…" : !grepLive ? "" : `${grepLive.hits.length}${grepLive.truncated ? "+" : ""} hit${grepLive.hits.length === 1 ? "" : "s"} in ${files} file${files === 1 ? "" : "s"}${searching ? " · searching…" : ""}`
+    ? grepQuery.length < MIN_TEXT_QUERY ? `type ${MIN_TEXT_QUERY}+ characters to search ${where}` : searching && !grepLive ? "searching…" : !grepLive ? "" : `${grepLive.hits.length}${grepLive.truncated ? "+" : ""} hit${grepLive.hits.length === 1 ? "" : "s"} in ${files} file${files === 1 ? "" : "s"}${searching ? " · searching…" : ""}`
     : scopeRepo
       ? indexed === undefined ? "listing files…" : tokens.length ? `${rows.length}${rows.length === MAX_ROWS ? "+" : ""} of ${indexed} files` : `${indexed} files${indexed > MAX_ROWS ? `, first ${MAX_ROWS} shown, type to narrow` : ""}`
       : !loaded ? "reading repos…" : tokens.length ? `${rows.length}${rows.length === MAX_ROWS ? "+" : ""} match${rows.length === 1 ? "" : "es"}` : `${repos.length} repos, type a repo or file name`;
@@ -307,7 +349,7 @@ export function Search({ onClose, text: textArg }: SearchProps) {
           <div className="explorer-input">
             {scopeRepo && (
               <button className="chip sel" style={{ color: hueText(nameHue(scopeRepo.name)) }} onClick={leaveScope} title={`${scopeRepo.path}\nback to all repos (Backspace on an empty filter)`}>
-                {scopeRepo.name} ×
+                {label(scopeRepo)} ×
               </button>
             )}
             <button className="chip chip-mode" onClick={toggleText} title={text ? "file search: matching file contents. Tab or click for file names" : "file name: matching paths. Tab or click to search file contents"}>
@@ -319,14 +361,14 @@ export function Search({ onClose, text: textArg }: SearchProps) {
               <kbd>⇥</kbd>
             </button>
             <input ref={inputRef} className="picker-input" autoFocus value={query} spellCheck={false} onFocus={(e) => e.target.select()}
-              placeholder={text ? `text in ${scopeRepo ? scopeRepo.name : "every repo"} — ↑↓ preview, ↩ opens` : scopeRepo ? "file name — ↑↓ preview, ↩ opens" : "repo or file name"}
+              placeholder={text ? `text in ${where} — ↑↓ preview, ↩ opens` : scopeRepo ? "file name — ↑↓ preview, ↩ opens" : "repo or file name"}
               onChange={(e) => setQuery(e.target.value)} onKeyDown={onKey} />
           </div>
           <div className="list" ref={listRef}>
             {rows.map((r, i) => r.kind === "repo" ? (
               <div key={r.key} className={"row explorer-repo" + (i === sel ? " sel" : "")} onMouseEnter={() => setSelKey(r.key)} onClick={() => pick(r)} title={r.repo.path}>
                 <span className="file-cell">
-                  <span style={{ color: hueText(nameHue(r.repo.name)) }}>{r.repo.name}</span>
+                  <span style={{ color: hueText(nameHue(r.repo.name)) }}>{label(r.repo)}</span>
                   {r.repo.isWorktree && <span className="kind-word">worktree</span>}
                 </span>
                 <span className="explorer-git">
@@ -342,7 +384,7 @@ export function Search({ onClose, text: textArg }: SearchProps) {
                   <span className="file-cell explorer-hit-file">
                     <span>{splitPath(r.rel).name}</span>
                     <span className="kind-word">{splitPath(r.rel).dir}</span>
-                    {!scopeRepo && <span className="path" style={{ color: hueText(nameHue(r.repo.name)) }}>{r.repo.name}</span>}
+                    {!scopeRepo && <span className="path" style={{ color: hueText(nameHue(r.repo.name)) }}>{label(r.repo)}</span>}
                   </span>
                 )}
                 <span className="explorer-hit-line">
@@ -357,7 +399,7 @@ export function Search({ onClose, text: textArg }: SearchProps) {
                   <span>{splitPath(r.rel).name}</span>
                   <span className="kind-word">{splitPath(r.rel).dir}</span>
                 </span>
-                {!scopeRepo && <span className="path" style={{ color: hueText(nameHue(r.repo.name)) }}>{r.repo.name}</span>}
+                {!scopeRepo && <span className="path" style={{ color: hueText(nameHue(r.repo.name)) }}>{label(r.repo)}</span>}
               </div>
             ))}
             {!rows.length && empty && <div className="row placeholder">{empty}</div>}
@@ -368,7 +410,7 @@ export function Search({ onClose, text: textArg }: SearchProps) {
           </div>
         </div>
         <div className="explorer-right" ref={rightRef}>
-          {preview ? <FileView key={preview.path} path={preview.path} line={preview.line} active={false} local /> : (
+          {preview ? <FileView key={repoKey({ path: preview.path, peer: preview.peer })} path={preview.path} line={preview.line} machine={preview.peer ?? null} active={false} local /> : (
             <div className="explorer-empty">
               {text ? "type to search file contents" : scopeRepo ? "select a file to read it here" : "pick a repo, or type a file name"}
               <div className="hint">↩ on a file opens it as a peek in the stage · PgUp/PgDn scroll the preview</div>

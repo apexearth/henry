@@ -32,7 +32,7 @@ function TerminalPanel({ api, params }: IDockviewPanelProps<{ sessionId: string 
   );
 }
 
-function FilePanel({ api, params }: IDockviewPanelProps<{ path: string; line?: number }>) {
+function FilePanel({ api, params }: IDockviewPanelProps<{ path: string; line?: number; at?: string | null }>) {
   const [active, setPanelActive] = useState(api.isActive);
   const [popped, setPopped] = useState(api.location.type === "popout");
   useEffect(() => {
@@ -43,7 +43,7 @@ function FilePanel({ api, params }: IDockviewPanelProps<{ path: string; line?: n
       l.dispose();
     };
   }, [api]);
-  return <FileView path={params.path} line={params.line} active={active} popped={popped} editable />;
+  return <FileView path={params.path} line={params.line} machine={params.at} active={active} popped={popped} editable />;
 }
 
 function SessionsPanel() {

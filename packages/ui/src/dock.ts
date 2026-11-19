@@ -321,7 +321,7 @@ function stageStrip(g: DockviewGroupPanel): IDockviewPanel[] {
 }
 
 /** Where a peek goes when there is no dock: the phone layout shows it as a sheet. `null` closes. */
-let peekSink: ((peek: { path: string; line?: number } | null) => void) | null = null;
+let peekSink: ((peek: { path: string; line?: number; at?: string | null } | null) => void) | null = null;
 export function setPeekSink(fn: typeof peekSink): () => void {
   peekSink = fn;
   return () => {
@@ -336,18 +336,19 @@ export function holdPeek(path: string, hold: boolean) {
   else held.delete(filePanelId(path));
 }
 
-/** One peek at a time: a new one replaces the ones already in the stage, except those held. */
-export function peekFile(path: string, line?: number) {
-  if (!api) return void peekSink?.({ path, line });
+/** One peek at a time: a new one replaces the ones already in the stage, except those held.
+ *  `at` is the machine the file is on (FileView's `At`); absent, the session in view's. */
+export function peekFile(path: string, line?: number, at?: string | null) {
+  if (!api) return void peekSink?.({ path, line, at });
   const g = stageGroup();
   if (!g) return;
   const id = filePanelId(path);
   const existing = api.getPanel(id);
   if (existing) {
-    existing.api.updateParameters({ path, line });
+    existing.api.updateParameters({ path, line, at });
     existing.api.setActive();
   } else {
-    api.addPanel({ id, component: "file", title: baseName(path), params: { path, line }, position: { referenceGroup: g.id, direction: "within" } });
+    api.addPanel({ id, component: "file", title: baseName(path), params: { path, line, at }, position: { referenceGroup: g.id, direction: "within" } });
   }
   for (const p of [...g.panels]) if (p.id !== id && isFilePanel(p.id) && !held.has(p.id)) api.removePanel(p);
 }

@@ -216,10 +216,14 @@ peek. Anywhere else ⌘F opens the files tree with the keyboard in its filter. �
 the terminal, where it stays forward-char.
 
 **⌘⇧F searches everything** (`ui/Search.tsx`, also the top bar's `search`). The tree searches
-the session's repos; this is for when you do not know which repo holds it. A full-screen modal:
-`git grep` over every checkout under the repos root, one row per hit grouped by file, and the
+the session's repos; this is for when you do not know which repo or machine holds it. A
+full-screen modal: `git grep` over every checkout under the repos root of this machine and of
+each connected peer at once (each request carries `peer=`, and a machine that does not answer
+adds nothing), one row per hit grouped by file, repos named with their machine when there is
+more than one, and the
 selected hit's file read on the right, scrolled to the line; ↩ (or a double-click) opens it as a
-peek. Tab flips to names: repos, then every file in every repo; picking a repo scopes both modes
+peek on that file's machine, whichever session is in view (a peek carries its machine; one
+opened from a click follows the session's). Tab flips to names: repos, then every file in every repo; picking a repo scopes both modes
 to it, Backspace on an empty filter leaves it. It opens on the last search, selected so typing
 replaces it, or on the peek's find term when one is open, so "this word, but everywhere" is one
 key. Literal smart-case only; the tree has the regex, word and glob knobs.
