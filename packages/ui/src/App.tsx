@@ -8,7 +8,8 @@ import { Mobile } from "./mobile/Mobile";
 import { Gate } from "./mobile/Gate";
 import { useMobile } from "./mobile/useMobile";
 import type { Access } from "./access";
-import { FilePicker } from "./FilePicker";
+import { FilePicker, onFinder, type FinderAsk } from "./FilePicker";
+import { Search } from "./Search";
 import { sendEsc, sendFind } from "./FileView";
 import { openFiles } from "./FilesPane";
 import { Layout } from "./Layout";
@@ -50,11 +51,13 @@ function MobileApp() {
 function DesktopApp() {
   const connected = useStore((s) => s.connected);
   const firstRun = useStore((s) => s.hydrated && s.firstRun);
-  const [finder, setFinder] = useState(false);
+  const [finder, setFinder] = useState<FinderAsk | null>(null);
+  const [search, setSearch] = useState<{ text: string } | null>(null);
   const [settings, setSettings] = useState(false);
   const [keys, setKeys] = useState(false);
 
   useEffect(() => onMenu("reset-layout", resetLayout), []);
+  useEffect(() => onFinder(setFinder), []);
   useEffect(startPopouts, []);
 
   useEffect(() => {
@@ -102,12 +105,12 @@ function DesktopApp() {
       // ⌘K finds a file to peek at. ⌃K too, except in the terminal where it is kill-line.
       if ((e.key === "k" || e.key === "K") && !e.shiftKey && !e.altKey && (e.metaKey || !(e.target as HTMLElement | null)?.closest?.(".xterm"))) {
         e.preventDefault();
-        setFinder((v) => !v);
+        setFinder((v) => (v ? null : {}));
         return;
       }
       // ⌘F stays contextual: over a file peek in view it finds within that file; anywhere else
-      // it opens the left pane's files tree and puts the keyboard in its filter. ⌘⇧F is that
-      // tree's text search regardless, seeded from the peek's find bar when one is open, so
+      // it opens the files tree and puts the keyboard in its filter. ⌘⇧F is the search window
+      // over every repo regardless, seeded from the peek's find bar when one is open, so
       // "this word, but everywhere" is still one key. ⌃F too, outside the terminal where it is
       // forward-char; off macOS that leaves the terminal with no way in, so Alt+F stands in there
       // the way Alt+N does for a new session. Chrome lets a page take ⌘F and Alt+F, unlike ⌘N.
@@ -115,7 +118,8 @@ function DesktopApp() {
       if ((e.key === "f" || e.key === "F") && (isMac ? !e.altKey && (e.metaKey || !inTerminal) : e.altKey ? !e.ctrlKey : !inTerminal)) {
         e.preventDefault();
         if (e.shiftKey) {
-          openFiles(document.querySelector<HTMLInputElement>(".peek-find input, .cm-search input[name=search]")?.value ?? "");
+          const text = document.querySelector<HTMLInputElement>(".peek-find input, .cm-search input[name=search]")?.value ?? "";
+          setSearch((v) => (v && !text ? null : { text }));
           return;
         }
         const p = getDockApi()?.activePanel;
@@ -163,6 +167,7 @@ function DesktopApp() {
         <span className={"conn" + (connected ? " on" : "")} title={connected ? "connected" : "reconnecting"}>●</span>
         <TopActivity />
         <span style={{ flex: 1 }} />
+        <button className="topbar-btn" onClick={() => setSearch({ text: "" })} title={`search every repo's files (${isMac ? "⌘⇧F" : "Ctrl+Shift+F"})`}>search</button>
         <PrsMenu />
         <RemotesMenu />
         <PhoneMenu />
@@ -173,7 +178,8 @@ function DesktopApp() {
       </div>
       <Layout />
       <StatusBar />
-      {finder && <FilePicker onClose={() => setFinder(false)} />}
+      {finder && <FilePicker {...finder} onClose={() => setFinder(null)} />}
+      {search && <Search text={search.text} onClose={() => setSearch(null)} />}
       {keys && <Keys onClose={() => setKeys(false)} />}
       {/* First run owns the screen until a repos root is set; after that everything is in Settings. */}
       {firstRun ? <Setup /> : settings && <Settings onClose={() => setSettings(false)} />}

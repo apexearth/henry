@@ -27,7 +27,7 @@ const SECTIONS: [string, Key[]][] = [
   ["files", [
     [isMac ? ["⌘K", "⌃K"] : ["Ctrl+K"], isMac ? "find a file to peek at (⌃K stays kill-line in the terminal)" : "find a file to peek at (outside the terminal, where it is kill-line)"],
     [isMac ? ["⌘F", "⌃F"] : ["Alt+F", "Ctrl+F"], isMac ? "the files tree of the session you are in; over a peek, find within that file (⌃F stays forward-char in the terminal)" : "the files tree of the session you are in; over a peek, find within that file (Ctrl+F outside the terminal only, where it stays forward-char)"],
-    [[isMac ? "⌘⇧F" : "Ctrl+Shift+F"], "the files tree searching file contents (git grep), taking the peek's find term along"],
+    [[isMac ? "⌘⇧F" : "Ctrl+Shift+F"], "search the text of every repo (git grep) with a preview, taking the peek's find term along; Tab searches file names"],
     [["↩", "⇧↩"], "in a peek's find bar: next / previous match"],
     [[isMac ? "⌘ click" : "Ctrl click"], "peek at a path in terminal output or a diff header"],
     [[`${MOD}S`], "in a peek being edited: save it"],

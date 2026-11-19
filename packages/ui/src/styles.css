@@ -578,12 +578,40 @@ html.light .peek-body .hljs-deletion { color: #82071e; }
 
 /* ⌘K file picker rows. */
 .picker-files { width: 640px; }
+.picker-note { padding: 10px 12px 0; color: var(--fg-dim); font-size: 12px; overflow-wrap: anywhere; }
 .picker-files .file-cell { display: flex; gap: 8px; align-items: center; overflow: hidden; }
 .picker-files .file-cell .kind-word { margin-left: 0; overflow: hidden; text-overflow: ellipsis; }
 .picker-files .path { color: var(--fg-dim); font-size: 11px; flex: none; }
 
 /* Find-in-file marks, in the peek (FileView.tsx). */
-.peek-line mark { background: var(--accent-soft); color: var(--fg); border-radius: 2px; }
+.peek-line mark, .explorer-hit-text mark { background: var(--accent-soft); color: var(--fg); border-radius: 2px; }
+/* ⌘⇧F search: hits or names on the left, the selected file on the right (Search.tsx). */
+.explorer-bg { padding-top: 6vh; }
+.explorer { width: min(1240px, 94vw); height: 86vh; max-height: 86vh; flex-direction: row; overflow: hidden; }
+.explorer-left { flex: none; width: 420px; display: flex; flex-direction: column; border-right: 1px solid var(--border); min-width: 0; }
+.explorer-input { display: flex; gap: 6px; align-items: center; padding: 10px 12px; }
+.explorer-input .chip { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.explorer-input .picker-input { flex: 1; margin: 0; min-width: 0; }
+.explorer-left .list { flex: 1; }
+.explorer .file-cell { display: flex; gap: 8px; align-items: center; overflow: hidden; }
+.explorer .file-cell .kind-word { margin-left: 0; overflow: hidden; text-overflow: ellipsis; }
+.explorer .row .path { flex: none; }
+.explorer-git { flex: none; display: flex; gap: 8px; color: var(--fg-dim); font-size: 11px; }
+.explorer-git .dirty { color: var(--warn); }
+.explorer-git .branch { max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
+/* One row per grep hit, the file named once above its first hit. */
+.explorer-hit { flex-direction: column; align-items: stretch; gap: 2px; padding-top: 3px; padding-bottom: 3px; }
+.explorer-hit.first { margin-top: 4px; border-top: 1px solid var(--border); padding-top: 6px; }
+.explorer-hit.first:first-child { margin-top: 0; border-top: none; }
+.explorer-hit-file { font-size: 12px; }
+.explorer-hit-file .path { margin-left: auto; }
+.explorer-hit-line { display: flex; gap: 8px; font-size: 11px; color: var(--fg-dim); overflow: hidden; }
+.explorer-hit-no { flex: none; min-width: 4ch; text-align: right; color: var(--fg-faint); }
+.explorer-hit-text { overflow: hidden; text-overflow: ellipsis; white-space: pre; }
+.explorer-right { flex: 1; min-width: 0; background: var(--bg); }
+.explorer-right .peek-head { padding-left: 12px; }
+.explorer-empty { height: 100%; display: flex; flex-direction: column; gap: 8px; align-items: center; justify-content: center; color: var(--fg-dim); text-align: center; padding: 20px; }
+.explorer-empty .hint { font-size: 11px; color: var(--fg-faint); }
 .peek-line mark.cur { background: var(--accent); color: var(--bg); }
 
 /* Peek: uncommitted lines. */

@@ -2,12 +2,13 @@
 // then recent peeks, then every file in that session's repos (the one its cwd is in first),
 // then other sessions' repos. Type to fuzzy-filter; ↑↓ then Enter opens a peek.
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { RepoState } from "@henry/shared";
 import { focusOrigin, restoreFocus } from "./dock";
-import { openPeek } from "./FileView";
-import { recentFiles, repoIndex, splitPath, useSessionFiles } from "./files";
+import { openPeek, splitLineRef } from "./FileView";
+import { fetchSessionFiles, filesByTail, recentFiles, repoIndex, splitPath, useSessionFiles } from "./files";
 import { matches } from "./match";
-import { joinPath, under } from "./platform";
-import { useStore } from "./ws";
+import { baseName, joinPath, under } from "./platform";
+import { getState, useStore } from "./ws";
 
 interface Row {
   abs: string;
@@ -25,7 +26,59 @@ const MAX_ROWS = 200;
 
 const TIER_GLYPH = ["", "↺", "", ""];
 
-export function FilePicker({ onClose }: { onClose: () => void }) {
+/** ⌘K asked for from elsewhere: a clicked path that was not a file as written. `choices` are
+ *  the files it could mean, listed alone; `query` seeds the filter when there are none. */
+export interface FinderAsk {
+  query?: string;
+  choices?: string[];
+  /** The line the clicked reference named, kept for whichever file is picked. */
+  line?: number;
+  note?: string;
+}
+const FINDER_EVENT = "henry:finder";
+export function openFinder(ask: FinderAsk): void {
+  window.dispatchEvent(new CustomEvent<FinderAsk>(FINDER_EVENT, { detail: ask }));
+}
+export function onFinder(cb: (ask: FinderAsk) => void): () => void {
+  const on = (e: Event) => cb((e as CustomEvent<FinderAsk>).detail);
+  window.addEventListener(FINDER_EVENT, on);
+  return () => window.removeEventListener(FINDER_EVENT, on);
+}
+
+/**
+ * Open a path clicked somewhere, trying `candidates` as written first (a wrapped path and its
+ * pieces). None a file: the files ending the same way, in the session's repos and then every
+ * other repo on that machine. One opens; several are listed to pick from; none lists the
+ * nearest names. A click always shows something.
+ */
+export async function peekAnywhere(candidates: string[], cwd: string | undefined, sessionId: string | null): Promise<void> {
+  for (const c of candidates) {
+    const { path, line } = splitLineRef(c);
+    if (await openPeek(path, cwd, line)) return;
+  }
+  const { path, line } = splitLineRef(candidates[0] ?? "");
+  if (!path) return;
+  const st = getState();
+  const peer = st.sessions.find((x) => x.id === sessionId)?.peer;
+  const mine = sessionId ? (await fetchSessionFiles(sessionId)).repos.map((r) => r.path) : [];
+  let hits = await filesByTail(path, mine, peer);
+  if (!hits.length) {
+    const others = new Set<string>();
+    for (const [sid, rs] of Object.entries(st.repos)) if (st.sessions.find((x) => x.id === sid)?.peer === peer) for (const r of rs) others.add(r.path);
+    if (!peer) {
+      const r = await fetch("/api/repos/state");
+      if (r.ok) for (const x of (await r.json()) as RepoState[]) others.add(x.path);
+    }
+    for (const p of mine) others.delete(p);
+    hits = await filesByTail(path, [...others], peer);
+  }
+  if (hits.length === 1 && (await openPeek(hits[0]!, undefined, line))) return;
+  openFinder(hits.length
+    ? { choices: hits, line, note: `${path} is not there. ${hits.length} files end the same way:` }
+    : { query: baseName(path).replace(/\.[^.]*$/, ""), line, note: `No file named like ${path}. Nearest names:` });
+}
+
+export function FilePicker({ onClose, query: seed, choices, line, note }: FinderAsk & { onClose: () => void }) {
   const active = useStore((s) => s.activeSessionId);
   const cwd = useStore((s) => s.sessions.find((x) => x.id === s.activeSessionId)?.cwd ?? "");
   // Peeks open on the active session's machine, so only repos of sessions there are in scope.
@@ -33,7 +86,7 @@ export function FilePicker({ onClose }: { onClose: () => void }) {
   const sameMachine = useStore((s) => s.sessions.filter((x) => x.peer === peer).map((x) => x.id).join("\n"));
   const allRepos = useStore((s) => s.repos);
   const sf = useSessionFiles(active);
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(seed ?? "");
   const [index, setIndex] = useState(0);
   const [indexes, setIndexes] = useState<Record<string, string[]>>({});
   const listRef = useRef<HTMLDivElement>(null);
@@ -76,6 +129,14 @@ export function FilePicker({ onClose }: { onClose: () => void }) {
       seen.add(row.abs);
       out.push({ ...row, score: sc });
     };
+    if (choices) {
+      for (const abs of choices) {
+        const repo = scope.find((r) => abs !== r.path && under(abs, r.path));
+        push({ abs, rel: repo ? abs.slice(repo.path.length + 1).replace(/\\/g, "/") : abs, repoName: repo?.name ?? "", tier: repo?.mine ? 2 : 3 });
+      }
+      out.sort((a, b) => a.tier - b.tier || b.score - a.score || a.rel.localeCompare(b.rel));
+      return out;
+    }
     for (const r of sf?.repos ?? []) {
       for (const f of r.files) if (f.status !== "D") push({ abs: joinPath(r.path, f.path), rel: f.path, repoName: r.name, tier: 0, status: f.status, committed: f.committed, mtime: f.mtime });
     }
@@ -89,7 +150,7 @@ export function FilePicker({ onClose }: { onClose: () => void }) {
     }
     out.sort((a, b) => a.tier - b.tier || b.score - a.score || (b.mtime ?? 0) - (a.mtime ?? 0) || a.rel.localeCompare(b.rel));
     return out.slice(0, MAX_ROWS);
-  }, [query, sf, scope, indexes]);
+  }, [query, sf, scope, indexes, choices]);
 
   const sel = Math.min(index, Math.max(rows.length - 1, 0));
   useEffect(() => {
@@ -100,7 +161,7 @@ export function FilePicker({ onClose }: { onClose: () => void }) {
 
   const open = (row: Row | undefined) => {
     if (!row) return;
-    void openPeek(row.abs);
+    void openPeek(row.abs, undefined, choices || seed ? line : undefined);
     onClose();
   };
 
@@ -121,8 +182,9 @@ export function FilePicker({ onClose }: { onClose: () => void }) {
   return (
     <div className="modal-bg" onMouseDown={onClose}>
       <div className="modal picker-files" onMouseDown={(e) => e.stopPropagation()}>
-        <input className="picker-input" autoFocus value={query} spellCheck={false}
-          placeholder={active ? "file name — changed files first, ↑↓ then Enter" : "pick a session first"}
+        {note && <div className="picker-note">{note}</div>}
+        <input className="picker-input" autoFocus value={query} spellCheck={false} onFocus={(e) => e.target.select()}
+          placeholder={choices ? "narrow these down — ↑↓ then Enter" : active ? "file name — changed files first, ↑↓ then Enter" : "pick a session first"}
           onChange={(e) => { setQuery(e.target.value); setIndex(0); }} onKeyDown={onKey} />
         <div className="list" ref={listRef}>
           {rows.map((r, i) => {
@@ -145,7 +207,7 @@ export function FilePicker({ onClose }: { onClose: () => void }) {
           )}
         </div>
         <div className="foot hint">
-          <span>{query ? `${rows.length}${rows.length === MAX_ROWS ? "+" : ""} of ${indexed} files` : `type to search ${indexed} files in ${scope.length} repo${scope.length === 1 ? "" : "s"}`}</span>
+          <span>{choices ? `${rows.length} of ${choices.length} files` : query ? `${rows.length}${rows.length === MAX_ROWS ? "+" : ""} of ${indexed} files` : `type to search ${indexed} files in ${scope.length} repo${scope.length === 1 ? "" : "s"}`}</span>
           <span>Esc to close</span>
         </div>
       </div>

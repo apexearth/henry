@@ -5,7 +5,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { isClaudeSession } from "@henry/shared";
 import { getState, send, subscribePty, useStore } from "./ws";
-import { openPeek, splitLineRef } from "./FileView";
+import { peekAnywhere } from "./FilePicker";
 import { useRefCard, type RefAt } from "./RefCard";
 import { arrowMod, isMac, mod } from "./platform";
 import { cellBgAlpha, cssVar, isLight, minContrast, onTheme, themeBgRgb, xtermTheme } from "./theme";
@@ -28,9 +28,9 @@ const DEFAULT_FONT_SIZE = 13;
 const RESIZE_SETTLE_MS = 120;
 
 // Something with a slash (or, for Windows, a backslash or drive letter) in it, or a bare
-// `name.ext`, optionally followed by `:line[:col]`. Loose on purpose: a ⌘-click on a non-file
-// simply finds nothing.
-const PATH_RE = /(?<![\w@:/.\\-])(?:[A-Za-z]:)?(?:~[\\/]|\.{1,2}[\\/]|[\\/])?[\w.@+-]+(?:[\\/][\w.@+-]+)+(?::\d+(?::\d+)?)?|(?<![\w@:/.\\-])[\w@+-]+(?:\.[\w@+-]+)*\.[A-Za-z]{2,5}(?::\d+(?::\d+)?)?/g;
+// `name.ext`, optionally followed by `:line[:col]`. Loose on purpose: a ⌘-click on something
+// that is not a file as written goes looking for one (peekAnywhere).
+const PATH_RE =/(?<![\w@:/.\\-])(?:[A-Za-z]:)?(?:~[\\/]|\.{1,2}[\\/]|[\\/])?[\w.@+-]+(?:[\\/][\w.@+-]+)+(?::\d+(?::\d+)?)?|(?<![\w@:/.\\-])[\w@+-]+(?:\.[\w@+-]+)*\.[A-Za-z]{2,5}(?::\d+(?::\d+)?)?/g;
 const URL_RE = /https?:\/\/[^\s<>"'`]+/g;
 const URL_TAIL_RE = /[.,;:!?'")\]}>]+$/;
 // `#157`: an issue or PR by number. Not part of a word, a URL fragment or a colour (`#157abc`).
@@ -131,6 +131,43 @@ function logicalLine(t: Terminal, row: number): { text: string; top: number } {
     if (!more) break;
   }
   return { text, top };
+}
+
+const TRAIL_PUNCT_RE = /[.,;:'")\]}]+$/;
+const FRAG_HEAD_RE = /^[\w.@+\\/~-]+(?::\d+(?::\d+)?)?/;
+const FRAG_TAIL_RE = /[\w.@+\\/~-]+$/;
+const WRAP_ROWS = 3;
+
+/**
+ * A path as clicked, plus what it may have lost to wrapping. Claude Code wraps its own output
+ * with real line breaks and indents the rest, so xterm sees two unrelated rows and a long
+ * absolute path is cut in two. A path that starts a row may go on from the row above; one that
+ * ends a row may go on into the next. Longest first; the caller opens the first that is a file.
+ */
+function pathCandidates(t: Terminal, row: number, text: string, start: number, match: string): string[] {
+  const buf = t.buffer.active;
+  let before = "";
+  if (!text.slice(0, start).trim()) {
+    for (let i = row - 1; i >= 0 && i >= row - WRAP_ROWS; i--) {
+      const prev = buf.getLine(i)?.translateToString(true).trimEnd() ?? "";
+      const m = FRAG_TAIL_RE.exec(prev);
+      if (!m) break;
+      before = m[0] + before;
+      if (prev.slice(0, m.index).trim()) break; // the path starts on this row
+    }
+  }
+  let after = "";
+  if (start + match.length === text.trimEnd().length) {
+    for (let i = row + 1; i <= row + WRAP_ROWS; i++) {
+      const next = (buf.getLine(i)?.translateToString(true) ?? "").trim();
+      const m = FRAG_HEAD_RE.exec(next);
+      if (!m) break;
+      after += m[0];
+      if (m[0].length !== next.length) break; // the path ends on this row
+    }
+  }
+  const out = [before + match + after, match + after, before + match, match].map((c) => c.replace(TRAIL_PUNCT_RE, ""));
+  return [...new Set(out)].filter((c) => c.length >= 3);
 }
 
 /** The rows just above a mention and its own (soft-wrapped) line, whitespace squeezed. */
@@ -429,17 +466,17 @@ export function TerminalView({ sessionId, visible, focused, fontSize }: Props) {
         }
         const text = t.buffer.active.getLine(y - 1)?.translateToString(true) ?? "";
         for (const m of text.matchAll(PATH_RE)) {
-          const raw = m[0].replace(/[.,;:'")\]}]+$/, "");
+          const raw = m[0].replace(TRAIL_PUNCT_RE, "");
           if (!raw || raw.length < 3) continue;
           if (urlCols.some(([a, b]) => m.index + 1 <= b && m.index + raw.length >= a)) continue;
           links.push({
             range: { start: { x: m.index + 1, y }, end: { x: m.index + raw.length, y } },
             text: raw,
             decorations: { underline: true, pointerCursor: true },
-            activate: (ev: MouseEvent, ref: string) => {
+            activate: (ev: MouseEvent) => {
               if (!ev.metaKey && !ev.ctrlKey && performance.now() - tapAt > TAP_CLICK_MS) return;
-              const { path, line } = splitLineRef(ref);
-              openPeek(path, getState().sessions.find((x) => x.id === sessionId)?.cwd, line);
+              const cands = pathCandidates(t, y - 1, text, m.index, m[0]);
+              void peekAnywhere(cands, getState().sessions.find((x) => x.id === sessionId)?.cwd, sessionId);
             },
           });
         }

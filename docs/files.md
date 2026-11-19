@@ -5,7 +5,12 @@ Looking at files without opening an editor, and the odd spec written without one
 **File peeks.** Files are things you glance at, not documents you keep open. ⌘-click a
 path in terminal output (relative paths resolve against the session's cwd; on a phone a tap
 does it) or a file header in a diff and the file opens read-only over the session, in the
-same stage group (on a phone, as a full-screen sheet), with its own slim header (path, repo,
+same stage group (on a phone, as a full-screen sheet). A clicked path that is not a file as
+written still finds one: Claude Code breaks long lines itself, so a path that starts or ends a
+row is tried joined with the path-like piece of the row above or below, longest first; failing
+that, the files whose path ends the same way (longest matching tail wins, case ignored) in the
+session's repos, then every other repo on that machine. One opens; several open ⌘K listing just
+them, keeping the line; none opens ⌘K on the file's name. The peek has its own slim header (path, repo,
 +added −deleted vs baseline, size, ×). A `path:line` reference
 scrolls to and tints that line. One peek at a time: opening another replaces the one in the
 stage, so a run of clicked images never leaves a row of ×s behind. A peek open in the editor
@@ -207,9 +212,17 @@ so when it truncates. It does not read `.gitignore` (there is no repo to read it
 **⌘F over a peek finds in that file.** ⌘F stays contextual: over a file peek in view it is
 find-in-file — a bar under the peek header, smart case, ↩/⇧↩ walk the matches, matched lines
 show the term marked (and lose syntax colour for it), Esc closes the bar before it closes the
-peek. Anywhere else ⌘F opens the files tree with the keyboard in its filter. ⌘⇧F is the tree's
-content search regardless, carrying the peek's find term along, so "this word, but everywhere"
-is one key. ⌃F works outside the terminal, where it stays forward-char.
+peek. Anywhere else ⌘F opens the files tree with the keyboard in its filter. ⌃F works outside
+the terminal, where it stays forward-char.
+
+**⌘⇧F searches everything** (`ui/Search.tsx`, also the top bar's `search`). The tree searches
+the session's repos; this is for when you do not know which repo holds it. A full-screen modal:
+`git grep` over every checkout under the repos root, one row per hit grouped by file, and the
+selected hit's file read on the right, scrolled to the line; ↩ (or a double-click) opens it as a
+peek. Tab flips to names: repos, then every file in every repo; picking a repo scopes both modes
+to it, Backspace on an empty filter leaves it. It opens on the last search, selected so typing
+replaces it, or on the peek's find term when one is open, so "this word, but everywhere" is one
+key. Literal smart-case only; the tree has the regex, word and glob knobs.
 
 **The Files tab** is the folder tree of the repos this session works in (⌘F above), where
 each repo's root row is also its card, on one line: name, branch, `↑n ↓n` against the upstream (only the non-zero side; `↑∅` when there is no upstream),

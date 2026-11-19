@@ -2,6 +2,7 @@
 // ⌘K, and the paths peeked recently. All fetched from the daemon; nothing here is pushed.
 import { useEffect, useState } from "react";
 import type { DirIndex, DirListing, RepoFiles, SessionFiles } from "@henry/shared";
+import { joinPath } from "./platform";
 import { onFilesChanged, useStore } from "./ws";
 
 export async function fetchSessionFiles(sessionId: string): Promise<SessionFiles> {
@@ -119,6 +120,30 @@ export function forgetIndex(path: string, peer?: string): void {
 export async function listDir(path: string, peer?: string): Promise<DirListing> {
   const r = await fetch(`/api/fs/list?path=${encodeURIComponent(path)}${peer ? `&peer=${encodeURIComponent(peer)}` : ""}`);
   return r.ok ? ((await r.json()) as DirListing) : { dirs: [], files: [] };
+}
+
+/**
+ * Files under `repos` whose path ends the way `raw` does, for a clicked path that is not a file
+ * as written: a wrong cwd, another machine's home, a bare name. The longest tail that matches
+ * anything wins, so `ui/src/App.tsx` beats every other `App.tsx`. Case is ignored.
+ */
+export async function filesByTail(raw: string, repos: string[], peer?: string): Promise<string[]> {
+  const segs = raw.toLowerCase().replace(/\\/g, "/").split("/").filter((s) => s && s !== "." && s !== ".." && s !== "~" && !/^[a-z]:$/.test(s));
+  const name = segs[segs.length - 1];
+  if (!name) return [];
+  const named: { abs: string; key: string }[] = [];
+  await Promise.all(repos.map(async (repo) => {
+    for (const rel of await repoIndex(repo, peer)) {
+      const key = "/" + rel.toLowerCase();
+      if (key.endsWith("/" + name)) named.push({ abs: joinPath(repo, rel), key });
+    }
+  }));
+  for (let k = segs.length; k >= 1; k--) {
+    const tail = "/" + segs.slice(-k).join("/");
+    const hits = named.filter((f) => f.key.endsWith(tail)).map((f) => f.abs);
+    if (hits.length) return hits;
+  }
+  return [];
 }
 
 const RECENT_KEY = "henry.recentFiles";
