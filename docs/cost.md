@@ -48,3 +48,6 @@ unbounded input is trimmed at the door.
 - **The transcript tailer reads 1MB per pass** and comes back through the event loop.
   A cold start begins at byte 0 and transcripts reach tens of MB; one synchronous pass would
   stall hooks and the WS for the length of the file.
+- **No model call runs after every turn.** "Fill from sessions" is one call per machine per
+  press and reads only sessions that did something since they were last read; a press with
+  nothing new costs nothing.

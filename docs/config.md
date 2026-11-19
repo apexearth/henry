@@ -13,7 +13,7 @@
   settable from the UI — it would strand the window that asked. config.json stays
   hand-editable: the daemon watches it, hot-reloads, and broadcasts state either way.
 
-- **History is swept to `retentionDays` (30).** Events, flags, playbook entries, usage
+- **History is swept to `retentionDays` (30).** Events, flags, usage
   snapshots and images sent from a phone older than the window go at startup and every 6h, and immediately when the
   setting shrinks; `0` keeps everything. Sessions are never swept — the rail owns their
   lifetime. The newest usage snapshot survives at any age, since it is the live 7d bar.
@@ -41,7 +41,7 @@
   "reposRoot": "~/code",
   "defaultRepo": "~/code",
   "retentionDays": 30,
-  "overseer": { "backend": "auto", "model": "claude-opus-5", "onStop": false, "onFlag": false, "stopMinIntervalSec": 60 },
+  "overseer": { "backend": "auto", "model": "claude-opus-5" },
   "mcp": { "enabled": true, "sessions": true },
   "federation": { "listen": "tailscale", "port": 14712 },
   "phone": { "listen": "tailscale", "port": 14714 },

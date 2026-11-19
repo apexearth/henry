@@ -7,7 +7,7 @@ import { TerminalView } from "./Terminal";
 import { ContextSky } from "./ContextSky";
 import { FileView } from "./FileView";
 import { FilesPane } from "./FilesPane";
-import { BoundFlags, BoundHistory, BoundPlaybook, BoundUsage, useSessionFlags } from "./panels/bound";
+import { BoundFlags, BoundHistory, BoundNotes, BoundUsage, useSessionFlags } from "./panels/bound";
 import { ChangesPanel } from "./panels/Changes";
 import { setActive, useStore } from "./ws";
 import { usePoppedOut } from "./popout";
@@ -68,8 +68,13 @@ function HistoryDock() {
   return <div className="dock-body" style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}><BoundHistory /></div>;
 }
 
-function PlaybookDock() {
-  return <div className="dock-body"><BoundPlaybook /></div>;
+/** The count on the tab is the reminder: it is there even while another tool is in front. */
+function NotesDock({ api }: IDockviewPanelProps) {
+  const count = useStore((s) => s.notes.length);
+  useEffect(() => {
+    api.setTitle(count ? `Notes (${count})` : "Notes");
+  }, [api, count]);
+  return <div className="dock-body"><BoundNotes /></div>;
 }
 
 function UsageDock() {
@@ -131,7 +136,7 @@ const components = {
   files: FilesDock,
   history: HistoryDock,
   flags: FlagsDock,
-  playbook: PlaybookDock,
+  notes: NotesDock,
   usage: UsageDock,
   changes: ChangesPanel,
   // Retired (dock.ts RETIRED): restores from a saved layout, then is removed.

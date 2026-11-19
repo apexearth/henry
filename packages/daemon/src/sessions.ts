@@ -185,7 +185,7 @@ class SessionManager extends EventEmitter<SessionEvents> {
     }
     if (this.started) return;
     // First start only: DB rows that claim running but sessiond does not hold died with
-    // an earlier sessiond. Recent sessions come back exited (repos, flags and playbook
+    // an earlier sessiond. Recent sessions come back exited (repos and flags
     // are still in the DB); kill (dismiss) drops them like any other exited session.
     for (const s of db.listSessions({ status: "running" })) {
       if (!known.has(s.id)) db.updateSession(s.id, { status: "exited" });

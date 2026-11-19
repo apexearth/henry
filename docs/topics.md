@@ -19,7 +19,7 @@ Several sessions on one subject, kept aware of each other by a session that sits
   runs in `<henry home>/coordinator`, one folder for all of them so Claude Code asks to trust
   it once, with `--append-system-prompt-file` (its standing instructions, `COORDINATOR_PROMPT`)
   and `--disallowed-tools` for every file, shell and subagent tool. It works from summaries,
-  like the overseer: prompts, activity, files written, git state, commits, last replies. Never
+  like voice and notes filling: prompts, activity, files written, git state, commits, last replies. Never
   source or diffs. Resuming an exited coordinator makes it the coordinator again, flags and
   all, unless the topic already has one running; a fork of one is not a coordinator. The rail
   names a coordinator after its topic, since Claude Code retitles the terminal as it likes.

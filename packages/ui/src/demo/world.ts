@@ -1,6 +1,6 @@
 // A morning's worth of made-up work, for `?demo` (see ./install.ts). Everything the panels
 // read is here: sessions on two machines, the repos they touched, flags, an open ask, usage,
-// the overseer's playbook and your own day. Times are relative to now so the "4m" labels and
+// your notes and your own day. Times are relative to now so the "4m" labels and
 // the sparklines read the same whenever the page is opened.
 import {
   DEFAULT_CONFIG,
@@ -18,7 +18,7 @@ import {
   type HumanStats,
   type PeerStatus,
   type PhoneStatus,
-  type PlaybookEntry,
+  type Note,
   type RepoPickerEntry,
   type RepoPrs,
   type RepoState,
@@ -176,53 +176,16 @@ export const usage: Usage = {
   updatedAt: ago(MIN),
 };
 
-export const playbook: PlaybookEntry[] = [
+export const notes: Note[] = [
   {
-    id: "p0", sessionId: "d1", ts: ago(3 * MIN), trigger: "stop", model: "claude-opus-5", kind: "summary",
-    text: [
-      "HEADLINE: Rate limiter written and green; wiring an exact Retry-After, then the full suite.",
-      "DOING: Making the 429's Retry-After say when the next token lands, in `src/middleware/rateLimit.ts`.",
-      "CHANGED:",
-      "- new `src/middleware/rateLimit.ts` (token bucket per API key) and its test",
-      "- `src/routes/search.ts` mounts it on /v1/search",
-      "CAREFUL: on `feat/rate-limits`, 2 commits ahead of origin, 5 paths uncommitted. Nothing pushed yet.",
-      "NEXT: `bun test`, commit, open the PR against main.",
-    ].join("\n"),
+    id: "n1", text: "Retry-After must be the time the next token lands, not a flat 60. Check it before the PR.", host: HOST,
+    sessionId: "d1", sessionTitle: "rate limiter", createdAt: ago(40 * MIN), updatedAt: ago(40 * MIN),
   },
   {
-    id: "p1", sessionId: "d1", ts: ago(3 * MIN), trigger: "stop", model: "claude-opus-5",
-    text: [
-      "HEADLINE: Middleware written, its four unit tests pass.",
-      "DOING: Retry-After header on the 429.",
-      "CHANGED:",
-      "- `src/middleware/rateLimit.ts`, `src/middleware/rateLimit.test.ts` (new)",
-      "- `src/routes/search.ts` (+4 −1)",
-      "CAREFUL: none",
-      "NEXT: full test run, then commit.",
-    ].join("\n"),
+    id: "n2", text: "infra committed the provider pin straight onto main. Move it to a branch before anyone pulls.", host: HOST,
+    sessionId: "d3", sessionTitle: "terraform drift", createdAt: ago(25 * MIN), updatedAt: ago(25 * MIN),
   },
-  {
-    id: "p2", sessionId: "d1", ts: ago(2 * HOUR + 44 * MIN), trigger: "flag", model: "claude-opus-5",
-    text: [
-      "HEADLINE: Branched off main for the rate limiter.",
-      "DOING: Reading the search route and the middleware that is already there.",
-      "CHANGED: none",
-      "CAREFUL: `git checkout -b feat/rate-limits` from a clean main. Fine.",
-      "NEXT: write the bucket.",
-    ].join("\n"),
-  },
-  {
-    id: "p3", sessionId: null, ts: ago(2 * MIN), trigger: "stop", model: "claude-opus-5", kind: "summary",
-    text: [
-      "HEADLINE: Three sessions, two waiting on you: a permission prompt and a terraform apply.",
-      "DOING:",
-      "- rate limiter (atlas): Retry-After, tests green",
-      "- flaky e2e (atlas-web): blocked on a permission prompt for a 25× playwright run",
-      "- terraform drift (infra): committed a provider pin on main, asking before it applies",
-      "CAREFUL: infra committed straight onto `main`; laptop's docs sweep wrote into atlas.",
-      "NEXT: answer the two prompts; the rate limiter will want a PR in a few minutes.",
-    ].join("\n"),
-  },
+  { id: "n3", text: "Tell Priya the key-rotation PR is blocked on the limiter landing first.", host: PEER, createdAt: ago(3 * HOUR), updatedAt: ago(3 * HOUR) },
 ];
 
 export const config: HenryConfig = {
@@ -230,7 +193,6 @@ export const config: HenryConfig = {
   host: HOST,
   reposRoot: ROOT,
   defaultRepo: ROOT,
-  overseer: { ...DEFAULT_CONFIG.overseer, onStop: true, onFlag: true },
 };
 
 export const peers: PeerStatus[] = [
@@ -238,7 +200,7 @@ export const peers: PeerStatus[] = [
 ];
 
 export const state: StateSnapshot = {
-  sessions, repos, flags, attention, usage, playbook, config, firstRun: false, host: HOST, peers,
+  sessions, repos, flags, attention, usage, notes, config, firstRun: false, host: HOST, peers,
 };
 
 // ---- REST answers ----

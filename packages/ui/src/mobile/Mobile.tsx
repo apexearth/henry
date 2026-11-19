@@ -16,7 +16,7 @@ import { FilesPane } from "../FilesPane";
 import { FileView } from "../FileView";
 import { NotifyToggle } from "../NotifyToggle";
 import { ThemeRows } from "../ThemeMenu";
-import { BoundFlags, BoundHistory, BoundPlaybook, BoundUsage, useSessionFlags } from "../panels/bound";
+import { BoundFlags, BoundHistory, BoundNotes, BoundUsage, useSessionFlags } from "../panels/bound";
 import { useAskTitle } from "../title";
 import { answerAttention, useStore } from "../ws";
 import { Composer } from "./Composer";
@@ -27,7 +27,7 @@ const TABS = [
   // On a phone the terminal is a porthole; the conversation is much easier to read here.
   { id: "history", title: "history", body: BoundHistory },
   { id: "flags", title: "flags", body: BoundFlags },
-  { id: "playbook", title: "playbook", body: BoundPlaybook },
+  { id: "notes", title: "notes", body: BoundNotes },
   { id: "usage", title: "usage", body: BoundUsage },
   // Settings is a modal on a desk; here it is the last tab, so it opens where the sheet is.
   { id: "settings", title: "⚙", body: MobileSettings },
@@ -85,7 +85,7 @@ export function Mobile() {
         <button className="m-icon" onClick={() => zoom(-1)} title="smaller text, more columns" aria-label="zoom out">−</button>
         <span className="m-zoom" title="terminal text size">{fontSize}</span>
         <button className="m-icon" onClick={() => zoom(1)} title="bigger text, fewer columns" aria-label="zoom in">+</button>
-        <button className="m-icon" onClick={() => setTab((t) => (t ? null : "files"))} title="files, history, flags, playbook, usage, settings" aria-label="panels">
+        <button className="m-icon" onClick={() => setTab((t) => (t ? null : "files"))} title="files, history, flags, notes, usage, settings" aria-label="panels">
           ⋮{unread > 0 && <span className="m-badge alarm">{unread}</span>}
         </button>
       </header>

@@ -27,14 +27,12 @@ strip, records and plays.
   window retries a failed transcription three times over about twelve seconds (a daemon
   restarting, whisper timing out); a dictated clip that still fails is kept in memory and the
   strip shows "retry" until it lands or the page reloads.
-- **Its own system prompt, not the overseer's.** The overseer writes to be *read*: backticks
-  around every name, `HEADLINE:`/`CHANGED:` labels, bullets. All of that is unspeakable. Voice
-  shares the overseer's per-session description (`sessionDetail`: summary, latest entries,
-  flags, repos), its global history and its backend (`askBackend`), and brings its own output
-  contract: a few sentences, no markup, no file paths spoken aloud, answer first. One picture
-  of the world, two ways of saying it.
+- **Its own system prompt, and the shared backend.** Voice takes the per-session description
+  (`sessionDetail`: flags, repos), your notes (notes.md) and the backend (`askBackend`) from
+  `overseer.ts`, and brings its own output contract: a few sentences, no markup, no file paths
+  spoken aloud, answer first.
 - **Voice sees every machine, and each machine describes itself.** A link mirrors a peer's
-  sessions, repos, flags and playbook, but not its events or transcripts, so until 2026-09-15
+  sessions, repos and flags, but not its events or transcripts, so until 2026-09-15
   voice could name a paired machine's sessions in the roster and say nothing about them. Now
   every daemon answers `GET /api/voice/context` with a slice of its own picture — its most
   recently active sessions with their detail and last events, the conversation tail of its top
@@ -123,14 +121,14 @@ strip, records and plays.
   now reads the live transcript, and a transcript carries tool results — file contents, command
   output, fetched pages — so anything Henry can read can try to say "TELL:". Sanitised and
   unsent, the worst case is a strange sentence sitting in your prompt where you can see it.
-- **Voice sees the conversation; the overseer still does not.** Decided 2026-09-14, deliberately
+- **Voice sees the conversation; summaries elsewhere still do not.** Decided 2026-09-14, deliberately
   and not by accident: the tail of the live session's actual transcript rides in the voice
   context, word for word, because "what did it just tell me" and "read me the end of that
   answer" are the questions a voice is for, and an event summary cannot answer either — a
   summary of a turn is not the turn. That text carries code, paths and diffs, so voice is no
   longer blindfolded and its prompt says so, with the standing instruction to *describe* code
-  rather than read symbols and paths aloud, which is useless in speech. The overseer's own
-  blindfold is untouched: it writes a durable log for later, where the temptation to guess at
+  rather than read symbols and paths aloud, which is useless in speech. Coordinators and notes
+  filling keep the blindfold: what they write lasts, where the temptation to guess at
   implementation detail is the thing that rule protects against. Only the session at the top of
   the activity order, across every machine, gets a tail — it is the most expensive thing in the
   context by an order of magnitude, and "the last response" almost always means the one in
@@ -146,11 +144,11 @@ strip, records and plays.
   Dictation never lands in it; that is the user talking to a session, not to Henry. The rest of
   the context is fetched fresh for every question, and the prompt says which wins when the two
   disagree.
-- **Off by default** (`voice.enabled`), like the overseer: it costs an LLM call per question.
+- **Off by default** (`voice.enabled`): it costs an LLM call per question.
 - **Henry says what finished, unprompted, when asked to** (`voice.announce`, a tick under
   Settings → notifications; `daemon/announce.ts`). Each local notice except a reminder waits
   1.5 s for the transcript to land, hands the same conversation tail to a small model
-  (`voice.announceModel`, Haiku by default, on the overseer's backend) with why it stopped,
+  (`voice.announceModel`, Haiku by default, on the shared backend) with why it stopped,
   and gets one sentence back: what it needs from you, or the result. The notice goes out again
   with that line and its audio; windows with the sound on speak it once, one line at a time,
   under the chime's quiet rule, and the OS notification swaps its text for the line. A newer

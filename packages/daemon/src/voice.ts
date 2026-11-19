@@ -19,8 +19,9 @@ import { config } from "./config";
 import * as db from "./db";
 import * as federation from "./federation";
 import * as git from "./git";
+import * as notes from "./notes";
 import { readHistory } from "./history";
-import { askBackend, eventLine, globalHistory, liveSessions, oneLine, safeRepos, sessionDetail, sessionHeader } from "./overseer";
+import { askBackend, eventLine, liveSessions, oneLine, safeRepos, sessionDetail, sessionHeader } from "./overseer";
 import { STT_INSTALL_HINT, speakSpec } from "./platform";
 
 /** Long enough for a held key, short enough that a stuck one cannot fill the disk. */
@@ -63,7 +64,7 @@ const THREAD_TURNS = 10;
 const THREAD_TURN_CHARS = 600;
 const THREAD_IDLE_MS = 30 * 60_000;
 
-export const SYSTEM_PROMPT = `You are Henry's voice. You speak with the person whose Claude Code sessions you watch, while they work. You are given the event stream, safeguard flags, repo-level git summaries, the current per-session summaries, and the tail of the actual conversation in the session they are working in — what was said, word for word, rather than a summary of it. The sessions may be spread over several machines; each is marked "here" or "on <machine>", and you see all of them the same way, so answer about the whole picture unless they ask about one machine.
+export const SYSTEM_PROMPT = `You are Henry's voice. You speak with the person whose Claude Code sessions you watch, while they work. You are given the event stream, safeguard flags, repo-level git summaries, the notes the user keeps to remember things by, and the tail of the actual conversation in the session they are working in — what was said, word for word, rather than a summary of it. The sessions may be spread over several machines; each is marked "here" or "on <machine>", and you see all of them the same way, so answer about the whole picture unless they ask about one machine.
 
 Asked for a summary, what is going on, what they should be thinking about, or what they may have forgotten: sweep every session and lead with what needs them — a session waiting on input or asking for them, an unread flag, unpushed or uncommitted work, something that has gone quiet mid-task — before anything that is simply progressing. Name the session for each point.
 
@@ -251,15 +252,8 @@ const minutes = (ms: number) => {
   return h < 48 ? `${h}h` : `${Math.round(h / 24)}d`;
 };
 
-/**
- * What each live session has actually been doing, straight from the event stream.
- *
- * The playbook's summaries read better, but they exist only when the overseer runs, and the
- * overseer is off by default — on a daemon that has never paid for a summary, `globalContext`
- * can offer voice nothing but session titles, which is how you get an assistant that knows
- * your sessions are there and nothing about them. Events are already in SQLite and cost
- * nothing to read, so voice gets them whether or not the playbook is switched on.
- */
+/** What each live session has actually been doing, straight from the event stream: already in
+ * SQLite and free to read, and without it voice knows a session's title and nothing more. */
 function activityLines(sessionId: string): string {
   return db
     .listEvents({ sessionId, limit: 10 })
@@ -662,6 +656,14 @@ export function threadBlock(now = Date.now()): string {
   return `The conversation so far, oldest first. The user's lines are speech-to-text; yours are what was spoken back:\n${lines.join("\n")}`;
 }
 
+/** The user's own notes (notes.ts), every machine's: what they asked to keep in mind. */
+function notesBlock(): string {
+  const live = notes.list().filter((n) => !n.deleted);
+  if (!live.length) return "";
+  const lines = live.map((n) => `- ${oneLine(n.text, 300)}${n.sessionTitle ? ` (about "${n.sessionTitle}")` : ""}`);
+  return `Notes the user keeps so they remember things while switching between sessions, oldest first:\n${lines.join("\n")}`;
+}
+
 export function resetThreadForTests(): void {
   thread = [];
 }
@@ -680,7 +682,7 @@ export async function answer(transcript: string): Promise<VoiceReply> {
   const context = [
     roster(seen, new Set(placed.map((p) => p.session.id))),
     detailBlocks(placed),
-    globalHistory(),
+    notesBlock(),
     activityBlocks(placed),
     tail,
     openable(repos),

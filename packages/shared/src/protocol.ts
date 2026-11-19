@@ -1,5 +1,5 @@
 // WebSocket protocol (/ws) and REST shapes. Every frame is one JSON object with a `type`.
-import type { Attention, Flag, HenryConfig, HenryEvent, Notice, PeerStatus, PlaybookEntry, RepoState, Session, SessionKind, SessionUsage, Topic, Usage } from "./types";
+import type { Attention, Flag, HenryConfig, HenryEvent, Notice, Note, PeerStatus, RepoState, Session, SessionKind, SessionUsage, Topic, Usage } from "./types";
 
 export type ClientMessage =
   /** `reqId` is echoed on the pty:scrollback reply; a daemon relaying for several windows needs it, the UI does not. */
@@ -58,7 +58,19 @@ export type ClientMessage =
   | { type: "topic:coordinator"; topicId: string }
   /** Close the topic: its coordinator exits and its sessions are in no topic. */
   | { type: "topic:close"; topicId: string }
-  | { type: "playbook:request"; sessionId: string | null }
+  /** A note, about the session you were looking at (`about`, a session id, on any machine) or
+   * about nothing in particular. Not `sessionId`: a note is kept everywhere, not routed to the
+   * session's machine. */
+  | { type: "note:add"; text: string; about?: string }
+  | { type: "note:edit"; id: string; text: string }
+  /** Remove a note, or bring a removed one back (`removed: false`, the undo). */
+  | { type: "note:remove"; id: string; removed: boolean }
+  /** Daemon to daemon only: notes the sender holds. The receiver keeps whichever copy of each
+   * changed later and passes on what that changed. */
+  | { type: "notes:merge"; notes: Note[] }
+  /** Ask the model for notes from what sessions did since they were last checked. A window's
+   * request runs here and on every machine this daemon dials; a peer's runs here only. */
+  | { type: "notes:fill" }
   | { type: "repo:diff"; sessionId: string; repoPath: string }
   | { type: "state:request" };
 
@@ -73,7 +85,9 @@ export interface StateMessage {
   /** Open topics: this machine's, and to a window each connected peer's too, tagged `peer`. */
   topics?: Topic[];
   usage: Usage;
-  playbook: PlaybookEntry[];
+  /** Every note this machine holds, removed ones too (`deleted`), which a peer needs and a
+   * window skips. The same list on every paired machine, so nothing is merged in. */
+  notes?: Note[];
   config: HenryConfig;
   /** No `reposRoot` in ~/.henry/config.json yet: the UI asks for it before anything else. */
   firstRun: boolean;
@@ -105,7 +119,10 @@ export type ServerMessage =
   | { type: "usage:update"; usage: Usage }
   /** One session's row changed. What a window gets many times a minute, so it is one row, not the table. */
   | { type: "usage:session"; sessionId: string; usage: SessionUsage; updatedAt: number }
-  | { type: "playbook:update"; entry: PlaybookEntry }
+  /** Notes that changed here: added, edited, removed (`deleted`) or learned from a peer. */
+  | { type: "notes:update"; notes: Note[] }
+  /** How a fill is going on one machine. `checked` sessions had something new; `added` notes came of it. */
+  | { type: "notes:filling"; host: string; state: "running" | "done" | "failed"; checked?: number; added?: number; error?: string }
   /** The whole list: a handful of rows, changed by hand or by a coordinator. */
   | { type: "topics:update"; topics: Topic[] }
   | { type: "repo:diff"; sessionId: string; repoPath: string; diff: string; baseline: string }

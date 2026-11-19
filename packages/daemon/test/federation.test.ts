@@ -551,6 +551,26 @@ describe("two daemons", () => {
     wa.close();
   }, 30000);
 
+  test("a note made on either machine is on both, and a removal on one is gone from both", async () => {
+    const wa = await new Win().open(alpha);
+    const wb = await new Win().open(beta);
+    // About beta's session, from a window on alpha: kept on alpha and named after that session.
+    wa.send({ type: "note:add", text: "check the fortress walls", about: betaSession });
+    const made = (await wb.next("notes:update", (m) => m.notes.some((n) => n.text === "check the fortress walls"))).notes[0]!;
+    expect(made.host).toBe("alpha");
+    expect(made.sessionId).toBe(betaSession);
+    expect(made.sessionTitle).toBe((await state(beta)).sessions.find((s) => s.id === betaSession)!.title);
+    wb.send({ type: "note:add", text: "from beta" });
+    await wa.next("notes:update", (m) => m.notes.some((n) => n.text === "from beta"));
+    wb.send({ type: "note:remove", id: made.id, removed: true });
+    await wa.next("notes:update", (m) => m.notes.some((n) => n.id === made.id && n.deleted));
+    for (const d of [alpha, beta]) {
+      expect(((await state(d)).notes ?? []).filter((n) => !n.deleted).map((n) => n.text)).toEqual(["from beta"]);
+    }
+    wa.close();
+    wb.close();
+  }, 30000);
+
   test("re-pointing a peer redials the new address without pairing again", async () => {
     const wrong = `127.0.0.1:${beta.fedPort + 1000}`;
     expect((await post(alpha, "/api/federation/peer/url", { name: "beta", address: wrong })).status).toBe(200);

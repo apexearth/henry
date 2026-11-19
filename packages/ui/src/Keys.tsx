@@ -52,7 +52,7 @@ const SECTIONS: [string, Key[]][] = [
   ]],
   ["window", [
     [[`${MOD}/`], "this list"],
-    [[`${MOD},`], "settings: repos folder, history retention, playbook, rules"],
+    [[`${MOD},`], "settings: repos folder, history retention, model, rules"],
     ...(inShell ? [[[SHIFT_R], "reset layout: rail | terminals | tools"]] as Key[] : []),
     ...(inShell && isMac ? [[["⌘R"], "reload"]] as Key[] : []),
   ]],

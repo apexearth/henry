@@ -8,13 +8,13 @@ import { themeDocument } from "./theme";
 import { focusPopout, isPoppedOut, popOut, watchPopouts } from "./popout";
 import { getState } from "./ws";
 
-export type ToolId = "sessions" | "files" | "history" | "flags" | "playbook" | "usage" | "changes";
+export type ToolId = "sessions" | "files" | "history" | "flags" | "notes" | "usage" | "changes";
 export const TOOLS: { id: ToolId; title: string }[] = [
   { id: "sessions", title: "Sessions" },
   { id: "files", title: "Files" },
   { id: "history", title: "History" },
   { id: "flags", title: "Flags" },
-  { id: "playbook", title: "Playbook" },
+  { id: "notes", title: "Notes" },
   { id: "usage", title: "Usage" },
   { id: "changes", title: "Changes" },
 ];
@@ -86,6 +86,8 @@ export function loadLayout(): SerializedDockview | null {
     if (left) delete left.tabComponent;
     // The Repos tab became the Files tool. Renamed in place, so the tab keeps its slot.
     renamePanel(saved, "repos", "files");
+    // The Playbook tab became Notes, in the same slot.
+    renamePanel(saved, "playbook", "notes");
     for (const id of RETIRED) dropPanel(saved, id);
     // Only peeks pop out, and peeks don't come back; restoring one would open an empty window.
     delete saved.popoutGroups;

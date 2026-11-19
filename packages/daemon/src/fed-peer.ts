@@ -2,7 +2,7 @@
 // mirrors that daemon's sessions (tagged `peer`) and relays PTY traffic and requests for
 // the windows attached here. When the link drops, its sessions leave the rail until it is
 // back; nothing about them is persisted here, the peer's own DB has all of it.
-import type { Attention, Flag, PlaybookEntry, RepoState, ServerMessage, Session, StateSnapshot, Topic, Usage } from "@henry/shared";
+import type { Attention, Flag, Note, RepoState, ServerMessage, Session, StateSnapshot, Topic, Usage } from "@henry/shared";
 import { FED_VERSION, Handshake, fingerprint, isHello, proofsEqual, signTranscript, verifyTranscript, type Channel, type Derived, type IdentityKeys } from "./fed-crypto";
 import type { FedRequest, FedResponse, PeerRecord } from "./federation";
 
@@ -16,6 +16,10 @@ export interface LinkDeps {
   publishSession(sessionId: string, msg: ServerMessage): void;
   /** The merged snapshot windows expect (server.buildState). */
   buildState(): StateSnapshot;
+  /** Notes the peer holds; every machine keeps the same list (notes.ts). */
+  mergeNotes(notes: unknown): void;
+  /** Every note here, removed ones too: what the peer is sent when the link comes up. */
+  localNotes(): Note[];
 }
 
 export interface LinkIdentity {
@@ -30,7 +34,6 @@ const CONNECT_TIMEOUT_MS = 10_000;
 const BACKOFF_MIN_MS = 1_000;
 const BACKOFF_MAX_MS = 30_000;
 const KEEP_FLAGS = 500;
-const KEEP_PLAYBOOK = 200;
 
 /**
  * Open a socket to `url` and run the handshake as the client. `auth` pins a known identity;
@@ -109,7 +112,6 @@ export class PeerLink {
   attention: Attention[] = [];
   /** The peer's whole usage: its rows and its own 7d window, which is not ours. */
   usage: Usage = { perSession: {}, updatedAt: 0 };
-  playbook: PlaybookEntry[] = [];
   /** The peer's open topics, tagged with `peer`: their coordinators and members run there. */
   topics: Topic[] = [];
 
@@ -171,6 +173,9 @@ export class PeerLink {
     h.ws.onerror = () => h.ws.close();
     this.setStatus("connected");
     this.on.onConnected();
+    // Its notes arrive with its state; ours go the other way, which a link that only one side
+    // dials is the sole way to send.
+    this.send({ type: "notes:merge", notes: this.deps.localNotes() });
     console.log(`[fed] connected to ${this.rec.name} at ${this.url}`);
   }
 
@@ -185,7 +190,6 @@ export class PeerLink {
     this.flags = [];
     this.attention = [];
     this.usage = { perSession: {}, updatedAt: 0 };
-    this.playbook = [];
     const hadTopics = this.topics.length > 0;
     this.topics = [];
     for (const w of this.httpWaiters.values()) w({ type: "http:res", id: "", status: 502, contentType: "application/json", body: JSON.stringify({ error: `${this.rec.name}: ${why}` }) });
@@ -246,7 +250,8 @@ export class PeerLink {
         // A peer from before asks existed sends none; treat that as "nothing to show".
         this.attention = (m.attention ?? []).map((a) => this.tagAsk(a));
         this.usage = m.usage;
-        this.playbook = m.playbook.filter((p) => p.sessionId !== null);
+        // Merged into our own list, which windows get from us like any other change.
+        if (m.notes) this.deps.mergeNotes(m.notes);
         // A peer from before topics sends none.
         this.topics = this.tagTopics(m.topics ?? []);
         this.deps.toWindows({ type: "state", ...this.deps.buildState() });
@@ -304,9 +309,10 @@ export class PeerLink {
         // A window replaces its whole list, so it gets every machine's.
         this.deps.toWindows({ type: "topics:update", topics: this.deps.buildState().topics ?? [] });
         return;
-      case "playbook:update":
-        if (m.entry.sessionId === null) return;
-        this.playbook = [m.entry, ...this.playbook.filter((p) => p.id !== m.entry.id)].slice(0, KEEP_PLAYBOOK);
+      case "notes:update":
+        this.deps.mergeNotes(m.notes);
+        return;
+      case "notes:filling":
         this.deps.toWindows(m);
         return;
       case "notify":

@@ -22,7 +22,7 @@ in words labelled as its own, sent only when the user said so ([topics.md](topic
   **two tool lists**. `?as=session` (what `launch-mcp.json` points at) is the narrow one:
   today `henry_activity` and `henry_attention`, under 2.2 KB of schema together, and adding a
   third has to be worth the same cost in all four sessions. A client that connects without it
-  gets the wide list, where one process pays once; that is where the overseer's own tools go.
+  gets the wide list, where one process pays once; that is where tools for Henry's own model calls would go.
   A caller that is a topic's coordinator gets the narrow list plus its own five, decided by the
   calling session rather than the url, since the file is shared ([topics.md](topics.md)).
 - **A call names its own session** through `session=${HENRY_SESSION:-}` in the `launch-mcp.json`

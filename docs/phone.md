@@ -39,7 +39,7 @@ through that machine's peers, so one phone reaches every Henry the desk reaches.
 - **The layout is a second shape of the same bundle, not a second app.** A narrow touch screen
   (`(pointer: coarse) and (max-width: 1024px)`, or any window under 700px) gets `mobile/`: the
   session filling the screen, the two rails behind buttons — ☰ opens the rail as a drawer, ⋮ opens
-  Files/History/Flags/Playbook/Usage as a sheet — and an ask, when there is one, as a bar under the header.
+  Files/History/Flags/Notes/Usage as a sheet — and an ask, when there is one, as a bar under the header.
   The panels themselves are the desktop's, bound to the store once in `panels/bound.tsx` and used
   by both. The drawer and the sheet are as tall as the visible viewport, like the app under them,
   so the rail's footer (grouping, "+ topic", closed sessions) is never behind Safari's toolbar;

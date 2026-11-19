@@ -21,7 +21,7 @@ sessiond (owns PTYs) ◀──TCP 127.0.0.1, token──▶ daemon (spawn, write
 daemon ──WS──▶ every attached window (pty data, state deltas)
 claude (in PTY) ──MCP /mcp?as=session──▶ daemon (henry_activity: what the other sessions hold;
                                                  henry_attention: come here, this one is timed)
-daemon ──on Stop / on flag──▶ overseer ──▶ playbook rows ──WS──▶ windows
+daemon ◀──notes:merge / notes:update──▶ peer daemon (every note on every machine)
 daemon ◀──ws://<tailscale ip>:14712/fed, mutually authenticated──▶ peer daemon (its sessions, relayed)
 phone ──http://<tailscale ip>:14714, granted token in a cookie──▶ daemon (the same UI, /api and /ws)
 ```

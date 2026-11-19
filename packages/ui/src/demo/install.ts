@@ -100,6 +100,35 @@ class DemoSocket {
         this.push({ type: "session:update", session: { ...s } });
         return;
       }
+      case "note:add": {
+        const s = world.sessions.find((x) => x.id === m.about);
+        const now = Date.now();
+        const note = { id: crypto.randomUUID(), text: m.text.trim(), host: world.HOST, sessionId: s?.id, sessionTitle: s?.title, createdAt: now, updatedAt: now };
+        world.notes.push(note);
+        this.push({ type: "notes:update", notes: [note] });
+        return;
+      }
+      case "notes:fill": {
+        this.push({ type: "notes:filling", host: world.HOST, state: "running" });
+        setTimeout(() => {
+          const now = Date.now();
+          const note = { id: crypto.randomUUID(), text: "flaky e2e is waiting on you to allow a 25× playwright run.", host: world.HOST, sessionId: "d2", sessionTitle: "flaky e2e", createdAt: now, updatedAt: now };
+          world.notes.push(note);
+          this.push({ type: "notes:update", notes: [note] });
+          this.push({ type: "notes:filling", host: world.HOST, state: "done", checked: 3, added: 1 });
+        }, 1200);
+        return;
+      }
+      case "note:edit":
+      case "note:remove": {
+        const n = world.notes.find((x) => x.id === m.id);
+        if (!n) return;
+        if (m.type === "note:edit") n.text = m.text.trim();
+        else n.deleted = m.removed || undefined;
+        n.updatedAt = Date.now();
+        this.push({ type: "notes:update", notes: [{ ...n }] });
+        return;
+      }
       case "state:request":
         this.push({ type: "state", ...world.state });
         return;
@@ -121,10 +150,6 @@ function route(url: URL, method: string): Response {
   const p = url.pathname;
   if (method === "POST") {
     if (p === "/api/presence") return new Response(null, { status: 204 });
-    if (p === "/api/playbook/manual") {
-      return json({ entry: { id: "pm", sessionId: null, ts: Date.now(), trigger: "manual", kind: "entry", model: "claude-opus-5",
-        text: "ANSWER: The rate limiter is on `feat/rate-limits` in atlas, two commits ahead and not pushed; its tests pass. Nothing else has touched that branch." } });
-    }
     return json({ error: "read-only demo" }, 400);
   }
   switch (p) {
@@ -146,7 +171,6 @@ function route(url: URL, method: string): Response {
     }
     case "/api/repo/grep": return json({ hits: [], truncated: false });
     case "/api/repos": return json(world.repoPicker);
-    case "/api/playbook/status": return json({ backend: "api", model: "claude-opus-5", lastRunAt: world.NOW - 2 * 60_000, running: 0 });
     case "/api/voice/status": return json({ ready: false, reason: "voice is off in this demo" });
     case "/api/history": return json(world.histories[q.get("sessionId") ?? ""] ?? { sessionId: q.get("sessionId"), turns: [], complete: true, reason: "no transcript in the demo" });
     case "/api/federation/status": return json(world.federation);

@@ -25,11 +25,12 @@ import * as hooks from "./hooks";
 import * as mcp from "./mcp";
 import * as notify from "./notify";
 import * as announce from "./announce";
-import * as overseer from "./overseer";
+import * as notes from "./notes";
+import * as notesFill from "./notes-fill";
 import * as phone from "./phone";
 import { revealSpec } from "./platform";
 import * as seen from "./seen";
-import { sessions } from "./sessions";
+import { localHost, sessions } from "./sessions";
 import * as topics from "./topics";
 import * as voice from "./voice";
 import { sessionWrites } from "./written";
@@ -157,10 +158,13 @@ export function buildState(): StateSnapshot {
   return federation.merge(localState());
 }
 
-/** What a peer is shown: our sessions, repos, flags, usage, playbook, topics. Never the config (keys). */
+/** What a peer is shown: our sessions, repos, flags, usage, topics, notes. Never the config (keys). */
 function peerState(): FedState {
   const { config: _config, uiBuild: _build, firstRun: _first, ...rest } = localState();
-  return rest;
+  // A daemon from before notes reads `playbook` without a guard and drops the link when it is
+  // missing; an empty one keeps a not-yet-updated machine linked.
+  const compat: FedState & { playbook: [] } = { ...rest, playbook: [] };
+  return compat;
 }
 
 function localState(): StateSnapshot {
@@ -174,7 +178,7 @@ function localState(): StateSnapshot {
     attention: attention.open(),
     topics: topics.list(),
     usage,
-    playbook: db.listPlaybook(undefined, federation.STATE_PLAYBOOK),
+    notes: notes.list(),
     config,
     firstRun: isFirstRun(),
     uiBuild,
@@ -202,9 +206,10 @@ function sweepHistory(): void {
   try {
     const images = pruneAttachments(config.retentionDays);
     if (images) console.log(`[henry] removed ${images} attached images older than ${config.retentionDays}d`);
+    notes.prune();
     const c = db.pruneHistory(config.retentionDays);
-    if (c && c.events + c.flags + c.playbook + c.snapshots + c.presence) {
-      console.log(`[henry] pruned history older than ${config.retentionDays}d: ${c.events} events, ${c.flags} flags, ${c.playbook} playbook, ${c.snapshots} usage snapshots, ${c.presence} presence minutes`);
+    if (c && c.events + c.flags + c.snapshots + c.presence) {
+      console.log(`[henry] pruned history older than ${config.retentionDays}d: ${c.events} events, ${c.flags} flags, ${c.snapshots} usage snapshots, ${c.presence} presence minutes`);
       broadcast({ type: "state", ...buildState() });
     }
   } catch (e) {
@@ -236,6 +241,7 @@ sessions.on("exit", (id, exitCode) => {
 sessions.on("update", (session) => broadcast({ type: "session:update", session }));
 
 async function handleMessage(client: Client, msg: ClientMessage): Promise<void> {
+  if (msg.type.startsWith("note")) return noteMessage(client, msg);
   // A session relayed from a paired machine: its link answers, in the same shapes. Not for a
   // peer, though: pairing is between two machines, and a peer must not reach our other peers
   // through us (its own pairing with them is the only way).
@@ -347,9 +353,6 @@ async function handleMessage(client: Client, msg: ClientMessage): Promise<void> 
       if (!r.ok) console.error(`[ws] ${msg.type}: ${r.reason}`);
       return;
     }
-    case "playbook:request":
-      for (const entry of db.listPlaybook(msg.sessionId).reverse()) client.send({ type: "playbook:update", entry });
-      return;
     case "repo:diff": {
       const { diff, baseline } = await git.uncommittedDiff(msg.repoPath);
       client.send({ type: "repo:diff", sessionId: msg.sessionId, repoPath: msg.repoPath, diff, baseline });
@@ -357,6 +360,34 @@ async function handleMessage(client: Client, msg: ClientMessage): Promise<void> 
     }
     case "state:request":
       client.send({ type: "state", ...buildState() });
+      return;
+  }
+}
+
+/** Notes are kept on every machine, so nothing here is routed to a peer: the change is made here
+ * and spreads (notes.ts). A peer merges and asks for a fill; a window adds, edits, removes and
+ * asks for a fill, which every machine this one dials runs on its own sessions too. */
+function noteMessage(client: Client, msg: ClientMessage): void {
+  if (msg.type === "notes:fill") {
+    void notesFill.fill(broadcast);
+    if (!client.fromPeer) for (const l of federation.connectedLinks()) l.send({ type: "notes:fill" });
+    return;
+  }
+  if (client.fromPeer) {
+    if (msg.type === "notes:merge") notes.merge(msg.notes);
+    return;
+  }
+  switch (msg.type) {
+    case "note:add": {
+      const s = msg.about ? (sessions.get(msg.about) ?? federation.peerSessions().find((x) => x.id === msg.about)) : undefined;
+      notes.add(msg.text, localHost(), s && { id: s.id, title: s.title });
+      return;
+    }
+    case "note:edit":
+      notes.edit(msg.id, msg.text);
+      return;
+    case "note:remove":
+      notes.remove(msg.id, msg.removed);
       return;
   }
 }
@@ -402,7 +433,6 @@ function handleRemote(client: Client, msg: ClientMessage, link: PeerLink): void 
     case "pty:input":
     case "pty:resize":
     case "session:kill":
-    case "playbook:request":
     case "repo:diff":
     case "session:seen":
     case "session:remind":
@@ -488,6 +518,7 @@ export async function startServer(): Promise<void> {
   attention.setWindowCount(windowCount);
   attention.start();
   topics.setBroadcast(broadcast);
+  notes.setOutputs(broadcast, federation.pushNotes);
   topics.start();
   // Held apart from the port so the alias listeners can reuse them verbatim.
   const opts = {
@@ -579,7 +610,7 @@ export async function startServer(): Promise<void> {
     files.forgetDir(root);
     broadcast({ type: "files:changed", root });
   });
-  federation.init({ handleMessage, localState: peerState, handleApi: (req, fromPeer) => handleApi(req, new URL(req.url), fromPeer ? "peer" : "local"), toWindows, publishSession, buildState });
+  federation.init({ handleMessage, localState: peerState, handleApi: (req, fromPeer) => handleApi(req, new URL(req.url), fromPeer ? "peer" : "local"), toWindows, publishSession, buildState, mergeNotes: notes.merge, localNotes: notes.list });
   federation.start();
   // After federation: the phone listener resolves the tailnet address the same way it does.
   phone.start((hostname, port, tls) => {
@@ -650,8 +681,8 @@ export async function handleApi(req: Request, url: URL, origin: ApiOrigin): Prom
     if (!sessions.get(sessionId)) return json({ error: "no such session" }, 404);
     return json({ path: saveAttachment(sessionId, ext, bytes) });
   }
-  // Peers read, and may ask the overseer; they never change this daemon's setup.
-  if (fromPeer && req.method !== "GET" && pathname !== "/api/playbook/manual") return json({ error: "forbidden" }, 403);
+  // Peers read; they never change this daemon's setup.
+  if (fromPeer && req.method !== "GET") return json({ error: "forbidden" }, 403);
   if (!fromPeer) {
     const peerName = url.searchParams.get("peer") ?? federation.linkOf(url.searchParams.get("sessionId"))?.rec.name;
     if (peerName) {
@@ -662,13 +693,6 @@ export async function handleApi(req: Request, url: URL, origin: ApiOrigin): Prom
     }
   }
   if (pathname === "/api/state") return json(fromPeer ? peerState() : buildState());
-      if (pathname === "/api/playbook/status") return json(overseer.overseerStatus());
-      if (req.method === "POST" && pathname === "/api/playbook/manual") {
-        const body = (await readJson(req)) as { sessionId?: string | null; prompt?: string };
-        if (!body.prompt?.trim()) return json({ error: "prompt required" }, 400);
-        const entry = await overseer.writeManual(body.sessionId || null, body.prompt.trim());
-        return entry ? json({ entry }) : json({ error: overseer.overseerStatus().lastError ?? "overseer wrote nothing" }, 502);
-      }
       if (pathname === "/api/voice/status") return json(voice.status());
       // What this machine knows about its own sessions, for a question asked on a paired one.
       // Not gated on voice.enabled: the machine answering it is not the one speaking.

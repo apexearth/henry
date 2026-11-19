@@ -12,7 +12,7 @@ One line per session on the left: titles, order, grouping, hiding.
   are hidden until the footer's "N closed" is opened, then listed below, newest exit
   first. The exited session you are looking at stays listed. Closing an exited session
   (×) sets `dismissed_at` in the DB: it never returns after a daemon restart, but its
-  events, flags and playbook stay. `⌘1..9` (or `Ctrl`) and `⌘↑/↓` follow the rail order;
+  events and flags stay. `⌘1..9` (or `Ctrl`) and `⌘↑/↓` follow the rail order;
   `⌃N` (⌘N where the browser frees it) opens the "+ new" picker; `⌘D` duplicates the active
   tab, a new session of the same kind in its cwd, skipping the picker. No `⌃D`: that is EOF
   in the terminal. `⌘⇧D` (Alt+Shift+D off macOS, where Ctrl+Shift+D duplicates) forks the

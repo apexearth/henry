@@ -80,6 +80,6 @@ Where a session lives, how a window sees it, and what Henry spawns it with.
 - **Sessions outlive the daemon, terminal included.** After a daemon restart the
   sessions sessiond still holds are running in the rail with their scrollback; only
   sessions from before the last sessiond (last 24h) come back as exited with their
-  repos, flags and playbook and no output. An exited Claude session has a ↻ button that
+  repos and flags and no output. An exited Claude session has a ↻ button that
   opens a new tab with `claude --resume <id>`. Every session carries `host` (config
   `host`, default short hostname), groundwork for daemons on several machines.

@@ -13,7 +13,6 @@ import * as db from "./db";
 import * as git from "./git";
 import { readHistory } from "./history";
 import { activityPhrase, age, reposOfSession, short, writtenPaths, type CallContext, type ToolDef } from "./mcp";
-import { latestSummary } from "./overseer";
 import * as topics from "./topics";
 import { matchNamed } from "./voice";
 
@@ -69,8 +68,9 @@ function head(s: Session, now: number): string {
   return `"${s.title}" [${s.id.slice(0, 8)}]${kind} ${state} — cwd ${short(s.cwd)}`;
 }
 
-/** A few lines per session: who, doing what, asked what, touching which files. */
-function sessionBrief(s: Session, now: number, prompts = 1): string[] {
+/** A few lines per session: who, doing what, asked what, touching which files. notes-fill.ts reads
+ * sessions the same way. */
+export function sessionBrief(s: Session, now: number, prompts = 1): string[] {
   const lines = [head(s, now)];
   const repos = repoLine(s);
   if (repos) lines.push(`  repos: ${repos}`);
@@ -78,12 +78,10 @@ function sessionBrief(s: Session, now: number, prompts = 1): string[] {
   for (const p of asked) lines.push(`  asked ${age(p.ts, now)} ago: "${clip(p.prompt, PROMPT_CHARS)}"`);
   const files = filesLine(s);
   if (files) lines.push(`  wrote: ${files}`);
-  const summary = latestSummary(s.id);
-  if (summary) lines.push(`  playbook: ${clip(summary.text, 400)}`);
   return lines;
 }
 
-function lastReply(s: Session): string | undefined {
+export function lastReply(s: Session): string | undefined {
   if (!isClaudeSession(s)) return undefined;
   const turns = readHistory(s.id, 40).turns.filter((t) => t.role === "assistant" && !t.sidechain);
   for (let i = turns.length - 1; i >= 0; i--) {

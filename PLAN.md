@@ -21,10 +21,9 @@ area's doc is edited to say the new rule — edited, not appended to.
   asked rather than inferred from a panel. The voice slice of this is built, thread included
   (`docs/voice.md`); topic coordinators are the terminal slice. What remains is a global one and
   the index. Needs an FTS index over event
-  summaries, prompts and playbook text (prompts are the highest-signal text), and a cheap
+  summaries, prompts and notes (prompts are the highest-signal text), and a cheap
   daily digest, since a day's raw events answer "what did I focus on yesterday" neither in a
-  prompt nor after the retention sweep. The chat runs only when asked, so unlike the playbook
-  it can default on.
+  prompt nor after the retention sweep. The chat runs only when asked, so it can default on.
 - **Voice, still to do**: word-level highlighting as Henry speaks (needs per-word timings,
   which no stock Kokoro ONNX export emits).
 - **Web Push for the phone in a pocket.** Notices reach a phone only while a Henry tab is open;

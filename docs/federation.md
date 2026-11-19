@@ -5,7 +5,7 @@ files, so a daemon cannot be remote. What crosses machines is a **link between d
 never a window talking to a far daemon: the UI keeps its one WebSocket, and no credential
 ever reaches a browser. The daemon a window is attached to dials each paired peer, mirrors
 the peer's sessions into the state it already serves (tagged `peer`, with their repos,
-flags, usage, playbook and topics), and relays terminal traffic, `session:create`, kill, diffs and
+flags, usage and topics), and relays terminal traffic, `session:create`, kill, diffs and
 the `/api/*` calls those sessions need (`?peer=` or a relayed `sessionId` routes a request
 to the peer's copy of the same handler). A dropped link takes its sessions out of the rail
 until it is back. Two machines that both listen dial each other, so each window sees both.
@@ -35,8 +35,8 @@ until it is back. Two machines that both listen dial each other, so each window 
   links both ways. Both sides show fingerprints to compare afterwards. Five failed
   handshakes from one address lock it out for a minute.
 - **A paired machine is you.** It can attach, type, start and kill sessions, read files in
-  repos there, and send a session an image (`/api/attach`, the one write besides asking the
-  overseer, carried as base64 because a relayed body is otherwise JSON text), exactly what a
+  repos there, and send a session an image (`/api/attach`, the one write over HTTP, carried as
+  base64 because a relayed body is otherwise JSON text), exactly what a
   window can. An answer that is neither JSON nor text (a 3D model's or PDF's bytes, read
   whole, up to 10 MB so its base64 fits one 16 MB frame) comes back as base64 the same way.
   Pause or forget a peer from the remotes menu
@@ -50,7 +50,7 @@ until it is back. Two machines that both listen dial each other, so each window 
   `usage:update` blanks the context of every federated session until that peer speaks
   again. `broadcast` therefore merges peer rows into what goes to windows and leaves what
   goes over the link alone; `topics:update` is merged the same way. A row on its own (`usage:session`) names its session and needs
-  no merging; a link stores it and passes it through. The snapshot's flags and playbook are
+  no merging; a link stores it and passes it through. The snapshot's flags are
   capped after the merge, so a window's first frame is one cap's worth, not one per machine.
 - **Trust is not transitive.** A peer sees and drives this daemon's own sessions only.
   Messages from a peer that name a session relayed from another peer, or ask to create one
@@ -61,7 +61,8 @@ until it is back. Two machines that both listen dial each other, so each window 
   hides that machine's rows (the header keeps its count, so it can be unfolded) and takes them
   out of ⌘1..9 / ⌘↑↓. Folding is a view choice, persisted per browser; the link stays up and
   the sessions keep running. File peeks and ⌘K read from the machine of the
-  session you are looking at. The global playbook stays per machine.
+  session you are looking at. Notes are not mirrored but kept whole on every machine, and
+  spread further than sessions do (notes.md).
 - **A copy lands on the machine you are sitting at.** Claude Code copies its selection to
   the clipboard of the machine it runs on and also by OSC 52; the window's terminal takes
   the OSC 52 write into the browser's clipboard, so a peer session's copy pastes here. Clipboard

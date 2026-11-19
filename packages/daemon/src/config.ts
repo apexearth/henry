@@ -90,7 +90,7 @@ export function setReposRoot(root: string): void {
 // window that asked, and it only takes effect on restart anyway.
 const SETTABLE = {
   root: ["host", "reposRoot", "defaultRepo", "retentionDays"],
-  overseer: ["backend", "model", "onStop", "onFlag", "apiKey", "stopMinIntervalSec"],
+  overseer: ["backend", "model", "apiKey"],
   mcp: ["enabled", "sessions"],
   federation: ["listen", "port"],
   phone: ["listen", "port"],

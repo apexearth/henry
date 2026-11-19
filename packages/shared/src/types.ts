@@ -262,18 +262,22 @@ export interface Notice {
   audio?: string;
 }
 
-export type PlaybookTrigger = "stop" | "flag" | "manual";
-
-export interface PlaybookEntry {
+/** A line you want to keep in mind while switching between sessions (daemon/notes.ts). Every
+ * paired machine holds the same list: the newest change to a note wins wherever it was made. */
+export interface Note {
   id: string;
-  /** null = global playbook (across all sessions). */
-  sessionId: string | null;
-  ts: number;
   text: string;
-  trigger: PlaybookTrigger;
-  model?: string;
-  /** "entry" (default) = one playbook step; "summary" = the rolling "right now" paragraph (newest wins). */
-  kind?: "entry" | "summary";
+  /** The machine it was written on. */
+  host: string;
+  /** The session it was written about, and that session's title then: the session may be on
+   * another machine, or gone. */
+  sessionId?: string;
+  sessionTitle?: string;
+  createdAt: number;
+  /** Last edit or removal; of two copies of a note, the one changed later is the note. */
+  updatedAt: number;
+  /** Removed. Kept a while so a machine that was offline learns it is gone. */
+  deleted?: boolean;
 }
 
 export interface RateWindow {
@@ -386,18 +390,14 @@ export interface HenryConfig {
   reposRoot: string;
   /** Absolute after load. */
   defaultRepo: string;
-  /** Days of events, flags, playbook entries and usage snapshots to keep; 0 keeps everything. */
+  /** Days of events, flags and usage snapshots to keep; 0 keeps everything. */
   retentionDays: number;
+  /** The model Henry asks on its own behalf (voice answers, spoken notices, PR summaries). */
   overseer: {
     backend: OverseerBackend;
     model: string;
-    /** Off by default: the playbook costs an LLM call per turn and most users never open it. */
-    onStop: boolean;
-    onFlag: boolean;
     /** Optional; ANTHROPIC_API_KEY in the environment takes precedence. */
     apiKey?: string;
-    /** Floor in seconds between two Stop-triggered playbook runs for one session (default 60). */
-    stopMinIntervalSec?: number;
   };
   /** Henry's own MCP server (mcp.ts), which lets a session see what its neighbours are doing. */
   mcp: {
@@ -501,7 +501,7 @@ export const DEFAULT_CONFIG: HenryConfig = {
   reposRoot: "~/code",
   defaultRepo: "~/code",
   retentionDays: 30,
-  overseer: { backend: "auto", model: "claude-opus-5", onStop: false, onFlag: false },
+  overseer: { backend: "auto", model: "claude-opus-5" },
   mcp: { enabled: true, sessions: true },
   federation: { listen: "tailscale", port: 14712 },
   phone: { listen: "tailscale", port: 14714 },
@@ -725,7 +725,7 @@ export type VoiceAction =
  * GET /api/voice/context: what one daemon knows about its own sessions, in the shape voice.ts
  * assembles a prompt from. A daemon answers it for itself and asks each paired daemon for
  * theirs, so a question asked here is answered about every machine. Text rather than rows:
- * the owner has the events, playbook and transcript, and the model reads prose anyway.
+ * the owner has the events and transcript, and the model reads prose anyway.
  */
 export interface VoiceContextSlice {
   /** Running sessions, most recently active first, capped. `detail` is the per-session block

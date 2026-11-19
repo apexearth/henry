@@ -2,10 +2,11 @@
 // show the same thing. The panels themselves stay pure: props in, no store.
 import { FlagsPanel } from "./Flags";
 import { HistoryPanel } from "./History";
-import { PlaybookPanel } from "./Playbook";
+import { NotesPanel } from "./Notes";
 import { UsagePanel } from "./Usage";
 import { useHistory } from "../history";
-import { markFlagsRead, requestPlaybook, useStore } from "../ws";
+import { showSession } from "../dock";
+import { addNote, editNote, fillNotes, markFlagsRead, removeNote, setActive, useStore } from "../ws";
 
 /** The active session's flags, and how many of them are unread (the dock tab's badge). */
 export function useSessionFlags() {
@@ -21,10 +22,29 @@ export function BoundFlags() {
   return <FlagsPanel sessionId={active} flags={flags} events={events} onMarkRead={markFlagsRead} />;
 }
 
-export function BoundPlaybook() {
+export function BoundNotes() {
   const active = useStore((s) => s.activeSessionId);
-  const playbook = useStore((s) => s.playbook);
-  return <PlaybookPanel sessionId={active} entries={playbook.filter((p) => p.sessionId === active)} onRefresh={() => requestPlaybook(active)} />;
+  const notes = useStore((s) => s.notes);
+  const sessions = useStore((s) => s.sessions);
+  const host = useStore((s) => s.host);
+  const fill = useStore((s) => s.noteFill);
+  return (
+    <NotesPanel
+      fill={fill}
+      onFill={fillNotes}
+      notes={notes}
+      sessions={sessions}
+      activeId={active}
+      host={host}
+      onAdd={addNote}
+      onEdit={editNote}
+      onRemove={removeNote}
+      onOpenSession={(id) => {
+        setActive(id);
+        showSession(id);
+      }}
+    />
+  );
 }
 
 export function BoundHistory() {

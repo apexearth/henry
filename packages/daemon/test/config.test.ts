@@ -79,23 +79,17 @@ describe("first-run setup", () => {
 });
 
 describe("settings", () => {
-  test("the playbook ships off", async () => {
-    const { overseer } = (await state()).config;
-    expect(overseer.onStop).toBe(false);
-    expect(overseer.onFlag).toBe(false);
-  });
-
   test("a patch writes only its own keys and leaves the rest alone", async () => {
-    expect((await post({ retentionDays: 7, overseer: { onStop: true } })).status).toBe(200);
+    expect((await post({ retentionDays: 7, overseer: { model: "claude-haiku-5-5" } })).status).toBe(200);
     const s = await state();
     expect(s.config.retentionDays).toBe(7);
-    expect(s.config.overseer.onStop).toBe(true);
+    expect(s.config.overseer.model).toBe("claude-haiku-5-5");
     // Untouched keys keep their defaults rather than being dropped or overwritten.
-    expect(s.config.overseer.onFlag).toBe(false);
+    expect(s.config.overseer.backend).toBe("auto");
     expect(s.config.reposRoot).toBe(root);
     const written = JSON.parse(readFileSync(join(home, "config.json"), "utf8"));
     expect(written.retentionDays).toBe(7);
-    expect(written.overseer).toEqual({ onStop: true });
+    expect(written.overseer).toEqual({ model: "claude-haiku-5-5" });
   });
 
   test("unknown keys and the port are ignored", async () => {

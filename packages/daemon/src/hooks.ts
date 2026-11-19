@@ -1,18 +1,16 @@
 // POST /hook and POST /statusline ingest. Resolves the Henry session (HENRY_SESSION, then
 // Claude's session_id, then a new "external" row for sessions started outside Henry), binds
 // the two ids, writes HenryEvents, runs rules.classify, broadcasts {type:"event"} / {type:"flag"},
-// kicks the overseer, feeds git.noteSessionPath, and drives the transcript tailer. Statusline
+// feeds git.noteSessionPath, and drives the transcript tailer. Statusline
 // payloads become the 7d Usage snapshot. Neither entry point throws: the HTTP handlers
 // must answer fast and Claude Code must never see a failing hook.
 import { homedir } from "node:os";
 import { basename, isAbsolute, resolve } from "node:path";
 import type { Flag, HenryEvent, RateWindow, Session, Usage } from "@henry/shared";
 import * as activity from "./activity";
-import { config } from "./config";
 import * as db from "./db";
 import * as engagement from "./engagement";
 import * as git from "./git";
-import * as overseer from "./overseer";
 import * as rules from "./rules";
 import { broadcast } from "./server";
 import { sessions } from "./sessions";
@@ -89,7 +87,7 @@ function capDeep(v: unknown, depth = 0): unknown {
  * hundreds of KB (a screenshot, a large file read), and every byte would otherwise sit in
  * SQLite for the retention window and go over the WS to every open window. Strings keep their
  * head, so `[main abc1234] subject` and other leading detail survive; the shape is unchanged,
- * so the Flags panel and the overseer read a capped payload exactly as they read a whole one.
+ * so the Flags panel and voice read a capped payload exactly as they read a whole one.
  */
 function capPayload(payload: HookPayload): HookPayload {
   if (JSON.stringify(payload).length <= TOTAL_CAP) return payload;
@@ -177,13 +175,6 @@ function ingestHookInner(body: HookBody): IngestResult {
     db.insertFlag(flag);
     broadcast({ type: "flag", flag });
     result.flag = flag;
-    if (config.overseer.onFlag) fireAndForget("overseer.onFlag", () => overseer.onFlag(flag));
-  }
-
-  // stop_hook_active means Claude is only stopping again because another Stop hook
-  // sent it back for more; the turn the user cares about ends with the plain Stop.
-  if (hookEvent === "Stop" && config.overseer.onStop && !payload.stop_hook_active) {
-    fireAndForget("overseer.onStop", () => overseer.onStop(session.id));
   }
 
   notePaths(session, event.cwd, payload.tool_input);
@@ -258,12 +249,6 @@ function notePaths(session: Session, cwd: string | undefined, toolInput: unknown
       console.error("[hook] git.noteSessionPath failed:", e);
     }
   }
-}
-
-function fireAndForget(what: string, fn: () => Promise<unknown>): void {
-  Promise.resolve()
-    .then(fn)
-    .catch((e) => console.error(`[hook] ${what} failed:`, e));
 }
 
 const clip = (s: string, n: number) => {

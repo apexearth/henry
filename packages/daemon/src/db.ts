@@ -2,7 +2,7 @@
 // later milestones only add queries here.
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
-import { isSyntheticPrompt, type Attention, type Flag, type HenryEvent, type PlaybookEntry, type Session, type SessionUsage } from "@henry/shared";
+import { isSyntheticPrompt, type Attention, type Flag, type HenryEvent, type Note, type Session, type SessionUsage } from "@henry/shared";
 import { henryDir } from "./config";
 
 export const dbPath = join(henryDir, "henry.db");
@@ -100,15 +100,22 @@ CREATE TABLE IF NOT EXISTS topic_suggestions (
   PRIMARY KEY (topic_id, session_id)
 );
 
-CREATE TABLE IF NOT EXISTS playbook (
+-- notes.ts: every paired machine's notes, removed ones kept a while as tombstones.
+CREATE TABLE IF NOT EXISTS notes (
   id TEXT PRIMARY KEY,
-  session_id TEXT,
-  ts INTEGER NOT NULL,
   text TEXT NOT NULL,
-  trigger TEXT NOT NULL,
-  model TEXT
+  host TEXT NOT NULL,
+  session_id TEXT,
+  session_title TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  deleted INTEGER NOT NULL DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS playbook_session_ts ON playbook(session_id, ts);
+-- notes-fill.ts: when a session was last read for notes; only what came after is read again.
+CREATE TABLE IF NOT EXISTS note_checks (
+  session_id TEXT PRIMARY KEY,
+  checked_at INTEGER NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS repo_baselines (
   session_id TEXT NOT NULL,
@@ -148,10 +155,8 @@ for (const col of ["context_tokens", "context_window"]) {
   }
 }
 
-// Milestone 5: playbook.kind ("entry" | "summary"); added as a migration so existing databases keep working.
-if (!(db.prepare("PRAGMA table_info(playbook)").all() as { name: string }[]).some((c) => c.name === "kind")) {
-  db.exec("ALTER TABLE playbook ADD COLUMN kind TEXT");
-}
+// The overseer's playbook, which notes replaced.
+db.exec("DROP TABLE IF EXISTS playbook");
 // sessions.host: which machine's daemon owns the session (groundwork for multi-machine).
 // sessions.kind / claude_active: plain terminals next to Claude sessions.
 {
@@ -550,27 +555,50 @@ export function clearTopicSuggestions(sessionId: string): void {
   db.prepare("DELETE FROM topic_suggestions WHERE session_id = ? AND dismissed_at IS NULL").run(sessionId);
 }
 
-// ---- playbook ----
+// ---- notes ----
 
-interface PlaybookRow { id: string; session_id: string | null; ts: number; text: string; trigger: PlaybookEntry["trigger"]; model: string | null; kind: PlaybookEntry["kind"] | null }
+interface NoteRow { id: string; text: string; host: string; session_id: string | null; session_title: string | null; created_at: number; updated_at: number; deleted: number }
 
-function rowToPlaybook(r: PlaybookRow): PlaybookEntry {
-  return { id: r.id, sessionId: r.session_id, ts: r.ts, text: r.text, trigger: r.trigger, model: r.model ?? undefined, kind: r.kind ?? undefined };
+function rowToNote(r: NoteRow): Note {
+  return {
+    id: r.id,
+    text: r.text,
+    host: r.host,
+    sessionId: r.session_id ?? undefined,
+    sessionTitle: r.session_title ?? undefined,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+    deleted: r.deleted ? true : undefined,
+  };
 }
 
-export function insertPlaybook(p: PlaybookEntry): void {
-  db.prepare("INSERT INTO playbook (id, session_id, ts, text, trigger, model, kind) VALUES (?, ?, ?, ?, ?, ?, ?)")
-    .run(p.id, p.sessionId, p.ts, p.text, p.trigger, p.model ?? null, p.kind ?? null);
+export function putNote(n: Note): void {
+  db.prepare(`INSERT INTO notes (id, text, host, session_id, session_title, created_at, updated_at, deleted) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET text = excluded.text, host = excluded.host, session_id = excluded.session_id, session_title = excluded.session_title,
+      created_at = excluded.created_at, updated_at = excluded.updated_at, deleted = excluded.deleted`)
+    .run(n.id, n.text, n.host, n.sessionId ?? null, n.sessionTitle ?? null, n.createdAt, n.updatedAt, n.deleted ? 1 : 0);
 }
 
-/** sessionId: string = that session; null = global entries only; undefined = everything. */
-export function listPlaybook(sessionId?: string | null, limit = 200): PlaybookEntry[] {
-  const rows = (sessionId === undefined
-    ? db.prepare("SELECT * FROM playbook ORDER BY ts DESC LIMIT ?").all(limit)
-    : sessionId === null
-      ? db.prepare("SELECT * FROM playbook WHERE session_id IS NULL ORDER BY ts DESC LIMIT ?").all(limit)
-      : db.prepare("SELECT * FROM playbook WHERE session_id = ? ORDER BY ts DESC LIMIT ?").all(sessionId, limit)) as PlaybookRow[];
-  return rows.map(rowToPlaybook);
+export function getNote(id: string): Note | undefined {
+  const r = db.prepare("SELECT * FROM notes WHERE id = ?").get(id) as NoteRow | null;
+  return r ? rowToNote(r) : undefined;
+}
+
+export function listNotes(): Note[] {
+  return (db.prepare("SELECT * FROM notes ORDER BY created_at").all() as NoteRow[]).map(rowToNote);
+}
+
+export function noteChecks(): Map<string, number> {
+  const rows = db.prepare("SELECT session_id, checked_at FROM note_checks").all() as { session_id: string; checked_at: number }[];
+  return new Map(rows.map((r) => [r.session_id, r.checked_at]));
+}
+
+export function setNoteCheck(sessionId: string, at: number): void {
+  db.prepare("INSERT INTO note_checks (session_id, checked_at) VALUES (?, ?) ON CONFLICT(session_id) DO UPDATE SET checked_at = excluded.checked_at").run(sessionId, at);
+}
+
+export function pruneNoteTombstones(before: number): number {
+  return db.prepare("DELETE FROM notes WHERE deleted = 1 AND updated_at < ?").run(before).changes;
 }
 
 // ---- repo baselines ----
@@ -651,7 +679,6 @@ export function upsertSessionUsage(sessionId: string, u: SessionUsage): void {
 export interface PruneCounts {
   events: number;
   flags: number;
-  playbook: number;
   snapshots: number;
   presence: number;
   attention: number;
@@ -670,14 +697,13 @@ export function pruneHistory(days: number): PruneCounts | undefined {
   const counts = db.transaction((): PruneCounts => ({
     events: del("events"),
     flags: del("flags"),
-    playbook: del("playbook"),
     // A live ask outlives the window by its deadline, never by its age.
     attention: db.prepare("DELETE FROM attention WHERE ts < ? AND done IS NOT NULL").run(cutoff).changes,
     // The newest snapshot is the live 7d usage; keep it however old it is.
     snapshots: db.prepare("DELETE FROM usage_snapshots WHERE ts < ? AND ts <> (SELECT MAX(ts) FROM usage_snapshots)").run(cutoff).changes,
     presence: db.prepare("DELETE FROM presence WHERE minute < ?").run(cutoff).changes,
   }))();
-  const total = counts.events + counts.flags + counts.playbook + counts.snapshots + counts.presence + counts.attention;
+  const total = counts.events + counts.flags + counts.snapshots + counts.presence + counts.attention;
   if (total) {
     try {
       const free = (db.prepare("PRAGMA freelist_count").get() as { freelist_count: number }).freelist_count;

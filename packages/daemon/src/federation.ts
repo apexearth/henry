@@ -13,7 +13,7 @@ import { chmodSync, existsSync, readFileSync, renameSync, writeFileSync } from "
 import { networkInterfaces } from "node:os";
 import { join } from "node:path";
 import type { ServerWebSocket } from "bun";
-import type { ClientMessage, FederationStatus, HostUsage, PeerStatus, ServerMessage, Session, StateSnapshot, Topic, Usage } from "@henry/shared";
+import type { ClientMessage, FederationStatus, HostUsage, Note, PeerStatus, ServerMessage, Session, StateSnapshot, Topic, Usage } from "@henry/shared";
 import { config, henryDir, onConfigReload } from "./config";
 import { FED_VERSION, Handshake, fingerprint, isHello, newIdentity, newPairingCode, normalizeCode, proofsEqual, signTranscript, verifyTranscript, type Derived, type IdentityKeys } from "./fed-crypto";
 import { PeerLink, type FedState, type LinkDeps } from "./fed-peer";
@@ -505,9 +505,14 @@ export function linkNamed(name: string | undefined): PeerLink | undefined {
 export function fanout(msg: ServerMessage): void {
   if (!inbound.size) return;
   if (msg.type === "peers:update" || msg.type === "ui:build") return;
-  if (msg.type === "playbook:update" && msg.entry.sessionId === null) return;
   const out = msg.type === "state" ? ({ type: "state", ...deps.localState() } as ServerMessage) : msg;
   for (const c of inbound) if (c.open) c.send(out);
+}
+
+/** Notes that changed here, to the peers this daemon dialed. Peers that dialed us get them from
+ * `fanout` as a notes:update; a pair that dials both ways gets them twice, which changes nothing. */
+export function pushNotes(notes: Note[]): void {
+  for (const l of connectedLinks()) l.send({ type: "notes:merge", notes });
 }
 
 /** PTY traffic for one local session to the peers attached to it. */
@@ -541,7 +546,6 @@ export function answerAttention(id: string): boolean {
 /** How much history a window's snapshot carries. Applied after the merge: with peers the
  * snapshot was every machine's cap added together, most of it never scrolled to. */
 export const STATE_FLAGS = 500;
-export const STATE_PLAYBOOK = 200;
 
 /** Every connected peer's sessions, for callers that want the whole picture without building a
  * state snapshot (voice.ts: a roster that omits half the machines is worse than none). */
@@ -563,7 +567,6 @@ export function merge(local: StateSnapshot): StateSnapshot {
   out.flags = [...local.flags, ...all.flatMap((l) => l.flags)].sort((a, b) => b.ts - a.ts).slice(0, STATE_FLAGS);
   // Asks go oldest first: the one that has waited longest is the one keeping someone waiting.
   out.attention = [...local.attention, ...all.flatMap((l) => l.attention)].sort((a, b) => a.ts - b.ts);
-  out.playbook = [...local.playbook, ...all.flatMap((l) => l.playbook)].sort((a, b) => b.ts - a.ts).slice(0, STATE_PLAYBOOK);
   out.usage = mergeUsage(local.usage);
   out.topics = mergeTopics(local.topics ?? []);
   return out;

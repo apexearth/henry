@@ -4,7 +4,7 @@ import { useSyncExternalStore } from "react";
 import { baseName } from "./platform";
 import { soloSessionId } from "./popout";
 import { nameHue } from "./theme";
-import { isClaudeSession, type Attention, type ClientMessage, type Flag, type HenryConfig, type HenryEvent, type Notice, type PeerStatus, type PlaybookEntry, type RepoState, type ServerMessage, type Session, type SessionKind, type Topic, type Usage } from "@henry/shared";
+import { isClaudeSession, type Attention, type ClientMessage, type Flag, type HenryConfig, type HenryEvent, type Note, type Notice, type PeerStatus, type RepoState, type ServerMessage, type Session, type SessionKind, type Topic, type Usage } from "@henry/shared";
 
 export type PtyMessage = Extract<ServerMessage, { type: "pty:data" | "pty:scrollback" | "pty:exit" }>;
 
@@ -28,7 +28,10 @@ export interface UiState {
   /** Every connected machine's open topics (daemon/topics.ts), a peer's tagged `peer`. */
   topics: Topic[];
   usage: Usage;
-  playbook: PlaybookEntry[];
+  /** Your notes (daemon/notes.ts), the same on every paired machine; removed ones are dropped. */
+  notes: Note[];
+  /** The last "fill from sessions" on each machine, by machine name. */
+  noteFill: Record<string, NoteFill>;
   config: HenryConfig | null;
   /** The daemon has no user-chosen reposRoot yet; the setup modal blocks until it does. */
   firstRun: boolean;
@@ -68,7 +71,8 @@ let state: UiState = {
   attention: [],
   topics: [],
   usage: { perSession: {}, updatedAt: 0 },
-  playbook: [],
+  notes: [],
+  noteFill: {},
   config: null,
   firstRun: false,
   host: null,
@@ -246,7 +250,7 @@ function handle(m: ServerMessage): void {
         attention: m.attention ?? [],
         topics: m.topics ?? [],
         usage: m.usage,
-        playbook: m.playbook,
+        notes: (m.notes ?? []).filter((n) => !n.deleted),
         config: m.config,
         firstRun: m.firstRun,
         host: m.host ?? null,
@@ -297,9 +301,17 @@ function handle(m: ServerMessage): void {
     case "usage:session":
       setState({ usage: { ...state.usage, updatedAt: Math.max(state.usage.updatedAt, m.updatedAt), perSession: { ...state.usage.perSession, [m.sessionId]: m.usage } } });
       return;
-    case "playbook:update":
-      setState({ playbook: [m.entry, ...state.playbook.filter((p) => p.id !== m.entry.id)].sort((a, b) => b.ts - a.ts) });
+    case "notes:filling": {
+      const { type: _t, host, ...rest } = m;
+      setState({ noteFill: { ...state.noteFill, [host]: { ...rest, at: Date.now() } } });
       return;
+    }
+    case "notes:update": {
+      const changed = new Map(m.notes.map((n) => [n.id, n]));
+      const kept = state.notes.filter((n) => !changed.has(n.id));
+      setState({ notes: [...kept, ...m.notes.filter((n) => !n.deleted)].sort((a, b) => a.createdAt - b.createdAt) });
+      return;
+    }
     case "repo:diff":
       setState({ diffs: { ...state.diffs, [`${m.sessionId}\n${m.repoPath}`]: { diff: m.diff, baseline: m.baseline } } });
       return;
@@ -731,8 +743,26 @@ export function suggestionsFor(sessionId: string, s: UiState = state): { topic: 
   return s.topics.flatMap((t) => t.suggestions.filter((x) => x.sessionId === sessionId).map((x) => ({ topic: t, reason: x.reason })));
 }
 
-export function requestPlaybook(sessionId: string | null): void {
-  send({ type: "playbook:request", sessionId });
+// ---- notes ----
+
+export type NoteFill = Omit<Extract<ServerMessage, { type: "notes:filling" }>, "type" | "host"> & { at: number };
+
+/** Every connected machine reads its own sessions and adds what it finds. */
+export function fillNotes(): void {
+  send({ type: "notes:fill" });
+}
+
+export function addNote(text: string, about?: string): void {
+  send({ type: "note:add", text, about });
+}
+
+export function editNote(id: string, text: string): void {
+  send({ type: "note:edit", id, text });
+}
+
+/** `removed: false` brings a removed note back (undo). */
+export function removeNote(id: string, removed = true): void {
+  send({ type: "note:remove", id, removed });
 }
 
 export function requestDiff(sessionId: string, repoPath: string): void {

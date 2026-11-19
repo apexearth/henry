@@ -4,7 +4,7 @@ The dock, the stage, the status strip, the topbar and the backdrop behind the te
 
 ```
 ┌──────────┬──────────────────────────────────────┬──────────────────────┐
-│ sessions │                                      │ Files│Flags│Playbook │
+│ sessions │                                      │ Files│Flags│Notes (3)│
 │ ▣ Rail fi│                                      │ ▾ henry main ↑2 ±5 ⑂↗│
 │ ▣ Stealth│         xterm.js (WebGL)             │   ▸ packages         │
 │ >_ henry │         one per session              │   M PLAN.md          │

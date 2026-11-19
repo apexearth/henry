@@ -136,7 +136,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
 
           <Section title="history">
             <Row label="keep for (days)"
-              note="Events, flags, playbook entries and usage snapshots older than this are swept at startup and every 6 hours. Sessions themselves are never swept. 0 keeps everything.">
+              note="Events, flags and usage snapshots older than this are swept at startup and every 6 hours. Sessions themselves are never swept. 0 keeps everything.">
               <input type="number" min={0} step={1} style={{ width: 90 }} value={c.retentionDays}
                 onChange={(e) => set({ retentionDays: Math.max(0, Math.floor(Number(e.target.value) || 0)) })} />
             </Row>
@@ -152,7 +152,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
               <label htmlFor="announce">say what it did or wants, in one spoken line</label>
             </div>
             <div style={{ ...st.note, marginLeft: 0, paddingTop: 4 }}>
-              A few seconds after the chime, a small model ({c.voice.announceModel ?? "claude-haiku-5-5"}, on the playbook's backend) reads the end of that session's conversation and Henry says the result or what it needs from you; the line also replaces the notification's text. One model call per notice. Spoken in windows with the sound on. Saved for every window.
+              A few seconds after the chime, a small model ({c.voice.announceModel ?? "claude-haiku-5-5"}, on the model backend below) reads the end of that session's conversation and Henry says the result or what it needs from you; the line also replaces the notification's text. One model call per notice. Spoken in windows with the sound on. Saved for every window.
             </div>
           </Section>
 
@@ -166,17 +166,9 @@ export function Settings({ onClose }: { onClose: () => void }) {
             </div>
           </Section>
 
-          <Section title="playbook (overseer)">
-            <div style={st.check}>
-              <input id="ov-stop" type="checkbox" checked={c.overseer.onStop} onChange={(e) => setOverseer({ onStop: e.target.checked })} />
-              <label htmlFor="ov-stop">write an entry after each turn</label>
-            </div>
-            <div style={st.check}>
-              <input id="ov-flag" type="checkbox" checked={c.overseer.onFlag} onChange={(e) => setOverseer({ onFlag: e.target.checked })} />
-              <label htmlFor="ov-flag">write an entry when a flag fires</label>
-            </div>
-            <div style={{ ...st.note, marginLeft: 0, paddingTop: 4 }}>
-              Off by default: each entry is an LLM call. Asking the overseer a question from the Playbook panel works either way.
+          <Section title="model">
+            <div style={{ ...st.note, marginLeft: 0, paddingTop: 0 }}>
+              What Henry asks on its own behalf: voice answers, spoken notices, PR summaries. It reads summaries, never code.
             </div>
             <Row label="backend">
               <select value={c.overseer.backend} onChange={(e) => setOverseer({ backend: e.target.value as HenryConfig["overseer"]["backend"] })}>
@@ -186,10 +178,6 @@ export function Settings({ onClose }: { onClose: () => void }) {
             <Row label="model">
               <input className="picker-input" style={{ width: "100%", boxSizing: "border-box", margin: 0 }} spellCheck={false}
                 value={c.overseer.model} onChange={(e) => setOverseer({ model: e.target.value })} />
-            </Row>
-            <Row label="min seconds between" note="Floor between two turn-triggered entries for one session.">
-              <input type="number" min={0} step={10} style={{ width: 90 }} value={c.overseer.stopMinIntervalSec ?? 60}
-                onChange={(e) => setOverseer({ stopMinIntervalSec: Math.max(0, Math.floor(Number(e.target.value) || 0)) })} />
             </Row>
           </Section>
 

@@ -30,8 +30,8 @@ is waiting on you, and what the others changed. That is the whole problem it sol
 
 Skip it if you run one session at a time in one repo, or if tmux already does the job.
 
-Everything is local. The exceptions are `gh pr list` for PR counts, the overseer's LLM
-calls if you turn it on (off by default), and machines you paired on your own tailnet.
+Everything is local. The exceptions are `gh pr list` for PR counts, model calls you ask for
+(voice, "fill from sessions", PR cards), and machines you paired on your own tailnet.
 
 ## What it looks like
 
@@ -56,11 +56,11 @@ tab, so drag to split, stack or float, and "reset layout" puts back the picture 
     <td>Flags: a commit straight onto <code>main</code>, with the rule and the command behind it. The red chip is a session asking for you by name.</td>
   </tr>
   <tr>
-    <td><a href="docs/screenshots/playbook.webp"><img src="docs/screenshots/playbook.webp" alt="The Playbook tab: the overseer's summary of a session, doing, changed, careful, next"></a></td>
+    <td><a href="docs/screenshots/notes.webp"><img src="docs/screenshots/notes.webp" alt="The Notes tab: what to keep in mind, this session's note first, the others with the session they are about"></a></td>
     <td><a href="docs/screenshots/diff.webp"><img src="docs/screenshots/diff.webp" alt="A repo's diff against the session's baseline, opened from the files tree"></a></td>
   </tr>
   <tr>
-    <td>Playbook: the overseer's running summary of a session, from hook and git summaries only.</td>
+    <td>Notes: what to keep in mind while you switch sessions, the same on every paired machine.</td>
     <td>The diff of everything a session did to a repo since it started, from the files tree.</td>
   </tr>
 </table>
@@ -202,7 +202,7 @@ off until `voice.enabled` is set:
 ```
 
 `stt` may be a bare name on PATH (the default, `whisper-cli`). `vocabulary` is the words it
-keeps mishearing. Asking needs an answer backend, which is the overseer's: an API key, or
+keeps mishearing. Asking needs an answer backend: an API key, or
 `claude` on PATH.
 
 Answers are spoken by the platform voice, `say` or SAPI, with nothing to install and the
@@ -235,8 +235,8 @@ Henry's config.
 ## Config
 
 `~/.henry/config.json`, edited in Settings (⌘,) or by hand, hot-reloaded either way. The
-keys worth knowing: `reposRoot`, `retentionDays` (30), `overseer` (the playbook, off by
-default since every entry is an LLM call), `mcp`, `federation`, `phone`, `voice`, `rules`.
+keys worth knowing: `reposRoot`, `retentionDays` (30), `overseer` (the model backend
+Henry asks for voice, notes filling and PR cards), `mcp`, `federation`, `phone`, `voice`, `rules`.
 `~/.henry` also holds the SQLite database, the sessiond details, the federation key and the
 phones that have access. `HENRY_HOME` and `HENRY_PORT` override both, which is how the tests
 stay off yours.

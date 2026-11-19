@@ -9,7 +9,7 @@ henry/
   packages/
     shared/                    # protocol + types shared by daemon and ui
       src/protocol.ts          # WS message union, REST shapes
-      src/types.ts             # Session, RepoState, Flag, PlaybookEntry, Usage
+      src/types.ts             # Session, RepoState, Flag, Note, Usage
       src/human.ts             # presence in whole minutes: hours, reading share, sit-downs, cadence
       src/qr.ts                # QR encoder (byte mode, ECC M, v1-6) for the phone's invite code
     daemon/
@@ -42,7 +42,9 @@ henry/
       src/engagement.ts        # my prompts + keystrokes per session: lastInputAt, prompt sparkline
       src/seen.ts              # unseen marks (cleared by looking or typing) and rail reminders
       src/human.ts             # my minutes recorded + rolled up by local day (GET /api/human, POST /api/presence)
-      src/overseer.ts          # playbook writer (api | claude-cli backend)
+      src/overseer.ts          # the model Henry asks itself (api | claude-cli backend)
+      src/notes.ts             # notes: kept whole on every machine, newest change wins
+      src/notes-fill.ts        # "fill from sessions": one model call over what changed
       src/installer.ts         # settings.json merge/unmerge
       src/screen.ts            # a headless xterm per session; attach is answered with its serialised buffer
       src/typing.ts            # long input into a PTY in paced pieces, one queue per session
@@ -86,7 +88,7 @@ henry/
       src/FileView.tsx         # file peek (stage, with ⌘F find, edit + save) and the tree's preview
       src/Editor.tsx           # the peek's editor: CodeMirror 6 with the read view's colour classes
       src/Model.tsx            # an STL peek: three.js, turn / pan / zoom, views, edges
-      src/panels/{History,Flags,Playbook,Usage}.tsx
+      src/panels/{History,Flags,Notes,Usage}.tsx
       src/panels/bound.tsx     # those four wired to the store, for both the dock and the phone's sheet
       src/history.ts           # GET /api/history + the hook that refetches a session's turns
       src/DiffView.tsx

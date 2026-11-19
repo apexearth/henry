@@ -19,7 +19,7 @@ Per-session baselines, repo state, and the places Henry reaches GitHub.
 - **When more than one repo has the number, a small model picks.** The card draws at once with
   the session's own repo first, then asks again with `pick=1`: `config.github.pickModel` (Haiku)
   gets the candidates' titles and fields and the few terminal rows around the mention, through
-  the overseer's backend, and answers which one. The others stay listed under the card. Without
+  the shared model backend (overseer.md), and answers which one. The others stay listed under the card. Without
   a backend the order stays and the card says so.
 
 Baseline: when a session first touches a repo (first hook event whose cwd or file

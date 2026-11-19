@@ -207,7 +207,8 @@ try {
       (pill?.parentElement?.parentElement as HTMLElement | undefined)?.click(); // pill → head grid → row
     });
   });
-  if (want("playbook")) await shot("playbook", () => clickTab("Playbook"));
+  // What to keep in mind across sessions, the rate limiter's own note first.
+  if (want("notes")) await shot("notes", () => clickTab("Notes"));
   // Blocked on a permission prompt.
   if (want("needs")) await shot("needs", () => railPick("flaky e2e"));
   if (want("diff")) await shot("diff", () => page.evaluate(() => document.querySelector<HTMLElement>(".fr-diff")?.click()));
