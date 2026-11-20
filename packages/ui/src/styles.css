@@ -126,9 +126,11 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 .rail-item.off .sub { opacity: 0.55; }
 .rail-item .title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .rail-item .sub { flex: 0 1 auto; max-width: 40%; color: var(--fg-dim); font-size: 11px; overflow: hidden; text-overflow: ellipsis; }
-.rail-item .close { flex: none; opacity: 0; background: none; border: none; padding: 0 2px; color: var(--fg-dim); }
+/* Out of the row until it is hovered: invisible buttons that kept their space cut every title
+ * short for a gap nobody could see. */
+.rail-item .close { flex: none; display: none; background: none; border: none; padding: 0 2px; color: var(--fg-dim); }
 .rail-item .close:hover { color: var(--fg); }
-.rail-item:hover .close { opacity: 1; }
+.rail-item:hover .close { display: inline-block; }
 .mark { flex: none; width: 14px; text-align: center; }
 .mark.shell { font-size: 10px; font-weight: bold; letter-spacing: -1px; color: var(--fg-dim); }
 .mark.shell.on { color: var(--ok); }
@@ -181,7 +183,7 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 .rail-item .remind { flex: none; font-size: 10px; color: var(--fg-dim); }
 .rail-item .forked { flex: none; color: var(--fg-dim); }
 /* Out in its own window: the ⧉ stays lit so the row says where the session went. */
-.rail-item .close.popout.out { opacity: 1; color: var(--accent); }
+.rail-item .close.popout.out { display: inline-block; color: var(--accent); }
 /* A session in its own window (Solo.tsx): one bar, then the terminal filling the rest. */
 .solo-stage { flex: 1; min-height: 0; height: auto; }
 .solo-bar .dim { color: var(--fg-dim); white-space: nowrap; }
@@ -846,7 +848,7 @@ html.m-lock, html.m-lock body { overflow: hidden; overscroll-behavior: none; }
 .m-drawer .rail-list { overscroll-behavior: contain; touch-action: pan-y; -webkit-overflow-scrolling: touch; }
 .m-drawer :is(.rail-item, .rail-group-h, .rail-machine-h, .rail-foot) { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 .m-drawer .rail-item { height: 44px; }
-.m-drawer .rail-item .close { opacity: 1; padding: 0 10px; }
+.m-drawer .rail-item .close { display: inline-block; padding: 0 10px; }
 .m-drawer .rail-item .close.popout { display: none; }
 .m-drawer .rail-group-h { padding: 10px 10px 4px; font-size: 11px; }
 .m-drawer .rail-group-h .hide { opacity: 1; padding: 0 8px; font-size: 14px; }
