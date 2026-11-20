@@ -26,7 +26,8 @@ One line per session on the left: titles, order, grouping, hiding.
   topic's coordinator first and "no topic" last ([topics.md](topics.md)). Machines are split before any of that: this
   machine's sessions first, then each paired peer's under a delimiter bearing its name, with
   the chosen grouping applied inside each (no delimiters at all while every session is
-  local). Groups are alphabetical by name ("no repo" and "no topic" last); order within a group, and the keyboard
+  local). Under "by topic" a session in a topic counts as its topic's machine's, so a topic's
+  members on other machines are listed with it, tagged with where they run. Groups are alphabetical by name ("no repo" and "no topic" last); order within a group, and the keyboard
   order, stay the running-then-exited rail order. The active *row* is the one you picked (session
   plus group): it alone gets the full highlight (the accent bar and an accent-tinted background, so it never reads as
   a hovered row), the same session's rows under other repos

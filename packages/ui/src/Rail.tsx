@@ -315,7 +315,6 @@ function Rail({ onNew }: { onNew: () => void }) {
                   ? <button className="name topic" style={{ color: hueText(g.hue!) }} onClick={() => setTopicOpen(g.topicId!)}
                       title={`${g.title}\nclick: the brief, the notes and the coordinator`}>{g.label}</button>
                   : <span className="name" style={g.hue !== undefined ? { color: hueText(g.hue) } : undefined}>{g.label}</span>}
-                {g.topicHome !== undefined && <span className="n" title="the topic and its coordinator run on that machine">on {g.topicHome || host || "this machine"}</span>}
                 <span className="n">{g.sessions.length}</span>
                 <button className="hide" title={"hide " + (g.sessions.length === 1 ? "this session" : "these " + g.sessions.length + " sessions") + " — they leave the rail everywhere, not just here"}
                   onClick={() => hideSessions(g.sessions.map((x) => x.id))}>⊘</button>
@@ -365,6 +364,8 @@ function Rail({ onNew }: { onNew: () => void }) {
                   {s.coordinator && <span className="coord" aria-label="coordinator">◆</span>}
                   <span className="title">{title}</span>
                   {s.title !== repo && showSub && !s.coordinator && <span className="sub" style={{ color: hueText(nameHue(repo)) }}>{repo}</span>}
+                  {/* A topic's member listed with its topic, on another machine than its own. */}
+                  {s.peer !== g.peer && <span className="sub" style={{ color: hueText(nameHue(s.peer ?? host ?? "")) }}>on {s.peer ?? host ?? "this machine"}</span>}
                   {chips.slice(0, 1).map(({ topic, reason }) => (
                     <span key={topic.id} className="sugg" onClick={(e) => e.stopPropagation()}>
                       <button title={`${topic.name}'s coordinator thinks this belongs there: ${reason}\nclick: add it`} onClick={() => answerSuggestion(topic.id, s.id, true)}>→ {topic.name}?</button>

@@ -66,8 +66,8 @@ machine in the label. A turn you start in a member is yours and sends nothing ba
   sessions in no topic on the topic's own machine can be suggested; one elsewhere the coordinator
   adds when you ask.
 - **In the rail**, "by topic" lists each machine's open topics under that machine, coordinator
-  first (◆), then the topics of other machines that its sessions are in, marked with the machine
-  each lives on, then its "no topic".
+  first (◆), then its "no topic". A member on another machine is listed in its topic there,
+  marked with the machine it runs on, not under its own machine.
   Empty topics still show, so one whose coordinator exited can be opened. The header opens the
   topic: rename it, edit the brief, see the notes and members, start a coordinator, close it.
   A row's right-click menu adds it to a topic, moves it, takes it out, or starts a new topic

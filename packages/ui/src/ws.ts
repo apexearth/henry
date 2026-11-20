@@ -356,8 +356,6 @@ export interface RailGroup {
   peer?: string;
   /** Under "by topic": the topic this group is. */
   topicId?: string;
-  /** That topic lives on another machine than this group's sessions: its name, or "" for this one. */
-  topicHome?: string;
   /** The machine is folded: one group carrying all its sessions so the header still counts
    * them, but the rail draws no rows and they are out of the ⌘1..9 order. */
   hidden?: boolean;
@@ -367,13 +365,18 @@ export interface RailGroup {
 const NO_REPO = "\u0000no-repo";
 
 /** Machine first, grouping second: this machine's sessions, then each peer's by name, with the
- * chosen grouping applied inside each. The rail draws a delimiter where the machine changes,
- * so a remote's rows never mix with local ones whatever the grouping. */
+ * chosen grouping applied inside each. The rail draws a delimiter where the machine changes.
+ * Under "by topic" a session in a topic is listed on the topic's machine, with the rest of the
+ * topic, wherever it runs; otherwise a remote's rows never mix with local ones. */
 function buildGroups(order: Session[], s: UiState): RailGroup[] {
-  const peers = [...new Set(order.map((x) => x.peer).filter((p): p is string => !!p))].sort();
+  const home = (x: Session) => {
+    const t = s.groupBy === "topic" ? topicOf(x, s) : undefined;
+    return t ? t.peer : x.peer;
+  };
+  const peers = [...new Set(order.map(home).filter((p): p is string => !!p))].sort();
   const out: RailGroup[] = [];
   for (const peer of [undefined, ...peers]) {
-    const mine = order.filter((x) => x.peer === peer);
+    const mine = order.filter((x) => home(x) === peer);
     if (s.hiddenMachines.includes(machineKey(peer))) {
       out.push({ key: `${peer ?? ""}\n hidden`, label: "", title: "", peer, hidden: true, sessions: mine });
       continue;
@@ -456,17 +459,16 @@ export function topicOf(x: Session, s: UiState = state): Topic | undefined {
 }
 
 /** One group per open topic on this machine (`peer`), its coordinator first, empty ones included
- * so a topic whose coordinator exited can still be opened; then one per other machine's topic
- * that sessions here are in; then everything in no topic. */
+ * so a topic whose coordinator exited can still be opened; then everything in no topic. Members
+ * on other machines are already among `order` (buildGroups). */
 function topicGroups(order: Session[], s: UiState, peer: string | undefined): RailGroup[] {
   const groups = new Map<string, RailGroup>();
   const group = (t: Topic) => ({ key: "topic:" + t.id, label: t.name, title: t.brief || "no brief yet", hue: nameHue(t.name), topicId: t.id, sessions: [] as Session[] });
   for (const t of s.topics.filter((x) => x.peer === peer)) groups.set(t.id, group(t));
   const rest: Session[] = [];
   for (const x of order) {
-    const t = topicOf(x, s);
-    if (t && !groups.has(t.id)) groups.set(t.id, { ...group(t), topicHome: t.peer ?? "" });
-    if (t) groups.get(t.id)!.sessions.push(x);
+    const g = x.topicId ? groups.get(x.topicId) : undefined;
+    if (g) g.sessions.push(x);
     else rest.push(x);
   }
   for (const g of groups.values()) g.sessions.sort((a, b) => Number(!!b.coordinator) - Number(!!a.coordinator));
