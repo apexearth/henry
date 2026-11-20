@@ -35,13 +35,21 @@ Several sessions on one subject, kept aware of each other by a session that sits
   count as a change, or every prompt would carry it. The hook scripts print the daemon's answer
   only when it is hook output, so an older daemon's `{"ok":true}` never reaches Claude Code.
 - **A coordinator's prompt is a draft unless you said to send it.** `henry_prompt` types into a
-  member's input, prefixed `[from the "<topic>" coordinator]`, so the member's transcript says
-  where it came from. `send` submits it; its description, and the coordinator's instructions,
+  member's input, prefixed `[from the "<topic>" coordinator; your reply goes back to it]`, so the
+  member's transcript says where it came from. `send` submits it; its description, and the coordinator's instructions,
   say to set it only when your message asked for it. Either way it goes in only between turns
   (`waiting` or `idle`): typing into a running turn or a permission prompt would answer
   something nobody meant to. Until then it queues, three at most, for 30 minutes. It goes
   through `relaySafe` like a voice relay, so it can never carry its own Enter, and members only:
   a coordinator cannot reach another topic's sessions.
+- **A turn the coordinator started answers back.** When a member's prompt starts with that
+  prefix (sent by the coordinator, or a draft you sent with Enter) and the turn ends, the
+  member's last reply goes into the coordinator's input as `[reply from "<member>" [<id>] to your
+  prompt] …`, between the coordinator's turns like any prompt, eight at most waiting. It is
+  submitted, since the coordinator asked; the coordinator's instructions say a reply is the
+  member's answer, never the user's word to send anything on. A topic's replies past twelve in
+  an hour go in as drafts instead, so a coordinator and a member cannot drive each other all
+  night. A turn you start in a member is yours and sends nothing back.
 - **Membership changes only when you ask.** A coordinator adds or removes a session when your
   message says to; otherwise it suggests, and the rail shows `→ <topic>?` on that row until you
   accept (it joins) or dismiss it (that suggestion never comes back). Only running Claude

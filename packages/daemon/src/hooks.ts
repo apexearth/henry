@@ -156,9 +156,15 @@ function ingestHookInner(body: HookBody): IngestResult {
   if (hookEvent === "UserPromptSubmit") {
     try {
       result.context = topics.contextFor(session.id);
+      topics.onPrompt(session.id, str(payload.prompt) ?? "");
     } catch (e) {
       console.error("[hook] topic context failed:", e);
     }
+  }
+  // stop_hook_active: Claude stopping again because another Stop hook sent it back; the turn the
+  // coordinator asked for ends with the plain Stop.
+  if (hookEvent === "Stop" && !payload.stop_hook_active) {
+    topics.onStop(session.id).catch((e) => console.error("[hook] topic reply failed:", e));
   }
 
   if (event.severity !== "info") {

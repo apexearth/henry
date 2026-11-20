@@ -27,6 +27,7 @@ let written: { id: string; data: string }[] = [];
 let killed: string[] = [];
 let launched: CreateOptions[] = [];
 let sent: ServerMessage[] = [];
+let replies: Record<string, string> = {};
 
 function session(id: string, extra: Partial<Session> = {}): Session {
   return { id, cwd: join(tmp, "code", "app"), title: id, createdAt: live.length, status: "running", kind: "claude", activity: "waiting", ...extra };
@@ -47,7 +48,9 @@ beforeEach(() => {
   killed = [];
   launched = [];
   sent = [];
+  replies = {};
   topics.setBroadcast((m) => sent.push(m));
+  topics.setTimingForTests({ settleMs: 0 });
   topics.setDepsForTests({
     list: () => live,
     setTopic: (id, topicId, coordinator) => {
@@ -56,6 +59,7 @@ beforeEach(() => {
     },
     write: (id, data) => written.push({ id, data }),
     kill: (id) => killed.push(id),
+    reply: (id) => replies[id],
     create: async (opts) => {
       launched.push(opts);
       const s = session(`coord-${launched.length}`, { cwd: opts.cwd, title: opts.title ?? "", topicId: opts.topicId, coordinator: opts.coordinator });
@@ -188,12 +192,12 @@ describe("topics", () => {
 
     const draft = topics.prompt(coord.id, "m", "the endpoint\nmoved", false);
     expect(draft).toEqual({ ok: true, value: "drafted" });
-    expect(written).toEqual([{ id: "m", data: '[from the "relay" coordinator] the endpoint moved' }]);
+    expect(written).toEqual([{ id: "m", data: '[from the "relay" coordinator; your reply goes back to it] the endpoint moved' }]);
 
     written = [];
     expect(topics.prompt(coord.id, "m", "go", true)).toEqual({ ok: true, value: "sent" });
     await Bun.sleep(250);
-    expect(written.map((w) => w.data)).toEqual(['[from the "relay" coordinator] go', "\r"]);
+    expect(written.map((w) => w.data)).toEqual(['[from the "relay" coordinator; your reply goes back to it] go', "\r"]);
 
     written = [];
     expect(topics.prompt(coord.id, "busy", "later", true)).toEqual({ ok: true, value: "queued" });
@@ -209,6 +213,56 @@ describe("topics", () => {
 
     expect(topics.prompt(coord.id, "out", "not a member", false).ok).toBe(false);
     expect(topics.prompt("m", "busy", "members cannot", false).ok).toBe(false);
+  });
+
+  test("a turn the coordinator started answers back into the coordinator; the user's own turns do not", async () => {
+    live.push(session("m", { title: "member" }));
+    const t = await topic("talk");
+    topics.join("m", t.id);
+    const coord = topics.coordinatorOf(t.id)!;
+    coord.activity = "waiting";
+    replies.m = "Done: the endpoint moved to /v2.\nTests pass.";
+
+    // The user typed this one: nothing goes back.
+    topics.onPrompt("m", "fix the flaky test");
+    expect(await topics.onStop("m")).toBeUndefined();
+
+    written = [];
+    topics.onPrompt("m", '[from the "talk" coordinator; your reply goes back to it] move the endpoint');
+    expect(await topics.onStop("m")).toBe("sent");
+    await Bun.sleep(250);
+    // Only the coordinator's: the test before this one may still have an Enter on its timer.
+    expect(written.filter((w) => w.id === coord.id)).toEqual([
+      { id: coord.id, data: '[reply from "member" [m] to your prompt] Done: the endpoint moved to /v2. Tests pass.' },
+      { id: coord.id, data: "\r" },
+    ]);
+    // One reply per turn the coordinator started.
+    expect(await topics.onStop("m")).toBeUndefined();
+
+    // A coordinator mid-turn gets it when its turn ends.
+    written = [];
+    coord.activity = "working";
+    topics.onPrompt("m", '[from the "talk" coordinator] an older draft the user sent');
+    expect(await topics.onStop("m")).toBe("queued");
+    expect(written).toHaveLength(0);
+    coord.activity = "waiting";
+    topics.flush(coord.id);
+    expect(written[0]?.data).toContain("[reply from \"member\"");
+  });
+
+  test("past the hourly cap a topic's replies go in as drafts", async () => {
+    live.push(session("m", { title: "member" }));
+    const t = await topic("loop");
+    topics.join("m", t.id);
+    topics.coordinatorOf(t.id)!.activity = "waiting";
+    replies.m = "again";
+    const outcomes: (string | undefined)[] = [];
+    for (let i = 0; i <= topics.REPLIES_PER_HOUR; i++) {
+      topics.onPrompt("m", '[from the "loop" coordinator; your reply goes back to it] go on');
+      outcomes.push(await topics.onStop("m"));
+    }
+    expect(outcomes.filter((o) => o === "sent")).toHaveLength(topics.REPLIES_PER_HOUR);
+    expect(outcomes.at(-1)).toBe("drafted");
   });
 
   test("a resumed coordinator coordinates again; a fork is only a member", async () => {
