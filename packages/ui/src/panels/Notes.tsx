@@ -15,6 +15,8 @@ export interface NotesPanelProps {
   onAdd(text: string, about?: string): void;
   onEdit(id: string, text: string): void;
   onRemove(id: string, removed: boolean): void;
+  /** Not now: to the end of the list. */
+  onDefer(id: string): void;
   onOpenSession(id: string): void;
   /** The last fill on each machine, by name. */
   fill: Record<string, NoteFill>;
@@ -76,7 +78,7 @@ function fillLine(name: string, f: NoteFill, many: boolean): string {
 
 const FILL_SHOWN_MS = 60_000;
 
-export function NotesPanel({ notes, sessions, activeId, host, onAdd, onEdit, onRemove, onOpenSession, fill, onFill }: NotesPanelProps) {
+export function NotesPanel({ notes, sessions, activeId, host, onAdd, onEdit, onRemove, onDefer, onOpenSession, fill, onFill }: NotesPanelProps) {
   const [draft, setDraft] = useState("");
   const [about, setAbout] = useState(true);
   const [editing, setEditing] = useState<{ id: string; text: string } | null>(null);
@@ -93,8 +95,6 @@ export function NotesPanel({ notes, sessions, activeId, host, onAdd, onEdit, onR
   const elsewhere = notes.some((n) => host && n.host !== host);
   const here = active ? notes.filter((n) => n.sessionId === active.id) : [];
   const rest = notes.filter((n) => !active || n.sessionId !== active.id);
-  // Newest first: the thing you just wrote down is the one you are most likely to look for.
-  const newest = (a: Note, b: Note) => b.createdAt - a.createdAt;
   const fills = Object.entries(fill).filter(([, f]) => f.state === "running" || now - f.at < FILL_SHOWN_MS);
   const filling = fills.some(([, f]) => f.state === "running");
 
@@ -155,7 +155,10 @@ export function NotesPanel({ notes, sessions, activeId, host, onAdd, onEdit, onR
             <span title={new Date(n.createdAt).toLocaleString()}>{age(n.createdAt, now)}</span>
           </div>
         </div>
-        <button style={S.done} title="done: remove this note" aria-label="remove note" onClick={() => remove(n)}>✓</button>
+        <div style={{ display: "flex", gap: 4, flex: "none" }}>
+          <button style={S.done} title="later: to the end of the list" aria-label="move note to the end" onClick={() => onDefer(n.id)}>later</button>
+          <button style={S.done} title="done: remove this note" aria-label="remove note" onClick={() => remove(n)}>✓</button>
+        </div>
       </div>
     );
   };
@@ -212,13 +215,13 @@ export function NotesPanel({ notes, sessions, activeId, host, onAdd, onEdit, onR
       {here.length > 0 && (
         <>
           <div style={S.section}>this session</div>
-          {[...here].sort(newest).map((n) => row(n, true))}
+          {here.map((n) => row(n, true))}
         </>
       )}
       {rest.length > 0 && (
         <>
           {here.length > 0 && <div style={S.section}>everything else</div>}
-          {[...rest].sort(newest).map((n) => row(n, false))}
+          {rest.map((n) => row(n, false))}
         </>
       )}
     </div>

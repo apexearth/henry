@@ -6,7 +6,7 @@ import { NotesPanel } from "./Notes";
 import { UsagePanel } from "./Usage";
 import { useHistory } from "../history";
 import { showSession } from "../dock";
-import { addNote, editNote, fillNotes, markFlagsRead, removeNote, setActive, useStore } from "../ws";
+import { addNote, deferNote, editNote, fillNotes, markFlagsRead, removeNote, setActive, useStore } from "../ws";
 
 /** The active session's flags, and how many of them are unread (the dock tab's badge). */
 export function useSessionFlags() {
@@ -39,6 +39,7 @@ export function BoundNotes() {
       onAdd={addNote}
       onEdit={editNote}
       onRemove={removeNote}
+      onDefer={deferNote}
       onOpenSession={(id) => {
         setActive(id);
         showSession(id);

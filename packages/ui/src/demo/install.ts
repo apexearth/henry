@@ -120,10 +120,12 @@ class DemoSocket {
         return;
       }
       case "note:edit":
+      case "note:defer":
       case "note:remove": {
         const n = world.notes.find((x) => x.id === m.id);
         if (!n) return;
         if (m.type === "note:edit") n.text = m.text.trim();
+        else if (m.type === "note:defer") n.queuedAt = Date.now();
         else n.deleted = m.removed || undefined;
         n.updatedAt = Date.now();
         this.push({ type: "notes:update", notes: [{ ...n }] });

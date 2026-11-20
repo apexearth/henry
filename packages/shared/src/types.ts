@@ -274,6 +274,9 @@ export interface Note {
   sessionId?: string;
   sessionTitle?: string;
   createdAt: number;
+  /** Its place in the list, which is a queue: worked from the top, new and put-off notes join the
+   * end. Absent means `createdAt`. */
+  queuedAt?: number;
   /** Last edit or removal; of two copies of a note, the one changed later is the note. */
   updatedAt: number;
   /** Removed. Kept a while so a machine that was offline learns it is gone. */

@@ -63,6 +63,8 @@ export type ClientMessage =
    * session's machine. */
   | { type: "note:add"; text: string; about?: string }
   | { type: "note:edit"; id: string; text: string }
+  /** Not now: the note goes to the end of the list. */
+  | { type: "note:defer"; id: string }
   /** Remove a note, or bring a removed one back (`removed: false`, the undo). */
   | { type: "note:remove"; id: string; removed: boolean }
   /** Daemon to daemon only: notes the sender holds. The receiver keeps whichever copy of each

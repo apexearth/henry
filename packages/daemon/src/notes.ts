@@ -26,7 +26,7 @@ export function setOutputs(broadcast: (msg: ServerMessage) => void, toLinks: (no
   push = toLinks;
 }
 
-/** Every note, removed ones included, oldest first. */
+/** Every note, removed ones included, in list order (the front of the queue first). */
 export function list(): Note[] {
   return db.listNotes();
 }
@@ -52,6 +52,14 @@ export function edit(id: string, text: string): Note | undefined {
   const prev = db.getNote(id);
   if (!prev || !t || t === prev.text) return undefined;
   return touch({ ...prev, text: t });
+}
+
+/** Not now: to the end of the list, behind everything already there. */
+export function defer(id: string): Note | undefined {
+  const prev = db.getNote(id);
+  if (!prev || prev.deleted) return undefined;
+  const last = Math.max(0, ...list().filter((n) => !n.deleted).map((n) => n.queuedAt ?? n.createdAt));
+  return touch({ ...prev, queuedAt: Math.max(Date.now(), last + 1) });
 }
 
 export function remove(id: string, removed: boolean): Note | undefined {
@@ -108,6 +116,7 @@ function sane(v: unknown): Note | undefined {
     sessionId: str(o.sessionId, 100),
     sessionTitle: str(o.sessionTitle, 300),
     createdAt: o.createdAt,
+    queuedAt: typeof o.queuedAt === "number" ? o.queuedAt : undefined,
     updatedAt: o.updatedAt,
     deleted: o.deleted === true || undefined,
   };

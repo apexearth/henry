@@ -52,6 +52,19 @@ describe("notes", () => {
     expect(notes.remove(n.id, false)!.deleted).toBeUndefined();
   });
 
+  test("the list is a queue: new notes join the end, and a put-off one goes behind them all", () => {
+    const a = notes.add("first", "desk")!;
+    const b = notes.add("second", "desk")!;
+    expect(notes.list().map((n) => n.text)).toEqual(["first", "second"]);
+    links = [];
+    const later = notes.defer(a.id)!;
+    expect(later.queuedAt).toBeGreaterThan(b.createdAt);
+    expect(notes.list().map((n) => n.text)).toEqual(["second", "first"]);
+    // A move is a change like any other: it goes to the other machines.
+    expect(links).toEqual([[later]]);
+    expect(notes.merge([later])).toEqual([]);
+  });
+
   test("a peer's newer copy replaces ours and is passed on; the same copy again is not", () => {
     notes.merge([peerNote()]);
     links = [];

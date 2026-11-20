@@ -6,8 +6,10 @@ keeps them, `notes-fill.ts` fills them from sessions, `ui/src/panels/Notes.tsx` 
 - **A note is a line you keep until you tick it off.** The Notes tab (its count is on the tab) adds
   one with Enter, edits one on double-click and removes one with ✓, with an undo for a few seconds.
   Nothing expires a live note: it goes when you say it no longer matters.
+- **The list is a queue, worked from the top.** A new note joins the end, and "later" sends one
+  behind everything already there; the move is a change like an edit and reaches every machine.
 - **A note written while looking at a session is about that session**, unless you untick "about".
-  While you are in that session its notes come first; anywhere else the note carries the session's
+  While you are in that session its notes come first, in their queue order; anywhere else the note carries the session's
   name as a chip that takes you back to it. The title is stored with the note, so it still reads
   right after the session is gone or while its machine is offline.
 - **Every paired machine holds the same list.** Each daemon keeps all notes, not only its own, in

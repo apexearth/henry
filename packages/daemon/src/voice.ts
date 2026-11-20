@@ -661,7 +661,7 @@ function notesBlock(): string {
   const live = notes.list().filter((n) => !n.deleted);
   if (!live.length) return "";
   const lines = live.map((n) => `- ${oneLine(n.text, 300)}${n.sessionTitle ? ` (about "${n.sessionTitle}")` : ""}`);
-  return `Notes the user keeps so they remember things while switching between sessions, oldest first:\n${lines.join("\n")}`;
+  return `Notes the user keeps so they remember things while switching between sessions, in the order they mean to work through them:\n${lines.join("\n")}`;
 }
 
 export function resetThreadForTests(): void {

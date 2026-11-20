@@ -386,6 +386,9 @@ function noteMessage(client: Client, msg: ClientMessage): void {
     case "note:edit":
       notes.edit(msg.id, msg.text);
       return;
+    case "note:defer":
+      notes.defer(msg.id);
+      return;
     case "note:remove":
       notes.remove(msg.id, msg.removed);
       return;

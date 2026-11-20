@@ -250,7 +250,7 @@ function handle(m: ServerMessage): void {
         attention: m.attention ?? [],
         topics: m.topics ?? [],
         usage: m.usage,
-        notes: (m.notes ?? []).filter((n) => !n.deleted),
+        notes: (m.notes ?? []).filter((n) => !n.deleted).sort(queueOrder),
         config: m.config,
         firstRun: m.firstRun,
         host: m.host ?? null,
@@ -309,7 +309,7 @@ function handle(m: ServerMessage): void {
     case "notes:update": {
       const changed = new Map(m.notes.map((n) => [n.id, n]));
       const kept = state.notes.filter((n) => !changed.has(n.id));
-      setState({ notes: [...kept, ...m.notes.filter((n) => !n.deleted)].sort((a, b) => a.createdAt - b.createdAt) });
+      setState({ notes: [...kept, ...m.notes.filter((n) => !n.deleted)].sort(queueOrder) });
       return;
     }
     case "repo:diff":
@@ -746,6 +746,14 @@ export function suggestionsFor(sessionId: string, s: UiState = state): { topic: 
 // ---- notes ----
 
 export type NoteFill = Omit<Extract<ServerMessage, { type: "notes:filling" }>, "type" | "host"> & { at: number };
+
+/** Notes are a queue: the front first, new and put-off notes at the end. */
+export const queueOrder = (a: Note, b: Note) => (a.queuedAt ?? a.createdAt) - (b.queuedAt ?? b.createdAt);
+
+/** Not now: to the end of the list. */
+export function deferNote(id: string): void {
+  send({ type: "note:defer", id });
+}
 
 /** Every connected machine reads its own sessions and adds what it finds. */
 export function fillNotes(): void {

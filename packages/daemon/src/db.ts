@@ -157,6 +157,9 @@ for (const col of ["context_tokens", "context_window"]) {
 
 // The overseer's playbook, which notes replaced.
 db.exec("DROP TABLE IF EXISTS playbook");
+if (!(db.prepare("PRAGMA table_info(notes)").all() as { name: string }[]).some((c) => c.name === "queued_at")) {
+  db.exec("ALTER TABLE notes ADD COLUMN queued_at INTEGER");
+}
 // sessions.host: which machine's daemon owns the session (groundwork for multi-machine).
 // sessions.kind / claude_active: plain terminals next to Claude sessions.
 {
@@ -557,7 +560,7 @@ export function clearTopicSuggestions(sessionId: string): void {
 
 // ---- notes ----
 
-interface NoteRow { id: string; text: string; host: string; session_id: string | null; session_title: string | null; created_at: number; updated_at: number; deleted: number }
+interface NoteRow { id: string; text: string; host: string; session_id: string | null; session_title: string | null; created_at: number; queued_at: number | null; updated_at: number; deleted: number }
 
 function rowToNote(r: NoteRow): Note {
   return {
@@ -567,16 +570,17 @@ function rowToNote(r: NoteRow): Note {
     sessionId: r.session_id ?? undefined,
     sessionTitle: r.session_title ?? undefined,
     createdAt: r.created_at,
+    queuedAt: r.queued_at ?? undefined,
     updatedAt: r.updated_at,
     deleted: r.deleted ? true : undefined,
   };
 }
 
 export function putNote(n: Note): void {
-  db.prepare(`INSERT INTO notes (id, text, host, session_id, session_title, created_at, updated_at, deleted) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  db.prepare(`INSERT INTO notes (id, text, host, session_id, session_title, created_at, queued_at, updated_at, deleted) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET text = excluded.text, host = excluded.host, session_id = excluded.session_id, session_title = excluded.session_title,
-      created_at = excluded.created_at, updated_at = excluded.updated_at, deleted = excluded.deleted`)
-    .run(n.id, n.text, n.host, n.sessionId ?? null, n.sessionTitle ?? null, n.createdAt, n.updatedAt, n.deleted ? 1 : 0);
+      created_at = excluded.created_at, queued_at = excluded.queued_at, updated_at = excluded.updated_at, deleted = excluded.deleted`)
+    .run(n.id, n.text, n.host, n.sessionId ?? null, n.sessionTitle ?? null, n.createdAt, n.queuedAt ?? null, n.updatedAt, n.deleted ? 1 : 0);
 }
 
 export function getNote(id: string): Note | undefined {
@@ -585,7 +589,7 @@ export function getNote(id: string): Note | undefined {
 }
 
 export function listNotes(): Note[] {
-  return (db.prepare("SELECT * FROM notes ORDER BY created_at").all() as NoteRow[]).map(rowToNote);
+  return (db.prepare("SELECT * FROM notes ORDER BY COALESCE(queued_at, created_at)").all() as NoteRow[]).map(rowToNote);
 }
 
 export function noteChecks(): Map<string, number> {
