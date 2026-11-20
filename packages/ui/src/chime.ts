@@ -76,10 +76,39 @@ function play(kind: Notice["kind"]): void {
   });
 }
 
+/** The sessions whose sound just played, so the rail can light their rows while you hear it and
+ * let them fade: with several sessions finishing, the sound alone does not say which one. `n`
+ * changes on every ring so a second one restarts the fade. */
+export interface Rang {
+  kind: Notice["kind"];
+  n: number;
+}
+const RANG_MS = 6_000;
+let rang: ReadonlyMap<string, Rang> = new Map();
+let rings = 0;
+const rangListeners = new Set<() => void>();
+function ring(sessionId: string, kind: Notice["kind"]): void {
+  const n = ++rings;
+  rang = new Map(rang).set(sessionId, { kind, n });
+  rangListeners.forEach((l) => l());
+  setTimeout(() => {
+    if (rang.get(sessionId)?.n !== n) return;
+    const next = new Map(rang);
+    next.delete(sessionId);
+    rang = next;
+    rangListeners.forEach((l) => l());
+  }, RANG_MS);
+}
+export function useRang(): ReadonlyMap<string, Rang> {
+  return useSyncExternalStore((l) => (rangListeners.add(l), () => rangListeners.delete(l)), () => rang);
+}
+
 /** Same rule as the OS notification: quiet for the session you are looking at. */
 export function onNoticeChime(n: Notice): void {
   if (!chimeWanted()) return;
   if (document.visibilityState === "visible" && document.hasFocus() && getState().activeSessionId === n.sessionId) return;
+  // Every window lights the row, though only one of them rings.
+  if (!n.said || n.audio) ring(n.sessionId, n.kind);
   // The same notice comes back with `said` once the line is ready (daemon/announce.ts): the
   // chime rang for the first, the voice is the second.
   const key = n.said ? `${n.id}:said` : n.id;

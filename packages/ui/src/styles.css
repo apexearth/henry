@@ -158,6 +158,17 @@ input { background: var(--bg); border: 1px solid var(--border); border-radius: 4
 .rail-item { position: relative; }
 .rail-item > * { position: relative; }
 .rail-item .spark { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+/* The row whose chime is playing: lit at the sound in the chime's colour, then fading. Two
+   identical animations so a second chime restarts it by switching names. Green: it finished;
+   amber: it needs you. */
+.rail-item { --ring: var(--ok); }
+.rail-item.ring-needsInput, .rail-item.ring-ask { --ring: var(--warn); }
+/* ::before, so the row's own children (positioned) paint over it. */
+.rail-item.ring-a::before, .rail-item.ring-b::before { content: ""; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(to right, var(--ring) 3px, color-mix(in srgb, var(--ring) 55%, transparent) 3px); opacity: 0; }
+.rail-item.ring-a::before { animation: ring-a 6s ease-out forwards; }
+.rail-item.ring-b::before { animation: ring-b 6s ease-out forwards; }
+@keyframes ring-a { 0% { opacity: 0.45; } 4% { opacity: 0.2; } 8% { opacity: 0.45; } 20% { opacity: 0.3; } 100% { opacity: 0; } }
+@keyframes ring-b { 0% { opacity: 0.45; } 4% { opacity: 0.2; } 8% { opacity: 0.45; } 20% { opacity: 0.3; } 100% { opacity: 0; } }
 .rail-item .spark .bar { fill: var(--fg); opacity: 0.09; }
 .rail-item .spark .bar.now { fill: var(--accent); opacity: 0.3; }
 .rail-item:hover .spark .bar, .rail-item.active .spark .bar { opacity: 0.14; }

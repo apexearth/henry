@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { isClaudeSession, type Session, type SessionActivity, type Topic } from "@henry/shared";
+import { useRang } from "./chime";
 import { ContextMenu } from "./ContextMenu";
 import { RepoPicker } from "./RepoPicker";
 import { NewTopic, TopicModal } from "./TopicModal";
@@ -257,6 +258,7 @@ function Rail({ onNew }: { onNew: () => void }) {
   const here = useStore(activeRowIndex);
   const groups = useStore(railGroups);
   const groupBy = useStore((s) => s.groupBy);
+  const rang = useRang();
   const host = useStore((s) => s.host);
   const sessions = useStore((s) => s.sessions);
   const showClosed = useStore((s) => s.showClosed);
@@ -341,6 +343,9 @@ function Rail({ onNew }: { onNew: () => void }) {
               const yours = on && claude ? `\nyou: ${nPrompts} prompt${nPrompts === 1 ? "" : "s"} in the last 4 h${typed ? `, last typed ${typed} ago` : s.lastInputAt ? ", typing now" : ""}${s.lastSeenAt ? `, last looked ${since(s.lastSeenAt, now) ? `${since(s.lastSeenAt, now)} ago` : "just now"}` : ""}` : "";
               const fade = neglect(s, now);
               const fresh = isUnseen(s);
+              // Its chime just played: lit, then fading (styles.css); the parity restarts it.
+              const rung = rang.get(s.id);
+              const ringing = rung ? ` ring-${rung.n % 2 ? "a" : "b"} ring-${rung.kind}` : "";
               const remindAt = on ? s.remindAt : undefined;
               // The parent's title when it is still listed; a fork outliving it still says it is one.
               const forkedFrom = s.parentSessionId ? sessions.find((x) => x.id === s.parentSessionId)?.title ?? "an earlier session" : undefined;
@@ -348,7 +353,7 @@ function Rail({ onNew }: { onNew: () => void }) {
               const chips = on && !s.topicId ? suggested(s.id) : [];
               const topicName = !g.topicId && !s.coordinator ? topics.find((t) => t.id === s.topicId)?.name : undefined;
               return (
-                <div key={g.key + "\n" + s.id} className={"rail-item" + mark + (on ? "" : " off") + (fade ? " neglect-" + fade : "") + (ask.length ? " asking" : "") + (fresh ? " unseen" : "")} onClick={() => { setActive(s.id, g.key); showSession(s.id); }}
+                <div key={g.key + "\n" + s.id} className={"rail-item" + mark + (on ? "" : " off") + (fade ? " neglect-" + fade : "") + (ask.length ? " asking" : "") + (fresh ? " unseen" : "") + ringing} onClick={() => { setActive(s.id, g.key); showSession(s.id); }}
                   onContextMenu={(e) => {
                     // Exited rows have nothing to mark: the browser's own menu stays.
                     if (!on) return;

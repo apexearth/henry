@@ -93,6 +93,7 @@ What Claude is doing in a session, and whether you have been showing up to it.
   (`ui/chime.ts`, Web Audio, on by default, per browser, its own tick beside the notification
   one): rising notes for a prompt or an ask, falling for a finished turn, one note for a
   reminder; same quiet rule, one chime across windows, and the OS notification goes silent
-  while it is on. This is the sound to use instead of an `afplay` hook in `settings.json`. A phone gets them while a
+  while it is on. As it plays, the session's rail row lights up, amber when it needs you and
+  green otherwise, and fades over a few seconds, in every window; a spoken line lights it again. This is the sound to use instead of an `afplay` hook in `settings.json`. A phone gets them while a
   Henry tab is open, even in the background. iOS shows nothing from a page at all: true
   background delivery there is Web Push, which is in `PLAN.md`.
