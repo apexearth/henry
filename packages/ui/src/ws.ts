@@ -356,6 +356,8 @@ export interface RailGroup {
   peer?: string;
   /** Under "by topic": the topic this group is. */
   topicId?: string;
+  /** That topic lives on another machine than this group's sessions: its name, or "" for this one. */
+  topicHome?: string;
   /** The machine is folded: one group carrying all its sessions so the header still counts
    * them, but the rail draws no rows and they are out of the ⌘1..9 order. */
   hidden?: boolean;
@@ -448,22 +450,23 @@ function attentionGroups(order: Session[], s: UiState): RailGroup[] {
 
 const NO_TOPIC = "\u0000no-topic";
 
-/** The topic a session is in. A topic and its sessions are always on the same machine. */
+/** The topic a session is in, on its own machine or another one (ids are unique everywhere). */
 export function topicOf(x: Session, s: UiState = state): Topic | undefined {
-  return x.topicId ? s.topics.find((t) => t.id === x.topicId && t.peer === x.peer) : undefined;
+  return x.topicId ? s.topics.find((t) => t.id === x.topicId) : undefined;
 }
 
 /** One group per open topic on this machine (`peer`), its coordinator first, empty ones included
- * so a topic whose coordinator exited can still be opened; then everything in no topic. */
+ * so a topic whose coordinator exited can still be opened; then one per other machine's topic
+ * that sessions here are in; then everything in no topic. */
 function topicGroups(order: Session[], s: UiState, peer: string | undefined): RailGroup[] {
   const groups = new Map<string, RailGroup>();
-  for (const t of s.topics.filter((x) => x.peer === peer)) {
-    groups.set(t.id, { key: "topic:" + t.id, label: t.name, title: t.brief || "no brief yet", hue: nameHue(t.name), topicId: t.id, sessions: [] });
-  }
+  const group = (t: Topic) => ({ key: "topic:" + t.id, label: t.name, title: t.brief || "no brief yet", hue: nameHue(t.name), topicId: t.id, sessions: [] as Session[] });
+  for (const t of s.topics.filter((x) => x.peer === peer)) groups.set(t.id, group(t));
   const rest: Session[] = [];
   for (const x of order) {
     const t = topicOf(x, s);
-    if (t && groups.has(t.id)) groups.get(t.id)!.sessions.push(x);
+    if (t && !groups.has(t.id)) groups.set(t.id, { ...group(t), topicHome: t.peer ?? "" });
+    if (t) groups.get(t.id)!.sessions.push(x);
     else rest.push(x);
   }
   for (const g of groups.values()) g.sessions.sort((a, b) => Number(!!b.coordinator) - Number(!!a.coordinator));

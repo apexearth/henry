@@ -9,12 +9,18 @@ Several sessions on one subject, kept aware of each other by a session that sits
   one-offs are usually in none, and "no topic" is a normal place to be. Brief, notes and
   membership live in SQLite and survive restarts. Closing a topic
   stops its coordinator, leaves its running sessions in no topic, and keeps the row.
-- **A topic runs on one machine**, which you pick when you make it: its coordinator runs there
-  and its members are that machine's sessions, since the coordinator reads summaries only that
-  daemon holds. A paired machine's topics are relayed like its sessions (tagged `peer`), so
-  every window sees every connected machine's topics and drives them through the link: make,
-  rename, brief, join, start a coordinator, close. Names are unique per machine. Trust stays
-  non-transitive: a peer cannot reach a third machine's topics through this one.
+- **A topic lives on one machine; its members can be on others.** You pick the machine when you
+  make it, and its coordinator, brief and notes stay there. A session on any machine paired with
+  that one both ways (each dials the other, as pairing sets up when both listen) can be a member.
+  The session's own machine records which topic it is in, so a join goes to the session's
+  machine whichever window asks. That machine gives the member the brief from the copy of the
+  topic it mirrors over its own link. The topic's machine sees the member through its link,
+  reads it by asking that machine for the same summary a local member gets
+  (`/api/topic/member`), and closing the topic takes it out there too. A paired machine's topics
+  are relayed like its sessions (tagged `peer`), so every window sees every connected machine's
+  topics and drives them through the link: make, rename, brief, join, start a coordinator,
+  close. Names are unique per machine. Trust stays one hop: a coordinator reaches members on
+  machines paired with its own, and a peer cannot reach a third machine's topics through this one.
 - **Every topic has a coordinator**, a Claude session Henry starts when the topic is made. It
   runs in `<henry home>/coordinator`, one folder for all of them so Claude Code asks to trust
   it once, with `--append-system-prompt-file` (its standing instructions, `COORDINATOR_PROMPT`)
@@ -39,7 +45,9 @@ Several sessions on one subject, kept aware of each other by a session that sits
   member's transcript says where it came from. `send` submits it; its description, and the coordinator's instructions,
   say to set it only when your message asked for it. Either way it goes in only between turns
   (`waiting` or `idle`): typing into a running turn or a permission prompt would answer
-  something nobody meant to. Until then it queues, three at most, for 30 minutes. It goes
+  something nobody meant to. Until then it queues, three at most, for 30 minutes. A member on
+another machine is sent it over the link (`/api/topic/deliver`, served to peers only), and its
+machine checks that it is a member and that the text carries the label, then queues it the same way. It goes
   through `relaySafe` like a voice relay, so it can never carry its own Enter, and members only:
   a coordinator cannot reach another topic's sessions.
 - **A turn the coordinator started answers back.** When a member's prompt starts with that
@@ -49,15 +57,21 @@ Several sessions on one subject, kept aware of each other by a session that sits
   submitted, since the coordinator asked; the coordinator's instructions say a reply is the
   member's answer, never the user's word to send anything on. A topic's replies past twelve in
   an hour go in as drafts instead, so a coordinator and a member cannot drive each other all
-  night. A turn you start in a member is yours and sends nothing back.
+  night. A member on another machine sends its reply over its link (`/api/topic/reply`); the
+topic's machine takes it only from a session it sees in the topic, and names that member's
+machine in the label. A turn you start in a member is yours and sends nothing back.
 - **Membership changes only when you ask.** A coordinator adds or removes a session when your
   message says to; otherwise it suggests, and the rail shows `→ <topic>?` on that row until you
   accept (it joins) or dismiss it (that suggestion never comes back). Only running Claude
-  sessions in no topic can be suggested.
+  sessions in no topic on the topic's own machine can be suggested; one elsewhere the coordinator
+  adds when you ask.
 - **In the rail**, "by topic" lists each machine's open topics under that machine, coordinator
-  first (◆), then its "no topic".
+  first (◆), then the topics of other machines that its sessions are in, marked with the machine
+  each lives on, then its "no topic".
   Empty topics still show, so one whose coordinator exited can be opened. The header opens the
   topic: rename it, edit the brief, see the notes and members, start a coordinator, close it.
   A row's right-click menu adds it to a topic, moves it, takes it out, or starts a new topic
-  with it, offering only topics on the row's own machine; "+ topic" sits beside "+ new session"
+  with it. It offers topics on the row's own machine, and topics on a machine linked both ways
+  with it when one of the two is the machine this window is attached to, since only then can the
+  window tell that the coordinator will reach the row; "+ topic" sits beside "+ new session"
   in that grouping and, like "+ new", offers the connected machines to make it on.

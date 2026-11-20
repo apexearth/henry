@@ -54,7 +54,9 @@ until it is back. Two machines that both listen dial each other, so each window 
   capped after the merge, so a window's first frame is one cap's worth, not one per machine.
 - **Trust is not transitive.** A peer sees and drives this daemon's own sessions only.
   Messages from a peer that name a session relayed from another peer, or ask to create one
-  there, are dropped: reaching that machine takes its own pairing.
+  there, are dropped: reaching that machine takes its own pairing. A topic's members can span
+  two machines paired both ways, and its coordinator reaches members on paired machines only
+  (topics.md).
 - **In the rail** a peer's sessions sit under their own delimiter (its name, coloured like a
   repo name, on a dotted rule) below this machine's, whatever the grouping; "+ new" offers
   the connected machines as a place to start the session. **The delimiter folds**: clicking it

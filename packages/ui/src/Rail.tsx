@@ -142,10 +142,16 @@ function rowTitle(s: Session, topics: Topic[], underTopic: boolean): string {
 function RowMenu({ x, y, session, now, onClose, onNewTopic }: { x: number; y: number; session: Session; now: number; onClose: () => void; onNewTopic: (sessionId: string) => void }) {
   // The row's session as the store has it now, not as it was when the menu opened.
   const s = useStore((st) => st.sessions.find((v) => v.id === session.id)) ?? session;
-  // A session joins only a topic on its own machine, and a coordinator stays with the one it keeps.
+  // A session joins a topic on its own machine, or on a machine this window's is linked with both
+  // ways when one of the two is this one: that is what the topic's coordinator needs to reach it.
+  // A coordinator stays with the topic it keeps.
   const all = useStore((st) => st.topics);
-  const topics = all.filter((t) => t.peer === s.peer);
-  const current = topics.find((t) => t.id === s.topicId);
+  const peers = useStore((st) => st.peers);
+  const host = useStore((st) => st.host);
+  const twoWay = (name: string) => peers.some((p) => p.name === name && p.link === "connected" && p.inbound);
+  const topics = all.filter((t) => t.peer === s.peer || ((!s.peer || !t.peer) && twoWay((s.peer ?? t.peer)!)));
+  const current = all.find((t) => t.id === s.topicId);
+  const away = (t: Topic) => (t.peer === s.peer ? "" : ` on ${t.peer ?? host ?? "this machine"}`);
   const canTopic = !s.coordinator;
   const act = (fn: () => void) => () => {
     fn();
@@ -169,10 +175,10 @@ function RowMenu({ x, y, session, now, onClose, onNewTopic }: { x: number; y: nu
             <div className="menu-sep" />
             {topics.filter((t) => t.id !== s.topicId).map((t) => (
               <button key={t.id} onClick={act(() => joinTopic(s.id, t.id))} title={t.brief || "no brief yet"}>
-                {current ? "move" : "add"} to topic “{t.name}”
+                {current ? "move" : "add"} to topic “{t.name}”{away(t)}
               </button>
             ))}
-            {current && <button onClick={act(() => joinTopic(s.id, null))}>take out of “{current.name}”</button>}
+            {current && <button onClick={act(() => joinTopic(s.id, null))}>take out of “{current.name}”{away(current)}</button>}
             <button onClick={act(() => onNewTopic(s.id))}>new topic with this session…</button>
           </>
         )}
@@ -311,6 +317,7 @@ function Rail({ onNew }: { onNew: () => void }) {
                   ? <button className="name topic" style={{ color: hueText(g.hue!) }} onClick={() => setTopicOpen(g.topicId!)}
                       title={`${g.title}\nclick: the brief, the notes and the coordinator`}>{g.label}</button>
                   : <span className="name" style={g.hue !== undefined ? { color: hueText(g.hue) } : undefined}>{g.label}</span>}
+                {g.topicHome !== undefined && <span className="n" title="the topic and its coordinator run on that machine">on {g.topicHome || host || "this machine"}</span>}
                 <span className="n">{g.sessions.length}</span>
                 <button className="hide" title={"hide " + (g.sessions.length === 1 ? "this session" : "these " + g.sessions.length + " sessions") + " — they leave the rail everywhere, not just here"}
                   onClick={() => hideSessions(g.sessions.map((x) => x.id))}>⊘</button>
@@ -342,7 +349,7 @@ function Rail({ onNew }: { onNew: () => void }) {
               const forkedFrom = s.parentSessionId ? sessions.find((x) => x.id === s.parentSessionId)?.title ?? "an earlier session" : undefined;
               const title = rowTitle(s, topics, !!g.topicId);
               const chips = on && !s.topicId ? suggested(s.id) : [];
-              const topicName = !g.topicId && !s.coordinator ? topics.find((t) => t.id === s.topicId && t.peer === s.peer)?.name : undefined;
+              const topicName = !g.topicId && !s.coordinator ? topics.find((t) => t.id === s.topicId)?.name : undefined;
               return (
                 <div key={g.key + "\n" + s.id} className={"rail-item" + mark + (on ? "" : " off") + (fade ? " neglect-" + fade : "") + (ask.length ? " asking" : "") + (fresh ? " unseen" : "")} onClick={() => { setActive(s.id, g.key); showSession(s.id); }}
                   onContextMenu={(e) => {

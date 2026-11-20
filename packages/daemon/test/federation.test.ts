@@ -551,6 +551,47 @@ describe("two daemons", () => {
     wa.close();
   }, 30000);
 
+  test("a topic on alpha takes a session on beta: its prompts carry the brief, and the coordinator reads and reaches it", async () => {
+    const wa = await new Win().open(alpha);
+    wa.send({ type: "topic:create", name: "bridge" });
+    const topic = (await wa.next("topics:update", (m) => m.topics.some((t) => t.name === "bridge" && !t.peer))).topics.find((t) => t.name === "bridge" && !t.peer)!;
+    wa.send({ type: "topic:brief", topicId: topic.id, brief: "goal: across the bridge" });
+    await waitFor("beta mirrors the brief", async () => ((await state(beta)).topics?.find((t) => t.id === topic.id)?.brief === "goal: across the bridge" ? true : undefined));
+
+    // Asked on alpha, made on beta: a session's own machine records its topic.
+    wa.send({ type: "topic:join", sessionId: betaSession, topicId: topic.id });
+    await waitFor("beta's session in alpha's topic", async () => ((await state(beta)).sessions.find((s) => s.id === betaSession)?.topicId === topic.id ? true : undefined));
+    await waitFor("alpha sees the member", async () => ((await state(alpha)).sessions.find((s) => s.id === betaSession)?.topicId === topic.id ? true : undefined));
+
+    const hook = (event: string, extra: Record<string, unknown>) =>
+      post(beta, "/hook", { henrySession: betaSession, henryHookEvent: event, payload: { session_id: "beta-claude", cwd: beta.home, hook_event_name: event, ...extra } });
+    const answer = (await (await hook("UserPromptSubmit", { prompt: "what is the plan?" })).json()) as { hookSpecificOutput?: { additionalContext?: string } };
+    expect(answer.hookSpecificOutput?.additionalContext).toContain('topic "bridge"');
+    expect(answer.hookSpecificOutput?.additionalContext).toContain("its coordinator runs on alpha");
+    expect(answer.hookSpecificOutput?.additionalContext).toContain("goal: across the bridge");
+
+    // What alpha's coordinator reads of it is built on beta, where its transcript and git are.
+    const member = (await (await fetch(`${alpha.base}/api/topic/member?peer=beta&session=${betaSession}`)).json()) as { lines: string[] };
+    expect(member.lines[0]).toContain(`[${betaSession.slice(0, 8)}]`);
+
+    // A prompt from alpha's coordinator meets beta's checks over the link: one that does not say
+    // whose it is goes nowhere. A window cannot send one at all.
+    const alphaId = (JSON.parse(readFileSync(join(alpha.home, "federation.json"), "utf8")) as { identity: IdentityKeys }).identity;
+    const betaUrl = (await fedStatus(alpha)).peers.find((p) => p.name === "beta")!.url!;
+    const asAlpha = await rawPeer(betaUrl, alphaId, "alpha");
+    asAlpha.send({ type: "http", id: "d1", method: "POST", path: "/api/topic/deliver", body: JSON.stringify({ topicId: topic.id, sessionId: betaSession, text: "unlabelled", send: false }) });
+    const delivered = (await asAlpha.next("http:res", 5000)) as { status: number; body: string };
+    expect(delivered.status).toBe(409);
+    expect(delivered.body).toContain("label");
+    asAlpha.close();
+    expect((await post(beta, "/api/topic/deliver", { topicId: topic.id, sessionId: betaSession, text: '[from the "bridge" coordinator] hello' })).status).toBe(403);
+
+    // Closing it on alpha takes beta's session out on beta.
+    wa.send({ type: "topic:close", topicId: topic.id });
+    await waitFor("beta's session out of the topic", async () => ((await state(beta)).sessions.find((s) => s.id === betaSession)?.topicId === undefined ? true : undefined));
+    wa.close();
+  }, 30000);
+
   test("a note made on either machine is on both, and a removal on one is gone from both", async () => {
     const wa = await new Win().open(alpha);
     const wb = await new Win().open(beta);

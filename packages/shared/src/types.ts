@@ -69,7 +69,8 @@ export interface Session {
 }
 
 /** A named set of sessions working on one subject, kept by its coordinator (daemon/topics.ts).
- * It lives on one machine, with its coordinator and members; windows anywhere see it. */
+ * It lives on one machine with its coordinator; members may run on any machine paired with that
+ * one both ways, and windows anywhere see it. */
 export interface Topic {
   id: string;
   name: string;

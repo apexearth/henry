@@ -5,8 +5,9 @@
  * tools either (topics.ts COORDINATOR_DENIED), so this is the whole of what it can see.
  *
  * The writes go through topics.ts, which holds the rules: membership changes only for a running
- * session on this machine, suggestions only for one in no topic, prompts only to members and only
- * between their turns.
+ * session, suggestions only for one here in no topic, prompts only to members and only between
+ * their turns. A member on a paired machine is read and prompted through that machine, which
+ * builds its summary the same way (server.ts /api/topic/member).
  */
 import { isClaudeSession, type Session } from "@henry/shared";
 import * as db from "./db";
@@ -65,7 +66,7 @@ function filesLine(s: Session): string {
 function head(s: Session, now: number): string {
   const kind = isClaudeSession(s) ? "" : " (terminal)";
   const state = s.status === "running" ? activityPhrase(s, now) : `exited ${s.endedAt ? age(s.endedAt, now) + " ago" : ""}`.trim();
-  return `"${s.title}" [${s.id.slice(0, 8)}]${kind} ${state} — cwd ${short(s.cwd)}`;
+  return `"${s.title}" [${s.id.slice(0, 8)}]${kind} ${state} — cwd ${short(s.cwd)}${s.peer ? ` — on ${s.peer}` : ""}`;
 }
 
 /** A few lines per session: who, doing what, asked what, touching which files. notes-fill.ts reads
@@ -91,9 +92,18 @@ export function lastReply(s: Session): string | undefined {
   return undefined;
 }
 
+/** sessionBrief and the last reply, for a session here or, asked over the link, on a peer. */
+export async function memberBrief(s: Session, now: number, prompts = 1): Promise<{ lines: string[]; reply?: string }> {
+  if (!s.peer) return { lines: sessionBrief(s, now, prompts), reply: lastReply(s) };
+  const r = await topics.askPeer<{ lines: string[]; reply?: string }>({ session: s.id }, "GET", `/api/topic/member?session=${encodeURIComponent(s.id)}&prompts=${prompts}`);
+  // The first line is rebuilt here, so it says which machine the session is on.
+  if (!r.ok) return { lines: [head(s, now), `  (${s.peer} did not say more: ${r.reason})`] };
+  return { lines: [head(s, now), ...r.value.lines.slice(1)], reply: r.value.reply };
+}
+
 // ---- tools ----
 
-function topicView(ctx: CallContext, now = Date.now()): string {
+async function topicView(ctx: CallContext, now = Date.now()): Promise<string> {
   const mine = own(ctx);
   if (typeof mine === "string") return mine;
   const t = topics.get(mine.topicId)!;
@@ -103,7 +113,7 @@ function topicView(ctx: CallContext, now = Date.now()): string {
   out.push("", notes.length ? `Notes:\n${notes.map((n) => `- [${n.id}] ${n.text} (${age(n.ts, now)} ago${n.expiresAt ? `, ${Math.max(1, Math.round((n.expiresAt - now) / 60_000))}m left` : ""})`).join("\n")}` : "Notes: none");
   out.push("", `Members (${members.length}):`);
   if (!members.length) out.push("  none yet. The user adds sessions from the rail, or asks you to.");
-  for (const s of members) out.push(...sessionBrief(s, now).map((l) => "  " + l));
+  for (const b of await Promise.all(members.map((s) => memberBrief(s, now)))) out.push(...b.lines.map((l) => "  " + l));
 
   const loose = topics.looseSessions();
   if (loose.length) {
@@ -125,16 +135,18 @@ function topicView(ctx: CallContext, now = Date.now()): string {
   return out.join("\n");
 }
 
-function sessionView(args: Record<string, unknown>, ctx: CallContext, now = Date.now()): string {
+/** Any session here, and the members of your topic on other machines. */
+async function sessionView(args: Record<string, unknown>, ctx: CallContext, now = Date.now()): Promise<string> {
   const mine = own(ctx);
   if (typeof mine === "string") return mine;
   const name = typeof args.session === "string" ? args.session : "";
-  const pool = topics.allSessions().filter((s) => !s.coordinator && !s.peer);
+  const pool = [...topics.allSessions().filter((s) => !s.coordinator && !s.peer), ...topics.membersOf(mine.topicId).filter((s) => s.peer)];
   const s = find(name, pool);
-  if (!s) return `henry: no session here matches "${name}". henry_topic lists them with their ids.`;
+  if (!s) return `henry: no session here or in your topic matches "${name}". henry_topic lists them with their ids.`;
   const where = s.topicId === mine.topicId ? "in your topic" : s.topicId ? `in the topic "${topics.get(s.topicId)?.name ?? "?"}"` : "in no topic";
-  const out = [...sessionBrief(s, now, 6), `  ${where}`];
-  const reply = lastReply(s);
+  const brief = await memberBrief(s, now, 6);
+  const out = [...brief.lines, `  ${where}`];
+  const reply = brief.reply;
   out.push(reply ? `  last reply: "${reply}"` : "  last reply: (none on record)");
   const queued = topics.queuedFor(s.id);
   if (queued) out.push(`  ${queued} message${queued === 1 ? "" : "s"} from you waiting for its turn to end`);
@@ -170,22 +182,24 @@ function membershipTool(args: Record<string, unknown>, ctx: CallContext): string
   if (typeof mine === "string") return mine;
   const action = String(args.action ?? "");
   const name = typeof args.session === "string" ? args.session : "";
-  const pool = topics.allSessions().filter((s) => !s.coordinator && !s.peer && s.status === "running");
+  // Sessions on paired machines too: one there can be in a topic here.
+  const pool = topics.allSessions().concat(topics.peerSessions()).filter((s) => !s.coordinator && s.status === "running");
   const s = find(name, pool);
-  if (!s) return `henry: no running session here matches "${name}".`;
+  if (!s) return `henry: no running session matches "${name}".`;
+  const done = (r: topics.Result<"done" | "asked">, what: string) =>
+    !r.ok ? `henry: ${r.reason}` : r.value === "done" ? `"${s.title}" is ${what} now.` : `asked ${s.peer} to put "${s.title}" ${what}; henry_topic shows it once that machine has.`;
   switch (action) {
     case "add": {
       if (s.topicId === mine.topicId) return `"${s.title}" is already in "${mine.name}".`;
       if (s.topicId) return `henry: "${s.title}" is in "${topics.get(s.topicId)?.name ?? "another topic"}"; the user moves it from there.`;
-      const r = topics.join(s.id, mine.topicId);
-      return r.ok ? `"${s.title}" is in "${mine.name}" now.` : `henry: ${r.reason}`;
+      return done(topics.place(s.id, mine.topicId), `in "${mine.name}"`);
     }
     case "remove": {
       if (s.topicId !== mine.topicId) return `"${s.title}" is not in "${mine.name}".`;
-      const r = topics.join(s.id, null);
-      return r.ok ? `"${s.title}" is in no topic now.` : `henry: ${r.reason}`;
+      return done(topics.place(s.id, null), "in no topic");
     }
     case "suggest": {
+      if (s.peer) return `henry: "${s.title}" runs on ${s.peer}; suggestions are for this machine's sessions. Tell the user, who can add it from the rail.`;
       const reason = typeof args.reason === "string" && args.reason.trim() ? args.reason : `looks like part of "${mine.name}"`;
       const r = topics.suggest(mine.topicId, s.id, reason);
       return r.ok ? `suggested: the rail shows "→ ${mine.name}?" on "${s.title}" until the user accepts or dismisses it.` : `henry: ${r.reason}`;
@@ -195,14 +209,14 @@ function membershipTool(args: Record<string, unknown>, ctx: CallContext): string
   }
 }
 
-function promptTool(args: Record<string, unknown>, ctx: CallContext): string {
+async function promptTool(args: Record<string, unknown>, ctx: CallContext): Promise<string> {
   const mine = own(ctx);
   if (typeof mine === "string") return mine;
   const name = typeof args.session === "string" ? args.session : "";
   const s = find(name, topics.membersOf(mine.topicId).filter((x) => x.status === "running"));
   if (!s) return `henry: no running member of "${mine.name}" matches "${name}".`;
   const send = args.send === true;
-  const r = topics.prompt(ctx.sessionId, s.id, typeof args.text === "string" ? args.text : "", send);
+  const r = await topics.prompt(ctx.sessionId, s.id, typeof args.text === "string" ? args.text : "", send);
   if (!r.ok) return `henry: ${r.reason}`;
   switch (r.value) {
     case "sent":
@@ -223,7 +237,7 @@ export const COORDINATOR_TOOLS: ToolDef[] = [
   },
   {
     name: "henry_session",
-    description: "One session in more depth: its last few prompts, its last reply, files written, git state. Any session on this machine, by title or id.",
+    description: "One session in more depth: its last few prompts, its last reply, files written, git state. Any session on this machine, or a member of your topic on another, by title or id.",
     inputSchema: { type: "object", properties: { session: { type: "string", description: "Title or id (the 8 characters henry_topic shows)." } }, required: ["session"] },
     run: async (args, ctx) => sessionView(args, ctx),
   },

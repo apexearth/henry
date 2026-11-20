@@ -47,8 +47,8 @@ export type ClientMessage =
   /** Make a topic; its coordinator starts with it. `sessionId` joins that session straight away
    * and the topic is made on that session's machine; otherwise on `peer` (PeerStatus.name), or here. */
   | { type: "topic:create"; name: string; sessionId?: string; peer?: string }
-  /** Put a session in a topic, or take it out (null). Coordinators stay where they are, and a
-   * session joins only a topic on its own machine. A topic's machine is routed by topicId. */
+  /** Put a session in a topic, or take it out (null). Coordinators stay where they are. Routed to
+   * the session's machine, which records its topic whichever machine the topic is on. */
   | { type: "topic:join"; sessionId: string; topicId: string | null }
   | { type: "topic:brief"; topicId: string; brief: string }
   | { type: "topic:rename"; topicId: string; name: string }

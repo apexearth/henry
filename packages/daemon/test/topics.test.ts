@@ -5,8 +5,9 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:tes
 import { mkdirSync, mkdtempSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ServerMessage, Session } from "@henry/shared";
+import type { ServerMessage, Session, Topic } from "@henry/shared";
 import type { CreateOptions } from "../src/sessions";
+import type { PeerTarget } from "../src/topics";
 import { rmScratch } from "./sessiond-helper";
 
 const tmp = realpathSync(mkdtempSync(join(tmpdir(), "henry-topics-test-")));
@@ -190,17 +191,17 @@ describe("topics", () => {
     topics.join("busy", t.id);
     const coord = topics.coordinatorOf(t.id)!;
 
-    const draft = topics.prompt(coord.id, "m", "the endpoint\nmoved", false);
+    const draft = await topics.prompt(coord.id, "m", "the endpoint\nmoved", false);
     expect(draft).toEqual({ ok: true, value: "drafted" });
     expect(written).toEqual([{ id: "m", data: '[from the "relay" coordinator; your reply goes back to it] the endpoint moved' }]);
 
     written = [];
-    expect(topics.prompt(coord.id, "m", "go", true)).toEqual({ ok: true, value: "sent" });
+    expect(await topics.prompt(coord.id, "m", "go", true)).toEqual({ ok: true, value: "sent" });
     await Bun.sleep(250);
     expect(written.map((w) => w.data)).toEqual(['[from the "relay" coordinator; your reply goes back to it] go', "\r"]);
 
     written = [];
-    expect(topics.prompt(coord.id, "busy", "later", true)).toEqual({ ok: true, value: "queued" });
+    expect(await topics.prompt(coord.id, "busy", "later", true)).toEqual({ ok: true, value: "queued" });
     expect(written).toHaveLength(0);
     topics.flush("busy");
     expect(written).toHaveLength(0);
@@ -211,8 +212,8 @@ describe("topics", () => {
     topics.flush("busy");
     expect(written[0]?.data).toContain("later");
 
-    expect(topics.prompt(coord.id, "out", "not a member", false).ok).toBe(false);
-    expect(topics.prompt("m", "busy", "members cannot", false).ok).toBe(false);
+    expect((await topics.prompt(coord.id, "out", "not a member", false)).ok).toBe(false);
+    expect((await topics.prompt("m", "busy", "members cannot", false)).ok).toBe(false);
   });
 
   test("a turn the coordinator started answers back into the coordinator; the user's own turns do not", async () => {
@@ -297,6 +298,132 @@ describe("topics", () => {
     const back = topics.list().find((x) => x.id === t.id);
     expect(back?.brief).toBe("kept");
     expect(back?.notes.map((n) => n.text)).toEqual(["still here"]);
+  });
+});
+
+describe("a topic across machines", () => {
+  type Call = { to: PeerTarget; method: string; path: string; body?: unknown };
+  let far: Session[];
+  let calls: Call[];
+  let joins: { sessionId: string; topicId: string | null }[];
+  let answer: (c: Call) => Response;
+  const farTopic: Topic = { id: "far-topic", name: "shared", peer: "laptop", brief: "Ship v2 together.", notes: [{ id: "n1", text: "laptop owns the API", ts: Date.now() }], suggestions: [], createdAt: 0, updatedAt: 0 };
+
+  beforeEach(() => {
+    far = [];
+    calls = [];
+    joins = [];
+    answer = () => Response.json({ outcome: "sent" });
+    topics.setDepsForTests({
+      list: () => live,
+      setTopic: (id, topicId, coordinator) => {
+        const s = live.find((x) => x.id === id);
+        if (s) Object.assign(s, { topicId, coordinator: coordinator || undefined });
+      },
+      write: (id, data) => written.push({ id, data }),
+      kill: (id) => killed.push(id),
+      reply: (id) => replies[id],
+      create: async (opts) => {
+        launched.push(opts);
+        const s = session(`coord-${launched.length}`, { cwd: opts.cwd, title: opts.title ?? "", topicId: opts.topicId, coordinator: opts.coordinator });
+        live.push(s);
+        return s;
+      },
+      peerSessions: () => far,
+      peerTopic: (id) => (id === farTopic.id ? farTopic : undefined),
+      peerHttp: (to, method, path, body) => {
+        const c = { to, method, path, body };
+        calls.push(c);
+        return Promise.resolve(answer(c));
+      },
+      peerJoin: (sessionId, topicId) => {
+        joins.push({ sessionId, topicId });
+        return true;
+      },
+    });
+  });
+
+  test("a session here joins a peer's topic and its prompts carry that topic's brief", () => {
+    live.push(session("a"));
+    far.push(session("api", { peer: "laptop", title: "api work", topicId: farTopic.id, activity: "working" }));
+    expect(topics.join("a", "no-such-topic").ok).toBe(false);
+    expect(topics.join("a", farTopic.id).ok).toBe(true);
+    const text = topics.contextFor("a")!;
+    expect(text).toContain('topic "shared"');
+    expect(text).toContain("its coordinator runs on laptop");
+    expect(text).toContain("Ship v2 together.");
+    expect(text).toContain("laptop owns the API");
+    expect(text).toContain('"api work" on laptop (working)');
+    expect(topics.inherit({ topicId: farTopic.id }, true)).toEqual({ topicId: farTopic.id });
+    expect(topics.inherit({ topicId: farTopic.id, coordinator: true }, true)).toEqual({});
+  });
+
+  test("a coordinator here prompts a member on a peer through that machine", async () => {
+    const t = await topic("spread");
+    const coord = topics.coordinatorOf(t.id)!;
+    far.push(session("remote", { peer: "laptop", title: "remote member", topicId: t.id }));
+    expect(topics.membersOf(t.id).map((s) => s.id)).toEqual(["remote"]);
+    expect(await topics.prompt(coord.id, "remote", "rebase\nplease", true)).toEqual({ ok: true, value: "sent" });
+    expect(calls).toEqual([{ to: { session: "remote" }, method: "POST", path: "/api/topic/deliver", body: { topicId: t.id, sessionId: "remote", text: '[from the "spread" coordinator; your reply goes back to it] rebase please', send: true } }]);
+    expect(written).toHaveLength(0);
+
+    answer = () => Response.json({ error: "that session is not in this topic" }, { status: 409 });
+    const refused = await topics.prompt(coord.id, "remote", "again", false);
+    expect(refused.ok).toBe(false);
+    expect(!refused.ok && refused.reason).toContain("laptop: that session is not in this topic");
+  });
+
+  test("a peer's coordinator reaches only its own members here, and only with its label", () => {
+    live.push(session("m", { topicId: farTopic.id }), session("other"));
+    const label = '[from the "shared" coordinator; your reply goes back to it] ';
+    expect(topics.deliverFromPeer(farTopic.id, "other", label + "hi", false).ok).toBe(false);
+    expect(topics.deliverFromPeer(farTopic.id, "m", "unlabelled", false).ok).toBe(false);
+    expect(topics.deliverFromPeer(farTopic.id, "m", label + "hi", false)).toEqual({ ok: true, value: "drafted" });
+    expect(written).toEqual([{ id: "m", data: label + "hi" }]);
+  });
+
+  test("a member here answers a peer's coordinator over the link", async () => {
+    live.push(session("m", { topicId: farTopic.id }));
+    replies.m = "Rebased onto main.";
+    topics.onPrompt("m", '[from the "shared" coordinator; your reply goes back to it] rebase');
+    expect(await topics.onStop("m")).toBe("sent");
+    expect(calls).toEqual([{ to: { topic: farTopic.id }, method: "POST", path: "/api/topic/reply", body: { topicId: farTopic.id, sessionId: "m", text: "Rebased onto main." } }]);
+  });
+
+  test("a peer member's reply reaches the coordinator here, named as this machine sees it", async () => {
+    const t = await topic("answers");
+    const coord = topics.coordinatorOf(t.id)!;
+    far.push(session("remote", { peer: "laptop", title: "remote member", topicId: t.id }));
+    expect(topics.replyFromPeer(t.id, "stranger", "hi").ok).toBe(false);
+    expect(topics.replyFromPeer(t.id, "remote", "done\nall green")).toEqual({ ok: true, value: "sent" });
+    expect(written[0]).toEqual({ id: coord.id, data: '[reply from "remote member" on laptop [remote] to your prompt] done all green' });
+  });
+
+  test("closing a topic takes its members on peers out too", async () => {
+    const t = await topic("ending");
+    far.push(session("remote", { peer: "laptop", topicId: t.id }), session("elsewhere", { peer: "laptop" }));
+    topics.close(t.id);
+    expect(joins).toEqual([{ sessionId: "remote", topicId: null }]);
+  });
+
+  test("henry_topic reads a peer's members from their own machine", async () => {
+    const t = await topic("wide");
+    const coord = topics.coordinatorOf(t.id)!;
+    far.push(session("remote", { peer: "laptop", title: "remote member", topicId: t.id }));
+    answer = () => Response.json({ lines: ['"remote member" [remote] waiting', '  asked 2m ago: "split the parser"'], reply: "split done" });
+    const url = new URL(`http://127.0.0.1/mcp?as=session&session=${coord.id}`);
+    const call = async (name: string, args: Record<string, unknown>) => {
+      const req = new Request(url.toString(), { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }) });
+      return ((await (await mcp.handleMcp(req, url)).json()) as { result: { content: { text: string }[] } }).result.content[0]!.text;
+    };
+    const view = await call("henry_topic", {});
+    expect(view).toContain('"remote member" [remote]');
+    expect(view).toContain("on laptop");
+    expect(view).toContain('asked 2m ago: "split the parser"');
+    expect(calls[0]!.path).toBe("/api/topic/member?session=remote&prompts=1");
+    expect(await call("henry_session", { session: "remote member" })).toContain('last reply: "split done"');
+    expect(await call("henry_membership", { session: "remote member", action: "remove" })).toContain("asked laptop");
+    expect(joins).toEqual([{ sessionId: "remote", topicId: null }]);
   });
 });
 

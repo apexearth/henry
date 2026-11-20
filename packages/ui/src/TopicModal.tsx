@@ -1,7 +1,7 @@
 // A topic up close (daemon/topics.ts): its name, the brief its members are shown, the notes, who
 // is in it, and its coordinator. Also the "new topic" form, which is the same modal with a name.
-// A topic runs on one machine, its coordinator and members with it; a paired one's is driven
-// from here through the link like its sessions are.
+// A topic lives on one machine with its coordinator; its members may be on any machine linked
+// with that one both ways. A paired machine's topic is driven from here through the link.
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { showSession } from "./dock";
 import { hueText, nameHue } from "./theme";
@@ -60,7 +60,7 @@ export function NewTopic({ sessionId, onClose }: { sessionId?: string; onClose: 
           <input className="picker-input" style={st.input} autoFocus spellCheck={false} placeholder="what these sessions are working on"
             value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && create()} />
           <div style={st.note}>
-            {taken ? `There is already a topic by that name on ${where}.` : `A coordinator starts with it on ${where}, in its own tab.${session ? ` "${session.title}" joins it straight away.` : ""} It sees what that machine's sessions in the topic are doing, never their code, and keeps a brief they are shown.`}
+            {taken ? `There is already a topic by that name on ${where}.` : `A coordinator starts with it on ${where}, in its own tab.${session ? ` "${session.title}" joins it straight away.` : ""} It sees what the topic's sessions are doing, on ${where} or a machine paired with it both ways, never their code, and keeps a brief they are shown.`}
           </div>
         </div>
         <div className="foot">
@@ -76,6 +76,7 @@ export function NewTopic({ sessionId, onClose }: { sessionId?: string; onClose: 
 export function TopicModal({ topicId, onClose }: { topicId: string; onClose: () => void }) {
   const topic = useStore((s) => s.topics.find((t) => t.id === topicId));
   const sessions = useStore((s) => s.sessions);
+  const host = useStore((s) => s.host);
   const [name, setName] = useState(topic?.name ?? "");
   const [brief, setBrief] = useState(topic?.brief ?? "");
   const [closing, setClosing] = useState(false);
@@ -91,7 +92,8 @@ export function TopicModal({ topicId, onClose }: { topicId: string; onClose: () 
   }, [!topic]);
   if (!topic) return null;
 
-  const members = sessions.filter((s) => s.topicId === topic.id && s.peer === topic.peer && !s.coordinator);
+  // Members may be on any machine linked with the topic's; the coordinator is on the topic's own.
+  const members = sessions.filter((s) => s.topicId === topic.id && !s.coordinator);
   const coordinator = sessions.find((s) => s.topicId === topic.id && s.peer === topic.peer && s.coordinator && s.status === "running");
   const dirty = brief.trim() !== topic.brief || (name.trim() && name.trim() !== topic.name);
   const save = () => {
@@ -138,6 +140,7 @@ export function TopicModal({ topicId, onClose }: { topicId: string; onClose: () 
               {members.map((s) => (
                 <button key={s.id} style={st.member} onClick={() => go(s.id)}>
                   <span>{s.title}</span>
+                  {s.peer !== topic.peer && <span style={{ ...st.note, color: hueText(nameHue(s.peer ?? host ?? "")) }}>on {s.peer ?? host ?? "this machine"}</span>}
                   <span style={st.note}>{s.status === "running" ? s.activity ?? "" : "exited"}</span>
                 </button>
               ))}

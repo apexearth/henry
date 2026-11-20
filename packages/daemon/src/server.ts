@@ -31,6 +31,7 @@ import * as phone from "./phone";
 import { revealSpec } from "./platform";
 import * as seen from "./seen";
 import { localHost, sessions } from "./sessions";
+import * as coordinator from "./coordinator";
 import * as topics from "./topics";
 import * as voice from "./voice";
 import { sessionWrites } from "./written";
@@ -245,11 +246,12 @@ async function handleMessage(client: Client, msg: ClientMessage): Promise<void> 
   // A session relayed from a paired machine: its link answers, in the same shapes. Not for a
   // peer, though: pairing is between two machines, and a peer must not reach our other peers
   // through us (its own pairing with them is the only way).
-  // A topic's machine is where its coordinator and members run; a session named alongside it
-  // decides first, since it can only join a topic on its own machine.
+  // A topic's machine is where its coordinator runs; a session named alongside it decides first.
+  // A join goes to the session's machine alone, which records its own sessions' topics, whichever
+  // machine the topic is on.
   const link =
     ("sessionId" in msg && msg.sessionId ? federation.linkOf(msg.sessionId) : undefined) ??
-    ("topicId" in msg && msg.topicId ? federation.linkOfTopic(msg.topicId) : undefined);
+    (msg.type !== "topic:join" && "topicId" in msg && msg.topicId ? federation.linkOfTopic(msg.topicId) : undefined);
   const elsewhere = (msg.type === "session:create" || msg.type === "topic:create") && !!msg.peer;
   if (client.fromPeer && (link || elsewhere)) {
     console.error(`[fed] refused ${msg.type} from a peer aimed at another peer`);
@@ -684,6 +686,15 @@ export async function handleApi(req: Request, url: URL, origin: ApiOrigin): Prom
     if (!sessions.get(sessionId)) return json({ error: "no such session" }, 404);
     return json({ path: saveAttachment(sessionId, ext, bytes) });
   }
+  // A topic's coordinator and its members on another machine talk through these, and nobody
+  // else does: a prompt from a coordinator on a peer, and a member's reply going back to one.
+  if (pathname === "/api/topic/deliver" || pathname === "/api/topic/reply") {
+    if (!fromPeer || req.method !== "POST") return json({ error: "forbidden" }, 403);
+    const b = (await readJson(req)) as { topicId?: unknown; sessionId?: unknown; text?: unknown; send?: unknown };
+    if (typeof b.topicId !== "string" || typeof b.sessionId !== "string" || typeof b.text !== "string") return json({ error: "topicId, sessionId and text" }, 400);
+    const r = pathname === "/api/topic/deliver" ? topics.deliverFromPeer(b.topicId, b.sessionId, b.text, b.send === true) : topics.replyFromPeer(b.topicId, b.sessionId, b.text);
+    return r.ok ? json({ outcome: r.value }) : json({ error: r.reason }, 409);
+  }
   // Peers read; they never change this daemon's setup.
   if (fromPeer && req.method !== "GET") return json({ error: "forbidden" }, 403);
   if (!fromPeer) {
@@ -696,6 +707,14 @@ export async function handleApi(req: Request, url: URL, origin: ApiOrigin): Prom
     }
   }
   if (pathname === "/api/state") return json(fromPeer ? peerState() : buildState());
+  // A member of a topic a peer holds, as that topic's coordinator reads it: the same summary a
+  // local member gets, built where the transcript and git state are.
+  if (pathname === "/api/topic/member") {
+    const s = sessions.get(url.searchParams.get("session") ?? "");
+    if (!s) return json({ error: "no such session" }, 404);
+    const prompts = Math.min(Math.max(Number(url.searchParams.get("prompts")) || 1, 1), 6);
+    return json({ lines: coordinator.sessionBrief(s, Date.now(), prompts), reply: coordinator.lastReply(s) });
+  }
       if (pathname === "/api/voice/status") return json(voice.status());
       // What this machine knows about its own sessions, for a question asked on a paired one.
       // Not gated on voice.enabled: the machine answering it is not the one speaking.
