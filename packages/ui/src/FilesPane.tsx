@@ -12,6 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangedFile, DirListing, FilePeek, GrepResult, RepoState } from "@henry/shared";
 import { restoreFocus, showTool } from "./dock";
 import { openPeek } from "./FileView";
+import { ContextMenu } from "./ContextMenu";
 import { FilesRoot } from "./FilesRoot";
 import { forgetIndex, listDir, reloadSessionFiles, rootIndex, useSessionFiles, type RootIndex } from "./files";
 import { globFilter, matches, tokenize } from "./match";
@@ -846,47 +847,44 @@ export function FilesPane() {
         ) : null}
       </div>
       {menu && menuTarget && menuSpot && (
-        <>
-          <div className="pop-bg" onClick={() => setMenu(null)} onContextMenu={(e) => { e.preventDefault(); setMenu(null); }} />
-          <div className="pop files-menu" style={{ left: menu.x, top: menu.y }}>
-            {menu.confirm ? (
-              <>
-                <div className="files-menu-ask">
-                  Move <b>{menuName}</b>{menuTarget.kind === "dir" ? " and everything in it" : ""} to the {FILE_MANAGER === "Finder" ? "Trash" : "Recycle Bin"}?
-                </div>
-                {menu.error && <div className="files-menu-ask files-err">{menu.error}</div>}
-                <button className="danger" onClick={() => void trash(menuTarget)}>move to {FILE_MANAGER === "Finder" ? "Trash" : "Recycle Bin"}</button>
-                <button onClick={() => setMenu(null)}>cancel</button>
-              </>
-            ) : (
-              <>
-                <button onClick={() => startNew("file", menuSpot)}>new file in <b>{spotName}</b></button>
-                <button onClick={() => startNew("folder", menuSpot)}>new folder in <b>{spotName}</b></button>
-                {(menuTarget.kind === "file" || menuTarget.kind === "dir") && (
-                  <>
-                    <div className="menu-sep" />
-                    <button onClick={() => startRename(menuTarget)}>rename <span className="files-menu-key">F2</span></button>
-                    <button onClick={() => setMenu({ ...menu, confirm: true })}>delete</button>
-                  </>
-                )}
-                <div className="menu-sep" />
-                {menuPath && <button onClick={() => copy(menuPath)}>copy path</button>}
-                {(menuTarget.kind === "file" || menuTarget.kind === "dir") && <button onClick={() => copy(menuTarget.rel)}>copy relative path</button>}
-                {onLoopback && menuPath && (
-                  <button onClick={() => { revealFolder(menuPath); setMenu(null); }}>
-                    {menuTarget.kind === "file" ? "show" : "open"} <b>{menuName}</b> in {FILE_MANAGER}
-                  </button>
-                )}
-                {menuTarget.kind === "root" && !menuTarget.root.pinned && !menuTarget.root.here && !menuTarget.root.earlier && activeId && (
-                  <>
-                    <div className="menu-sep" />
-                    <button onClick={() => void hideRoot(menuTarget.root)} title="list it under 'earlier' until the session works in it again">hide from this session</button>
-                  </>
-                )}
-              </>
-            )}
-          </div>
-        </>
+        <ContextMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)}>
+          {menu.confirm ? (
+            <>
+              <div className="files-menu-ask">
+                Move <b>{menuName}</b>{menuTarget.kind === "dir" ? " and everything in it" : ""} to the {FILE_MANAGER === "Finder" ? "Trash" : "Recycle Bin"}?
+              </div>
+              {menu.error && <div className="files-menu-ask files-err">{menu.error}</div>}
+              <button className="danger" onClick={() => void trash(menuTarget)}>move to {FILE_MANAGER === "Finder" ? "Trash" : "Recycle Bin"}</button>
+              <button onClick={() => setMenu(null)}>cancel</button>
+            </>
+          ) : (
+            <>
+              <button onClick={() => startNew("file", menuSpot)}>new file in <b>{spotName}</b></button>
+              <button onClick={() => startNew("folder", menuSpot)}>new folder in <b>{spotName}</b></button>
+              {(menuTarget.kind === "file" || menuTarget.kind === "dir") && (
+                <>
+                  <div className="menu-sep" />
+                  <button onClick={() => startRename(menuTarget)}>rename <span className="files-menu-key">F2</span></button>
+                  <button onClick={() => setMenu({ ...menu, confirm: true })}>delete</button>
+                </>
+              )}
+              <div className="menu-sep" />
+              {menuPath && <button onClick={() => copy(menuPath)}>copy path</button>}
+              {(menuTarget.kind === "file" || menuTarget.kind === "dir") && <button onClick={() => copy(menuTarget.rel)}>copy relative path</button>}
+              {onLoopback && menuPath && (
+                <button onClick={() => { revealFolder(menuPath); setMenu(null); }}>
+                  {menuTarget.kind === "file" ? "show" : "open"} <b>{menuName}</b> in {FILE_MANAGER}
+                </button>
+              )}
+              {menuTarget.kind === "root" && !menuTarget.root.pinned && !menuTarget.root.here && !menuTarget.root.earlier && activeId && (
+                <>
+                  <div className="menu-sep" />
+                  <button onClick={() => void hideRoot(menuTarget.root)} title="list it under 'earlier' until the session works in it again">hide from this session</button>
+                </>
+              )}
+            </>
+          )}
+        </ContextMenu>
       )}
       {adding && (
         <div className="files-add">

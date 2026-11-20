@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { isClaudeSession, type Session, type SessionActivity, type Topic } from "@henry/shared";
+import { ContextMenu } from "./ContextMenu";
 import { RepoPicker } from "./RepoPicker";
 import { NewTopic, TopicModal } from "./TopicModal";
 import { MOD, baseName, isMac } from "./platform";
@@ -158,41 +159,38 @@ function RowMenu({ x, y, session, now, onClose, onNewTopic }: { x: number; y: nu
     onClose();
   };
   return (
-    <>
-      <div className="pop-bg" onClick={onClose} onContextMenu={(e) => { e.preventDefault(); onClose(); }} />
-      <div className="pop files-menu rail-menu" style={{ left: x, top: y }}>
-        {isUnseen(s)
-          ? <button onClick={act(() => markSeen(s.id, true))}>mark as read</button>
-          : <button onClick={act(() => markUnread(s.id))}>mark as unread</button>}
-        <button onClick={act(() => popOutSession(s.id))}>{isPoppedOut(s.id) ? "bring its window forward" : "open in its own window"}</button>
-        {canFork(s) && (
-          <button onClick={act(() => forkSession(s))} title="a new tab that starts from a copy of this conversation; this one carries on untouched">
-            fork into a new tab ({FORK_KEY})
-          </button>
-        )}
-        {canTopic && (
-          <>
-            <div className="menu-sep" />
-            {topics.filter((t) => t.id !== s.topicId).map((t) => (
-              <button key={t.id} onClick={act(() => joinTopic(s.id, t.id))} title={t.brief || "no brief yet"}>
-                {current ? "move" : "add"} to topic “{t.name}”{away(t)}
-              </button>
-            ))}
-            {current && <button onClick={act(() => joinTopic(s.id, null))}>take out of “{current.name}”{away(current)}</button>}
-            <button onClick={act(() => onNewTopic(s.id))}>new topic with this session…</button>
-          </>
-        )}
-        <div className="menu-sep" />
-        {REMIND.map(([label, at]) => (
-          <button key={label} onClick={act(() => remindSession(s.id, at(Date.now())))} title="it leaves the unread pile now and comes back, with a notification, then">
-            remind me {label}
-          </button>
-        ))}
-        {s.remindAt !== undefined && (
-          <button onClick={act(() => remindSession(s.id, null))}>cancel the reminder at {clock(s.remindAt, now)}</button>
-        )}
-      </div>
-    </>
+    <ContextMenu x={x} y={y} className="rail-menu" onClose={onClose}>
+      {isUnseen(s)
+        ? <button onClick={act(() => markSeen(s.id, true))}>mark as read</button>
+        : <button onClick={act(() => markUnread(s.id))}>mark as unread</button>}
+      <button onClick={act(() => popOutSession(s.id))}>{isPoppedOut(s.id) ? "bring its window forward" : "open in its own window"}</button>
+      {canFork(s) && (
+        <button onClick={act(() => forkSession(s))} title="a new tab that starts from a copy of this conversation; this one carries on untouched">
+          fork into a new tab ({FORK_KEY})
+        </button>
+      )}
+      {canTopic && (
+        <>
+          <div className="menu-sep" />
+          {topics.filter((t) => t.id !== s.topicId).map((t) => (
+            <button key={t.id} onClick={act(() => joinTopic(s.id, t.id))} title={t.brief || "no brief yet"}>
+              {current ? "move" : "add"} to topic “{t.name}”{away(t)}
+            </button>
+          ))}
+          {current && <button onClick={act(() => joinTopic(s.id, null))}>take out of “{current.name}”{away(current)}</button>}
+          <button onClick={act(() => onNewTopic(s.id))}>new topic with this session…</button>
+        </>
+      )}
+      <div className="menu-sep" />
+      {REMIND.map(([label, at]) => (
+        <button key={label} onClick={act(() => remindSession(s.id, at(Date.now())))} title="it leaves the unread pile now and comes back, with a notification, then">
+          remind me {label}
+        </button>
+      ))}
+      {s.remindAt !== undefined && (
+        <button onClick={act(() => remindSession(s.id, null))}>cancel the reminder at {clock(s.remindAt, now)}</button>
+      )}
+    </ContextMenu>
   );
 }
 
