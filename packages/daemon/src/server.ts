@@ -23,6 +23,7 @@ import { readHistory } from "./history";
 import { backfillPresence, humanStats, notePresence } from "./human";
 import * as hooks from "./hooks";
 import * as mcp from "./mcp";
+import * as messages from "./messages";
 import * as notify from "./notify";
 import * as announce from "./announce";
 import * as notes from "./notes";
@@ -693,6 +694,13 @@ export async function handleApi(req: Request, url: URL, origin: ApiOrigin): Prom
     const b = (await readJson(req)) as { topicId?: unknown; sessionId?: unknown; text?: unknown; send?: unknown };
     if (typeof b.topicId !== "string" || typeof b.sessionId !== "string" || typeof b.text !== "string") return json({ error: "topicId, sessionId and text" }, 400);
     const r = pathname === "/api/topic/deliver" ? topics.deliverFromPeer(b.topicId, b.sessionId, b.text, b.send === true) : topics.replyFromPeer(b.topicId, b.sessionId, b.text);
+    return r.ok ? json({ outcome: r.value }) : json({ error: r.reason }, 409);
+  }
+  // A session on a peer messages one here (messages.ts): the link it came over names the sender's
+  // machine, and federation.ts sets that header, not the peer.
+  if (pathname === "/api/message") {
+    if (!fromPeer || req.method !== "POST") return json({ error: "forbidden" }, 403);
+    const r = messages.fromPeer(req.headers.get("x-henry-peer") ?? "", ((await readJson(req)) ?? {}) as Record<string, unknown>);
     return r.ok ? json({ outcome: r.value }) : json({ error: r.reason }, 409);
   }
   // Peers read; they never change this daemon's setup.

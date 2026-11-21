@@ -1,12 +1,13 @@
 # Henry's tools: what one session may know about another
 
 Henry hosts 3–4 sessions that share repos, which makes it a multi-agent system whether or not
-it is described as one. The question is the shape. Henry stays a **star with the user at the
-centre**: sessions may *read* what their neighbours are doing, and they may *call the user*,
-and nothing more; on a machine paired with others they may also copy a file from one of them. A session cannot type into another session, message it, or change Henry's
-config. The user is the only router, and the rail stays a truthful record of who did what. The
-one session that writes to others is a topic's coordinator, and only to its own topic's members,
-in words labelled as its own, sent only when the user said so ([topics.md](topics.md)).
+it is described as one. The question is the shape. Sessions may *read* what their neighbours
+are doing, *call the user*, and *message each other*, here or on a paired machine, in words
+labelled as theirs and typed where the user sees them; on a machine paired with others they may
+also copy a file from one of them. A session cannot otherwise type into another, and it cannot
+change Henry's config, so the rail and the terminals stay a truthful record of who said what. A
+topic's coordinator speaks for the user instead: it writes only to its own topic's members, sent
+only when the user said so ([topics.md](topics.md)), and it neither sends nor takes messages.
 
 - **The tools are an MCP server on the daemon** (`daemon/src/mcp.ts`), `POST /mcp`, JSON-RPC
   2.0, no SDK: one endpoint answering initialize / ping / tools/list / tools/call is not worth
@@ -20,11 +21,11 @@ in words labelled as its own, sent only when the user said so ([topics.md](topic
 - **A tool definition is a tax on every request of every session**, since it rides in the
   system prompt all day (measured: 127 tokens for `henry_activity`). So the server serves
   **two tool lists**. `?as=session` (what `launch-mcp.json` points at) is the narrow one:
-  today `henry_activity` and `henry_attention`, under 2.2 KB of schema together, and adding a
-  third has to be worth the same cost in all four sessions. `henry_fetch_file` is listed only on
+  `henry_activity`, `henry_attention`, `henry_sessions` and `henry_message`, and adding one
+  more has to be worth the same cost in all four sessions. `henry_fetch_file` is listed only on
   a machine paired with another, so a lone machine's sessions never carry it. A client that connects without it
   gets the wide list, where one process pays once; that is where tools for Henry's own model calls would go.
-  A caller that is a topic's coordinator gets the narrow list plus its own five, decided by the
+  A caller that is a topic's coordinator gets its own five in place of the two message tools, decided by the
   calling session rather than the url, since the file is shared ([topics.md](topics.md)).
 - **A call names its own session** through `session=${HENRY_SESSION:-}` in the `launch-mcp.json`
   url: Claude Code expands `${VAR}` in an mcp config (verified 2026-09-04 against the CLI, both
@@ -62,6 +63,18 @@ in words labelled as its own, sent only when the user said so ([topics.md](topic
   Pull, never push: the other machine is only read, through the peer read a paired machine
   already has (`GET /api/file/bytes`, 10 MB), and the write is made here for the session that
   asked. A session that wants another to have a file says where it is.
+- **`henry_sessions(filter?)` and `henry_message(to, text)`** let sessions work together
+  without the user carrying every line (`daemon/src/messages.ts`). The first lists every running
+  Claude session here and on connected paired machines, but not coordinators: title, id, machine,
+  working directory, activity. The second takes an id (or its first 8 characters) or an exact
+  title, never a guess, since a message to the wrong session is worse than none. The text goes into
+  the recipient's input as `[message from "<title>" [<id>] on <machine>; answer it with
+  henry_message to "<id>"] …` and is submitted when its turn is over, in the same queue as a
+  coordinator's prompts, so it never lands inside a turn. The answer is the recipient's own
+  `henry_message` back. Past 20 submitted in an hour, what a session is sent goes in as a draft
+  for the user, so two sessions cannot drive each other all night. To a paired machine it is a
+  `POST /api/message` over the link; that machine delivers only to its own sessions and names the
+  sender's machine from the link the request came in on, not from the request.
 - **An ask is answered by showing up, and only the user can answer it.** Typing into the session
   (`engagement.ts`, prompt or keystroke) clears it, and so does clicking it in the rail or the
   topbar — the message is right there in what you clicked, so reading it *is* the answer. That is

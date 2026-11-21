@@ -481,6 +481,47 @@ describe("two daemons", () => {
     expect((await fetchIt(join(beta.home, "nope.bin"))).content![0]!.text).toContain("beta: not found");
   }, 30000);
 
+  test("a session finds one on a paired machine and messages it; that machine names the sender and takes only its own", async () => {
+    // Two Claude sessions (the waiting fake on PATH), one on each machine.
+    const make = async (d: Daemon, title: string) => {
+      const w = await new Win().open(d);
+      w.send({ type: "session:create", cwd: d.home, title, requestId: title });
+      const id = (await w.next("session:update", (m) => m.requestId === title)).session.id;
+      w.close();
+      return id;
+    };
+    const asker = await make(alpha, "asker");
+    const helper = await make(beta, "helper");
+    await waitFor("alpha sees helper", async () => (await state(alpha)).sessions.find((s) => s.id === helper));
+    const mcp = async (name: string, args: Record<string, unknown>) =>
+      ((await (await post(alpha, `/mcp?as=session&session=${asker}`, { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } })).json()) as { result: { content: { text: string }[]; isError?: boolean } }).result;
+
+    const listed = await mcp("henry_sessions", { filter: "helper" });
+    expect(listed.content[0]!.text).toContain(`"helper" [${helper.slice(0, 8)}] on beta`);
+    // helper has not ended a turn yet, so the message waits for it.
+    const sent = await mcp("henry_message", { to: helper, text: "where is the plan?" });
+    expect(sent.isError).toBeFalsy();
+    expect(sent.content[0]!.text).toContain("mid-turn");
+
+    // Over the link, beta takes a message only for its own sessions; a window cannot send one.
+    const alphaId = (JSON.parse(readFileSync(join(alpha.home, "federation.json"), "utf8")) as { identity: IdentityKeys }).identity;
+    const asAlpha = await rawPeer((await fedStatus(alpha)).peers.find((p) => p.name === "beta")!.url!, alphaId, "alpha");
+    asAlpha.send({ type: "http", id: "m1", method: "POST", path: "/api/message", body: JSON.stringify({ from: asker, to: asker, text: "loop" }) });
+    expect(((await asAlpha.next("http:res", 5000)) as { status: number }).status).toBe(409);
+    asAlpha.close();
+    expect((await post(beta, "/api/message", { from: asker, to: helper, text: "hi" })).status).toBe(403);
+
+    // Gone from both again, so what later tests count is theirs.
+    for (const [d, id] of [[alpha, asker], [beta, helper]] as const) {
+      const w = await new Win().open(d);
+      w.send({ type: "session:kill", sessionId: id });
+      await w.next("session:update", (m) => m.session.id === id && m.session.status === "exited");
+      w.send({ type: "session:kill", sessionId: id });
+      await waitFor("message test's session dismissed", async () => ((await state(d)).sessions.some((x) => x.id === id) ? undefined : true));
+      w.close();
+    }
+  }, 30000);
+
   test("a listener that does not know the code cannot get itself paired", async () => {
     const fake = fakeListener();
     try {

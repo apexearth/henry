@@ -379,13 +379,15 @@ class Inbound implements Client {
     let bytes: string | undefined;
     try {
       if (!msg.path.startsWith("/api/")) throw new Error("only /api/* is served to peers");
+      // Who is asking, for the routes that name it (/api/message): set here, never by the peer.
+      const peer = { "x-henry-peer": this.peer?.name ?? "" };
       const req =
         msg.bytes !== undefined
-          ? new Request(`http://henry.fed${msg.path}`, { method: msg.method, body: Buffer.from(msg.bytes, "base64"), headers: { "content-type": msg.contentType ?? "application/octet-stream" } })
+          ? new Request(`http://henry.fed${msg.path}`, { method: msg.method, body: Buffer.from(msg.bytes, "base64"), headers: { ...peer, "content-type": msg.contentType ?? "application/octet-stream" } })
           : new Request(`http://henry.fed${msg.path}`, {
               method: msg.method,
               body: msg.body,
-              headers: msg.body !== undefined ? { "content-type": "application/json" } : undefined,
+              headers: msg.body !== undefined ? { ...peer, "content-type": "application/json" } : peer,
             });
       const res = await deps.handleApi(req, true);
       status = res.status;

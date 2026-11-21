@@ -129,10 +129,10 @@ describe("mcp envelope", () => {
 
   test("a hosted session sees the narrow list and nothing else", async () => {
     const r = await rpc("tools/list");
-    expect(r.result.tools.map((t: { name: string }) => t.name)).toEqual(["henry_activity", "henry_attention"]);
+    expect(r.result.tools.map((t: { name: string }) => t.name)).toEqual(["henry_activity", "henry_attention", "henry_sessions", "henry_message"]);
     // The definitions ride in every request's system prompt, so their size is part of the
-    // contract: two tools, and adding a third has to be worth the same cost in every session.
-    expect(JSON.stringify(r.result.tools).length).toBeLessThan(2200);
+    // contract: adding one more has to be worth the same cost in every session.
+    expect(JSON.stringify(r.result.tools).length).toBeLessThan(3300);
   });
 
   test("unknown methods and tools fail without throwing", async () => {

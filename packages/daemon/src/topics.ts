@@ -588,6 +588,12 @@ function enqueue(d: Delivery, to: Session, cap: number): Result<PromptOutcome> {
   return ok("queued");
 }
 
+/** Text for a session's input that is not a topic's (messages.ts): the same queue, so it never
+ * lands inside a turn or on top of a coordinator's prompt, and closing a topic leaves it. */
+export function queueText(to: Session, text: string, send: boolean, cap: number, now = Date.now()): Result<PromptOutcome> {
+  return enqueue({ topicId: "", to: to.id, text, send, at: now }, to, cap);
+}
+
 // ---- a member's reply to its coordinator ----
 
 /** The start of every prompt a coordinator puts in a member's input, whatever the topic is called

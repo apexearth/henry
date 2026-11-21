@@ -7,11 +7,11 @@
  * gets the narrow set and nothing else. The overseer's own client connects without it and may
  * have the wide set, where one process pays the cost once.
  *
- * Read-only over Henry's state, with two exceptions: `henry_attention` writes nothing but a
- * message addressed to the user, and `henry_fetch_file` (transfer.ts) copies a file from a
- * paired machine onto this one for the session that asked. A session can see what its neighbours are doing and it can
- * ask the human to come; it cannot type into another session, and it cannot change Henry's
- * config. The user stays the only one routing between sessions.
+ * Read-only over Henry's state, with three exceptions: `henry_attention` writes nothing but a
+ * message addressed to the user, `henry_fetch_file` (transfer.ts) copies a file from a paired
+ * machine onto this one for the session that asked, and `henry_message` (messages.ts) puts a
+ * labelled message in another session's input, here or on a paired machine, once its turn is
+ * over. A session cannot otherwise type into another, and it cannot change Henry's config.
  *
  * A topic's coordinator is the third audience: the session list plus its own tools
  * (coordinator.ts), decided by who is calling rather than by the url, since every hosted session
@@ -25,6 +25,7 @@ import { COORDINATOR_TOOLS } from "./coordinator";
 import { config, expandHome } from "./config";
 import * as db from "./db";
 import * as git from "./git";
+import * as messages from "./messages";
 import { sessions } from "./sessions";
 import * as transfer from "./transfer";
 import { pathsOf, WRITE_TOOLS } from "./written";
@@ -97,7 +98,8 @@ function toolsFor(audience: Audience, ctx: CallContext): ToolDef[] {
   if (audience !== "session") return ALL_TOOLS;
   // Fetching from another machine only on a machine that has one: the rest pay nothing for it.
   const base = transfer.offered() ? [...SESSION_TOOLS, transfer.fetchTool] : SESSION_TOOLS;
-  return liveSessions().some((s) => s.id === ctx.sessionId && s.coordinator) ? [...base, ...COORDINATOR_TOOLS] : base;
+  // A coordinator speaks for the user and has its own way to reach members; the rest message.
+  return liveSessions().some((s) => s.id === ctx.sessionId && s.coordinator) ? [...base, ...COORDINATOR_TOOLS] : [...base, messages.sessionsTool, messages.messageTool];
 }
 
 // ---- henry_activity ----

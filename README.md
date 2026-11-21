@@ -230,9 +230,11 @@ MCP tools, loopback only, on sessions Henry starts:
   the rail and the window title until you answer it or its deadline passes.
 - `henry_fetch_file(from, path, to?)`, only on a machine paired with another: copy a file
   from that machine into this session's folder. The other machine is only read.
+- `henry_sessions(filter?)` and `henry_message(to, text)`: find another session, here or on a
+  paired machine, and message it. The message is typed into its input once its turn is over,
+  marked as from the sender, and the answer comes back the same way.
 
-That is all of it. Sessions cannot type into each other, message each other, or change
-Henry's config.
+That is all of it. Sessions cannot otherwise type into each other or change Henry's config.
 
 ## Config
 

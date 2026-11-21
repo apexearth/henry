@@ -441,7 +441,7 @@ describe("the coordinator's tools", () => {
     const t = await topic("tools");
     const coord = topics.coordinatorOf(t.id)!;
     const plain = (await rpc("plain", "tools/list")).result.tools!.map((x) => x.name);
-    expect(plain).toEqual(["henry_activity", "henry_attention"]);
+    expect(plain).toEqual(["henry_activity", "henry_attention", "henry_sessions", "henry_message"]);
     const mine = (await rpc(coord.id, "tools/list")).result.tools!.map((x) => x.name);
     expect(mine).toEqual(["henry_activity", "henry_attention", "henry_topic", "henry_session", "henry_brief", "henry_membership", "henry_prompt"]);
     const refused = await rpc("plain", "tools/call", { name: "henry_topic", arguments: {} });

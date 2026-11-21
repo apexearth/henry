@@ -14,7 +14,7 @@ A changed decision edits the sentence that is now wrong; nothing here is a histo
 - [usage.md](usage.md) — 5h/7d windows, per-session tokens and context, the status strip
 - [overseer.md](overseer.md) — the model backend Henry asks on its own behalf: altitude, API or `claude -p`
 - [notes.md](notes.md) — things to keep in mind across sessions, the same on every machine, filled from sessions on request
-- [tools.md](tools.md) — the MCP server: `henry_activity`, `henry_attention`, `henry_fetch_file`, and why nothing more
+- [tools.md](tools.md) — the MCP server: `henry_activity`, `henry_attention`, `henry_fetch_file`, `henry_sessions`, `henry_message`, and why nothing more
 - [topics.md](topics.md) — named sets of sessions, each with a coordinator that keeps their brief
 - [federation.md](federation.md) — daemon-to-daemon links over the tailnet, pairing, keys, trust
 - [phone.md](phone.md) — the phone listener, invites, the mobile shape, touch and the composer
