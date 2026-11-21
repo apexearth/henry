@@ -29,6 +29,7 @@ import { join as joinPath } from "node:path";
 import { isClaudeSession, type ServerMessage, type Session, type Topic, type TopicNote, type TopicSuggestion } from "@henry/shared";
 import { henryDir } from "./config";
 import * as db from "./db";
+import * as engagement from "./engagement";
 import * as federation from "./federation";
 import { readHistory } from "./history";
 import { isWindows } from "./platform";
@@ -52,8 +53,18 @@ const MAX_REPLY = 2_000;
  * drafts, so a coordinator and a member told to keep going cannot drive each other all night. */
 export const REPLIES_PER_HOUR = 12;
 const HOUR = 60 * 60_000;
-/** The Stop hook can beat the transcript's last line to disk (as in announce.ts). */
-const timing = { settleMs: 1_500 };
+const timing = {
+  /** The Stop hook can beat the transcript's last line to disk (as in announce.ts). */
+  settleMs: 1_500,
+  /** A turn has ended once Stop arrives, but Claude Code is still running its Stop hooks (Henry's,
+   * and any the user has, a chime say) and an Enter pressed then can be lost, leaving the text in
+   * the input unsent. Nothing is typed until the session has been between turns this long. */
+  quietMs: 1_500,
+  /** An Enter that has not started a turn by then is pressed again (0: never). */
+  confirmMs: 3_000,
+};
+/** Enters pressed again for one delivery before Henry leaves it for the user. */
+const RETRIES = 2;
 /** Between the words and the Enter, so Claude Code reads them as typing rather than a paste
  * that happens to end in a newline. */
 const ENTER_DELAY_MS = 150;
@@ -95,6 +106,8 @@ interface Deps {
   peerHttp(to: PeerTarget, method: "GET" | "POST", path: string, body?: unknown): Promise<Response> | undefined;
   /** Ask the machine a peer session runs on to put it in a topic or take it out. */
   peerJoin(sessionId: string, topicId: string | null): boolean;
+  /** Someone typed into the session at or after `since`. */
+  typedSince(id: string, since: number): boolean;
 }
 
 export type PeerTarget = { session: string } | { topic: string };
@@ -121,6 +134,7 @@ const real: Deps = {
     const link = "session" in to ? federation.linkOf(to.session) : federation.linkOfTopic(to.topic);
     return link?.status === "connected" ? link.http(method, path, body === undefined ? undefined : JSON.stringify(body)) : undefined;
   },
+  typedSince: (id, since) => engagement.typedSince(id, since),
   peerJoin: (sessionId, topicId) => {
     const link = federation.linkOf(sessionId);
     if (link?.status !== "connected") return false;
@@ -190,6 +204,8 @@ export function resetForTests(): void {
   awaiting.clear();
   replyTimes.clear();
   pending.clear();
+  for (const t of wakes.values()) clearTimeout(t);
+  wakes.clear();
   lastContext.clear();
   load();
 }
@@ -510,11 +526,40 @@ interface Delivery {
 const pending = new Map<string, Delivery[]>();
 
 /** Between turns, with Claude listening: typing now lands in its input and nowhere else. */
-const ready = (s: Session) => s.status === "running" && (s.activity === "waiting" || s.activity === "idle");
+const between = (s: Session) => s.status === "running" && (s.activity === "waiting" || s.activity === "idle");
+/** How long until a session between turns has been quiet for `quietMs`; 0 when it has. */
+const quietIn = (s: Session, now: number) => Math.max(0, (s.activitySince ?? 0) + timing.quietMs - now);
+const ready = (s: Session, now = Date.now()) => between(s) && quietIn(s, now) === 0;
+
+/** A flush for a session that is between turns but not yet quiet: no update will come to prompt it. */
+const wakes = new Map<string, ReturnType<typeof setTimeout>>();
+function wakeLater(s: Session, now: number): void {
+  if (wakes.has(s.id) || !between(s)) return;
+  wakes.set(s.id, setTimeout(() => {
+    wakes.delete(s.id);
+    flush(s.id);
+  }, quietIn(s, now) + 50));
+}
 
 function deliver(d: Delivery): void {
   deps.write(d.to, d.text);
-  if (d.send) setTimeout(() => deps.write(d.to, "\r"), ENTER_DELAY_MS);
+  if (!d.send) return;
+  const at = Date.now();
+  setTimeout(() => deps.write(d.to, "\r"), ENTER_DELAY_MS);
+  confirm(d.to, at, 0);
+}
+
+/** If the Enter did not start a turn, press it again: still between turns, nothing new since it was
+ * typed, and nobody has typed into it since, so what is in the input is still only the message. */
+function confirm(id: string, at: number, tries: number): void {
+  if (!timing.confirmMs || tries >= RETRIES) return;
+  setTimeout(() => {
+    const s = held().find((x) => x.id === id);
+    if (!s || !between(s) || (s.activitySince ?? 0) > at || deps.typedSince(id, at)) return;
+    console.log(`[topics] Enter again for ${s.title}: the last one started no turn`);
+    deps.write(id, "\r");
+    confirm(id, Date.now(), tries + 1);
+  }, timing.confirmMs);
 }
 
 /** Deliver what waits for this session if its turn is over (on every session update). */
@@ -527,8 +572,9 @@ export function flush(sessionId: string, now = Date.now()): void {
     pending.delete(sessionId);
     return;
   }
-  if (!ready(s)) {
+  if (!ready(s, now)) {
     pending.set(sessionId, fresh);
+    wakeLater(s, now);
     return;
   }
   // One at a time: a sent prompt starts a turn, and the next waits for that turn to end. Drafts
@@ -579,12 +625,13 @@ export function deliverFromPeer(topicId: string, sessionId: string, raw: string,
 
 function enqueue(d: Delivery, to: Session, cap: number): Result<PromptOutcome> {
   const queue = pending.get(to.id) ?? [];
-  if (!queue.length && ready(to)) {
+  if (!queue.length && ready(to, d.at)) {
     deliver(d);
     return ok(d.send ? "sent" : "drafted");
   }
   if (queue.length >= cap) return no(`"${to.title}" already has ${cap} messages waiting for its turn to end`);
   pending.set(to.id, [...queue, d]);
+  wakeLater(to, d.at);
   return ok("queued");
 }
 

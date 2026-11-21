@@ -44,8 +44,11 @@ Several sessions on one subject, kept aware of each other by a session that sits
   member's input, prefixed `[from the "<topic>" coordinator; your reply goes back to it]`, so the
   member's transcript says where it came from. `send` submits it; its description, and the coordinator's instructions,
   say to set it only when your message asked for it. Either way it goes in only between turns
-  (`waiting` or `idle`): typing into a running turn or a permission prompt would answer
-  something nobody meant to. Until then it queues, three at most, for 30 minutes. A member on
+  (`waiting` or `idle`), and only once the session has been between turns for a second and a
+  half: typing into a running turn or a permission prompt would answer something nobody meant
+  to, and an Enter pressed while Claude Code is still running its Stop hooks is lost, leaving the
+  text unsent. An Enter that started no turn three seconds later is pressed again, twice at most,
+  unless someone has typed into the session since. Until then it queues, three at most, for 30 minutes. A member on
 another machine is sent it over the link (`/api/topic/deliver`, served to peers only), and its
 machine checks that it is a member and that the text carries the label, then queues it the same way. It goes
   through `relaySafe` like a voice relay, so it can never carry its own Enter, and members only:

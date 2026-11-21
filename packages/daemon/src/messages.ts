@@ -165,7 +165,8 @@ function said(to: Session, r: topics.Result<topics.PromptOutcome>): string {
 function deliver(to: Session, text: string, now = Date.now()): topics.Result<topics.PromptOutcome> {
   const recent = (received.get(to.id) ?? []).filter((at) => now - at < HOUR);
   const submit = recent.length < MESSAGES_PER_HOUR;
-  const r = deps.queue(to, text, submit);
+  // Said in the input itself, so a message waiting there for Enter is not mistaken for a stuck one.
+  const r = deps.queue(to, submit ? text : `${text} (held for you to send: ${MESSAGES_PER_HOUR} messages have come to this session in the last hour)`, submit);
   if (r.ok && submit) recent.push(now);
   received.set(to.id, recent);
   if (r.ok) console.log(`[message] -> ${to.title} [${to.id.slice(0, 8)}] (${r.value})`);

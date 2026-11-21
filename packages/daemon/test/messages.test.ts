@@ -104,6 +104,7 @@ describe("henry_message", () => {
     expect(queued.every((q) => q.send)).toBe(true);
     expect(await messages.send({ to: builder.id, text: "one more" }, ctx)).toContain("for the user to send");
     expect(queued.at(-1)!.send).toBe(false);
+    expect(queued.at(-1)!.text).toEndWith(`one more (held for you to send: ${messages.MESSAGES_PER_HOUR} messages have come to this session in the last hour)`);
   });
 });
 

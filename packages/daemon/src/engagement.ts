@@ -18,6 +18,12 @@ export const INPUT_THROTTLE_MS = 30_000;
 /** Prompt timestamps per session, ascending, pruned to the window on every write. */
 const prompts = new Map<string, number[]>();
 const lastInput = new Map<string, number>();
+/** The last keystroke itself, unthrottled: whether you have typed into an input Henry wrote to. */
+const lastKey = new Map<string, number>();
+
+export function typedSince(sessionId: string, since: number): boolean {
+  return (lastKey.get(sessionId) ?? -1) >= since;
+}
 
 export function stats(): Record<string, number> {
   return { engagementPrompts: prompts.size, engagementLastInput: lastInput.size };
@@ -68,6 +74,7 @@ export function input(sessionId: string, data: string, now = Date.now()): void {
   const s = sessions.get(sessionId);
   if (!s || s.status !== "running") return;
   if (!isHumanInput(data)) return;
+  lastKey.set(sessionId, now);
   notePresence("terminal", now);
   // You are in the session, typing: whatever it asked you for, you have arrived.
   attention.answered(sessionId, now);
@@ -82,6 +89,7 @@ export function input(sessionId: string, data: string, now = Date.now()): void {
 export function clear(sessionId: string): void {
   prompts.delete(sessionId);
   lastInput.delete(sessionId);
+  lastKey.delete(sessionId);
 }
 
 /** After a daemon restart: rebuild each running Claude session's prompt history from the event log. */
@@ -103,5 +111,6 @@ export function start(): void {
 export function stop(): void {
   prompts.clear();
   lastInput.clear();
+  lastKey.clear();
 }
 

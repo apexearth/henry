@@ -72,7 +72,7 @@ only when the user said so ([topics.md](topics.md)), and it neither sends nor ta
   henry_message to "<id>"] …` and is submitted when its turn is over, in the same queue as a
   coordinator's prompts, so it never lands inside a turn. The answer is the recipient's own
   `henry_message` back. Past 20 submitted in an hour, what a session is sent goes in as a draft
-  for the user, so two sessions cannot drive each other all night. To a paired machine it is a
+  for the user that says it was held and why, so two sessions cannot drive each other all night. To a paired machine it is a
   `POST /api/message` over the link; that machine delivers only to its own sessions and names the
   sender's machine from the link the request came in on, not from the request.
 - **An ask is answered by showing up, and only the user can answer it.** Typing into the session

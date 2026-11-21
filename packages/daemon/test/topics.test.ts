@@ -51,7 +51,7 @@ beforeEach(() => {
   sent = [];
   replies = {};
   topics.setBroadcast((m) => sent.push(m));
-  topics.setTimingForTests({ settleMs: 0 });
+  topics.setTimingForTests({ settleMs: 0, quietMs: 0, confirmMs: 0 });
   topics.setDepsForTests({
     list: () => live,
     setTopic: (id, topicId, coordinator) => {
@@ -215,6 +215,36 @@ describe("topics", () => {
 
     expect((await topics.prompt(coord.id, "out", "not a member", false)).ok).toBe(false);
     expect((await topics.prompt("m", "busy", "members cannot", false)).ok).toBe(false);
+  });
+
+  test("nothing is typed the instant a turn ends, and an Enter that starts no turn is pressed again", async () => {
+    topics.setTimingForTests({ quietMs: 200, confirmMs: 400 });
+    try {
+      live.push(session("q", { title: "member", activity: "working" }));
+      const t = await topic("quiet");
+      topics.join("q", t.id);
+      const coord = topics.coordinatorOf(t.id)!;
+      const typed = () => written.filter((w) => w.id === "q").map((w) => w.data);
+      expect(await topics.prompt(coord.id, "q", "go", true)).toEqual({ ok: true, value: "queued" });
+
+      // Its Stop hooks may still be running: the prompt waits for the turn to have been over a while.
+      const q = live.find((s) => s.id === "q")!;
+      Object.assign(q, { activity: "waiting", activitySince: Date.now() });
+      topics.flush("q");
+      expect(typed()).toEqual([]);
+      await Bun.sleep(300);
+      expect(typed()).toEqual(['[from the "quiet" coordinator; your reply goes back to it] go']);
+      await Bun.sleep(200);
+      expect(typed()).toHaveLength(2);
+      // That Enter started nothing, so it is pressed again; once a turn starts, no more.
+      await Bun.sleep(300);
+      expect(typed()).toEqual(['[from the "quiet" coordinator; your reply goes back to it] go', "\r", "\r"]);
+      Object.assign(q, { activity: "working", activitySince: Date.now() });
+      await Bun.sleep(500);
+      expect(typed()).toHaveLength(3);
+    } finally {
+      topics.setTimingForTests({ quietMs: 0, confirmMs: 0 });
+    }
   });
 
   test("a turn the coordinator started answers back into the coordinator; the user's own turns do not", async () => {
