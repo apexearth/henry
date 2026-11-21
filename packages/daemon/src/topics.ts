@@ -491,7 +491,8 @@ export function contextFor(sessionId: string, now = Date.now()): string | undefi
   if (live.length) lines.push(`Notes:\n${live.map((n) => `- ${n.text} (${ago(n.ts, now)})`).join("\n")}`);
   if (others.length) {
     const here = others.some((x) => !x.peer);
-    lines.push(`Others in the topic: ${others.map((x) => `"${x.title}"${x.peer ? ` on ${x.peer}` : ""} (${x.activity ? STATE[x.activity] : "no activity yet"})`).join(", ")}.${here ? " henry_activity shows what the ones on this machine hold in a repo." : ""}`);
+    const away = others.some((x) => x.peer);
+    lines.push(`Others in the topic: ${others.map((x) => `"${x.title}"${x.peer ? ` on ${x.peer}` : ""} (${x.activity ? STATE[x.activity] : "no activity yet"})`).join(", ")}.${here ? " henry_activity shows what the ones on this machine hold in a repo." : ""}${away ? " henry_fetch_file copies a file from one on another machine to this one: name the session and the path." : ""}`);
   }
   return lines.join("\n");
 }

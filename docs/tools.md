@@ -3,7 +3,7 @@
 Henry hosts 3–4 sessions that share repos, which makes it a multi-agent system whether or not
 it is described as one. The question is the shape. Henry stays a **star with the user at the
 centre**: sessions may *read* what their neighbours are doing, and they may *call the user*,
-and nothing more. A session cannot type into another session, message it, or change Henry's
+and nothing more; on a machine paired with others they may also copy a file from one of them. A session cannot type into another session, message it, or change Henry's
 config. The user is the only router, and the rail stays a truthful record of who did what. The
 one session that writes to others is a topic's coordinator, and only to its own topic's members,
 in words labelled as its own, sent only when the user said so ([topics.md](topics.md)).
@@ -21,7 +21,8 @@ in words labelled as its own, sent only when the user said so ([topics.md](topic
   system prompt all day (measured: 127 tokens for `henry_activity`). So the server serves
   **two tool lists**. `?as=session` (what `launch-mcp.json` points at) is the narrow one:
   today `henry_activity` and `henry_attention`, under 2.2 KB of schema together, and adding a
-  third has to be worth the same cost in all four sessions. A client that connects without it
+  third has to be worth the same cost in all four sessions. `henry_fetch_file` is listed only on
+  a machine paired with another, so a lone machine's sessions never carry it. A client that connects without it
   gets the wide list, where one process pays once; that is where tools for Henry's own model calls would go.
   A caller that is a topic's coordinator gets the narrow list plus its own five, decided by the
   calling session rather than the url, since the file is shared ([topics.md](topics.md)).
@@ -52,6 +53,15 @@ in words labelled as its own, sent only when the user said so ([topics.md](topic
   answer also says how many windows are open, since an ask nobody can see is worth knowing about.
   Three open asks per session is the cap, the same words twice is one ask, and `done` withdraws
   one — a session that stops needing the user says so rather than leaving noise in the topbar.
+- **`henry_fetch_file(from, path, to?, overwrite?)`** copies a file from a paired machine onto
+  this one, for sessions working together across machines (`daemon/src/transfer.ts`). `from` is
+  the machine, or a session on it (title or id), whose working directory a relative `path` is
+  read from, in that machine's path style; `~/` is that machine's home. It lands at `to`,
+  relative to the caller's working directory (a folder, or a trailing slash, keeps the name;
+  default: the name, in the working directory), and an existing file is kept unless `overwrite`.
+  Pull, never push: the other machine is only read, through the peer read a paired machine
+  already has (`GET /api/file/bytes`, 10 MB), and the write is made here for the session that
+  asked. A session that wants another to have a file says where it is.
 - **An ask is answered by showing up, and only the user can answer it.** Typing into the session
   (`engagement.ts`, prompt or keystroke) clears it, and so does clicking it in the rail or the
   topbar — the message is right there in what you clicked, so reading it *is* the answer. That is

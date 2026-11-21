@@ -85,7 +85,9 @@ export function readPeek(raw: string, cwd?: string, imageCap = IMAGE_CAP_BYTES):
 /** A file's bytes, for a 3D view or a PDF that is parsed in Henry's page (`GET /api/file/bytes`).
  * Unlike `/raw` it is an /api/* answer, so it relays to a peer and the phone's cookie covers it. */
 export function serveBytes(raw: string, cap?: number): Response {
-  const path = isAbsolute(raw) ? raw : "";
+  // `~/…` too: a paired machine asking for a file here cannot know this machine's home.
+  const full = expandHome(raw.trim());
+  const path = isAbsolute(full) ? full : "";
   const st = path ? statSync(path, { throwIfNoEntry: false }) : undefined;
   if (!st?.isFile()) return Response.json({ error: "not found" }, { status: 404 });
   if (cap !== undefined && st.size > cap) return Response.json({ error: `${st.size} bytes, over the ${cap} a relayed file carries` }, { status: 413 });

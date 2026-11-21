@@ -35,6 +35,7 @@ henry/
       src/github.ts            # what `#157` means: repo issues + linked project items, a model for ties
       src/rules.ts             # ~/.henry/config.json rules → classify events
       src/mcp.ts               # POST /mcp: Henry's tools; henry_activity + henry_attention for hosted sessions
+      src/transfer.ts          # henry_fetch_file: a file from a paired machine, read there, written here
       src/attention.ts         # asks: a session calling for the user, with a deadline and a way to answer
       src/topics.ts            # topics: membership, brief + notes, a member's prompt context, a coordinator's prompts
       src/coordinator.ts       # the coordinator's MCP tools: henry_topic, _session, _brief, _membership, _prompt

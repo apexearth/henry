@@ -464,6 +464,23 @@ describe("two daemons", () => {
     expect((await fetch(`${beta.base}/api/file/bytes?path=${encodeURIComponent(path)}`)).status).toBe(200);
   }, 30000);
 
+  test("a session fetches a file from a paired machine onto its own: the other one is only read", async () => {
+    const mcp = async (method: string, params: Record<string, unknown> = {}) =>
+      ((await (await post(alpha, "/mcp?as=session", { jsonrpc: "2.0", id: 1, method, params })).json()) as { result: { tools?: { name: string }[]; content?: { text: string }[]; isError?: boolean } }).result;
+    expect((await mcp("tools/list")).tools!.map((t) => t.name)).toContain("henry_fetch_file");
+    const there = join(beta.home, "plan.bin");
+    const bytes = new Uint8Array(300_000).map((_, i) => (i * 7) & 255);
+    writeFileSync(there, bytes);
+    const here = join(alpha.home, "fetched", "plan.bin");
+    const fetchIt = (path: string) => mcp("tools/call", { name: "henry_fetch_file", arguments: { from: "beta", path, to: here } });
+    const done = await fetchIt(there);
+    expect(done.isError).toBeFalsy();
+    expect(new Uint8Array(readFileSync(here))).toEqual(bytes);
+    expect((await fetchIt(there)).content![0]!.text).toContain("already exists");
+    rmSync(here);
+    expect((await fetchIt(join(beta.home, "nope.bin"))).content![0]!.text).toContain("beta: not found");
+  }, 30000);
+
   test("a listener that does not know the code cannot get itself paired", async () => {
     const fake = fakeListener();
     try {

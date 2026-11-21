@@ -115,6 +115,7 @@ describe("topics", () => {
     const first = topics.contextFor("a");
     expect(first).toContain('topic "auth"');
     expect(first).toContain('"ui login" (working)');
+    expect(first).not.toContain("henry_fetch_file");
     expect(first).toContain("Brief: (none yet)");
     expect(topics.contextFor("a")).toBeUndefined();
 
@@ -354,6 +355,7 @@ describe("a topic across machines", () => {
     expect(text).toContain("Ship v2 together.");
     expect(text).toContain("laptop owns the API");
     expect(text).toContain('"api work" on laptop (working)');
+    expect(text).toContain("henry_fetch_file");
     expect(topics.inherit({ topicId: farTopic.id }, true)).toEqual({ topicId: farTopic.id });
     expect(topics.inherit({ topicId: farTopic.id, coordinator: true }, true)).toEqual({});
   });

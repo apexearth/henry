@@ -7,8 +7,9 @@
  * gets the narrow set and nothing else. The overseer's own client connects without it and may
  * have the wide set, where one process pays the cost once.
  *
- * Read-only over Henry's state, with one exception that writes nothing but a message addressed
- * to the user: `henry_attention`. A session can see what its neighbours are doing and it can
+ * Read-only over Henry's state, with two exceptions: `henry_attention` writes nothing but a
+ * message addressed to the user, and `henry_fetch_file` (transfer.ts) copies a file from a
+ * paired machine onto this one for the session that asked. A session can see what its neighbours are doing and it can
  * ask the human to come; it cannot type into another session, and it cannot change Henry's
  * config. The user stays the only one routing between sessions.
  *
@@ -25,6 +26,7 @@ import { config, expandHome } from "./config";
 import * as db from "./db";
 import * as git from "./git";
 import { sessions } from "./sessions";
+import * as transfer from "./transfer";
 import { pathsOf, WRITE_TOOLS } from "./written";
 
 // Newest first. Claude Code asks for 2025-11-25; answering with an older one works, since the
@@ -93,7 +95,9 @@ export type Audience = "session" | "full";
 
 function toolsFor(audience: Audience, ctx: CallContext): ToolDef[] {
   if (audience !== "session") return ALL_TOOLS;
-  return liveSessions().some((s) => s.id === ctx.sessionId && s.coordinator) ? [...SESSION_TOOLS, ...COORDINATOR_TOOLS] : SESSION_TOOLS;
+  // Fetching from another machine only on a machine that has one: the rest pay nothing for it.
+  const base = transfer.offered() ? [...SESSION_TOOLS, transfer.fetchTool] : SESSION_TOOLS;
+  return liveSessions().some((s) => s.id === ctx.sessionId && s.coordinator) ? [...base, ...COORDINATOR_TOOLS] : base;
 }
 
 // ---- henry_activity ----

@@ -222,12 +222,14 @@ stdout, split on spaces, and two are known to work:
 
 ## What a session can ask Henry
 
-Two MCP tools, loopback only, on sessions Henry starts:
+MCP tools, loopback only, on sessions Henry starts:
 
 - `henry_activity(repo?)`: who else is in this repo, what they are holding uncommitted,
   what landed recently. Read-only.
 - `henry_attention(message, minutes?)`: come here, this one is timed. Shows in the top bar,
   the rail and the window title until you answer it or its deadline passes.
+- `henry_fetch_file(from, path, to?)`, only on a machine paired with another: copy a file
+  from that machine into this session's folder. The other machine is only read.
 
 That is all of it. Sessions cannot type into each other, message each other, or change
 Henry's config.

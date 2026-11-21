@@ -39,6 +39,8 @@ until it is back. Two machines that both listen dial each other, so each window 
   base64 because a relayed body is otherwise JSON text), exactly what a
   window can. An answer that is neither JSON nor text (a 3D model's or PDF's bytes, read
   whole, up to 10 MB so its base64 fits one 16 MB frame) comes back as base64 the same way.
+  That read is also how a session here copies a file from a paired machine (`henry_fetch_file`,
+  tools.md): the bytes come over as a read, and the write is made here.
   Pause or forget a peer from the remotes menu
   (`henry peers forget <name>`); a forgotten key is refused at the next handshake. A peer
   whose address or port changed is re-pointed in place (menu "address", `henry peers url

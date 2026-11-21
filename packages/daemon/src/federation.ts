@@ -553,6 +553,11 @@ export function peerSessions(): Session[] {
   return connectedLinks().flatMap((l) => [...l.sessions.values()]);
 }
 
+/** Some machine is paired and not paused: false before `start`, as on a machine with none. */
+export function paired(): boolean {
+  return !!store?.peers.some((p) => p.enabled);
+}
+
 /** The links that are up right now, for a caller that wants to ask each machine something. */
 export function connectedLinks(): PeerLink[] {
   return [...links.values()].filter((l) => l.status === "connected");
