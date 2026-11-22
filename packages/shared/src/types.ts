@@ -455,6 +455,9 @@ export interface HenryConfig {
     stt: string;
     /** ggml model for `stt`. Absent means voice input is off even when `enabled`. */
     sttModel?: string;
+    /** Silero VAD model for `stt` (ggml-silero-*.bin). Set, whisper hears only the stretches of
+     * a clip with speech in them, so background noise is not decoded into "Thanks for watching". */
+    vadModel?: string;
     /** A command that reads text on stdin and writes a WAV to stdout. Absent uses the platform
      * voice (`say` on macOS, SAPI on Windows), which needs no install and sounds like it. */
     tts?: string;
@@ -744,8 +747,9 @@ export interface VoiceContextSlice {
 /** One word whisper is told to expect, and why it is on the list. */
 export interface VocabTerm {
   term: string;
-  /** "you": `voice.vocabulary` in config.json. The rest are read off what is open. */
-  source: "you" | "session" | "repo" | "branch" | "file";
+  /** "you": `voice.vocabulary` in config.json. "said": a name from the conversation itself.
+   * The rest are read off what is open. */
+  source: "you" | "said" | "session" | "repo" | "branch" | "file";
 }
 
 /** GET /api/voice/vocabulary: what the ear has been primed with, so it is inspectable rather

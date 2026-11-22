@@ -197,13 +197,16 @@ off until `voice.enabled` is set:
   "enabled": true,
   "stt": "C:/Users/you/AppData/Local/Programs/whisper-cpp/whisper-cli.exe",
   "sttModel": "C:/Users/you/AppData/Local/Programs/whisper-cpp/models/ggml-base.en.bin",
+  "vadModel": "C:/Users/you/AppData/Local/Programs/whisper-cpp/models/ggml-silero-v5.1.2.bin",
   "vocabulary": ["sessiond", "subsquid"]
 }
 ```
 
 `stt` may be a bare name on PATH (the default, `whisper-cli`). `vocabulary` is the words it
-keeps mishearing. Asking needs an answer backend: an API key, or
-`claude` on PATH.
+keeps mishearing. `vadModel` (optional, under 1 MB, `ggml-silero-v5.1.2.bin` from
+[ggml-org/whisper-vad](https://huggingface.co/ggml-org/whisper-vad)) has whisper skip the parts
+of a clip with no speech, which is where it invents "Thanks for watching". Asking needs an
+answer backend: an API key, or `claude` on PATH.
 
 Answers are spoken by the platform voice, `say` or SAPI, with nothing to install and the
 sound to match. `voice.tts` names any command that takes text on stdin and writes a WAV to

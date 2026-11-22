@@ -61,9 +61,16 @@ strip, records and plays.
   fuzzy-matches whatever still comes back wrong (`matchSession`: "dune versus squid" finds
   "dune vs squid"). Measured 2026-09-14: the bias prompt helps sometimes and not always; the
   fuzzy match is what makes it reliable.
+- **The conversation primes the ear.** A word whisper mishears is usually one already on the
+  screen, so the names in the session's last 30 turns of prose (and in what Henry said back in
+  the spoken thread) go into the bias list, right after yours: backticked identifiers, camelCase
+  and snake_case, letters run into digits, and capitals mid-sentence on words never written in
+  lower case. Ordinary English, hashes, paths and the user's side of the thread (whisper's own
+  output, mishearings included) stay out, and 24 at most go in. A question to Henry is primed by
+  the session in view as well as dictation is.
 - **Known words are spelled back as written, but not ordinary words.** The bias list is your
-  `voice.vocabulary`, the open sessions, repos and branches, and the basenames of the files the
-  session touched; a transcribed run of up to three words whose letters match one is rewritten
+  `voice.vocabulary`, the names from the conversation, the open sessions, repos and branches,
+  and the basenames of the files the session touched; a transcribed run of up to three words whose letters match one is rewritten
   to that spelling ("sub-squid" → subsquid). A name in capitals (TODO.md, ISSUES.md) is left
   out of the list unless it is yours, and a word that differs from a known one only in case
   keeps whisper's casing, so "to-do" and "issues" stay words instead of coming back as TODO
@@ -74,6 +81,13 @@ strip, records and plays.
   energy first (`hasSpeech`: 120 ms of frames above -40 dBFS RMS) and returns nothing when the
   gate fails, which the strip and the phone already show as "nothing heard". The browser's noise
   suppression puts a silent room well under the line; a quiet word still clears it.
+- **Noise is not words either.** A fan or a room clears that gate, and whisper, trained on
+  subtitled video, decodes it as the line a video ends on: "Thanks for watching", "Please
+  subscribe", "(dramatic music)". With `voice.vadModel` set, whisper's own Silero VAD hands it
+  only the stretches with speech, and a clip of noise alone comes back empty (checked on
+  2026-11-22 against brown noise with a hum). Without it, and behind it, `withoutStockPhrases`
+  drops those sign-off sentences and sound captions wherever they appear, and a clip that is
+  only "you".
 - **The UI resamples, so the daemon needs no ffmpeg.** MediaRecorder gives webm/opus and
   whisper.cpp wants 16 kHz mono PCM; the browser already has an AudioContext, so the conversion
   happens there rather than adding a media dependency on two platforms.

@@ -591,7 +591,7 @@ export function VoiceStrip() {
       const wav = await toWav16k(await blob.arrayBuffer(), context());
       if (m === "dictate") return await dictate(wav, target);
 
-      const question = await hear(wav);
+      const question = await hear(wav, target ?? undefined);
       if (!question) return fail("nothing heard");
 
       const res = await fetch("/api/voice/answer", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: question }) });
@@ -968,6 +968,7 @@ function Vocabulary({ anchor, onEnter, onLeave }: { anchor: DOMRect; onEnter: ()
   if (!vocab) return <div style={{ ...style, color: "var(--fg-dim)", fontSize: 11 }} />;
   const groups: [VocabTerm["source"], string][] = [
     ["you", "yours (voice.vocabulary in config.json)"],
+    ["said", "names from the conversation"],
     ["session", "open sessions"],
     ["repo", "repos"],
     ["branch", "branches"],

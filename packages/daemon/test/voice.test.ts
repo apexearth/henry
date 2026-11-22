@@ -1,7 +1,7 @@
 // Answer parsing and session matching (src/voice.ts). Pure: no whisper, no daemon, no audio.
 import { describe, expect, test } from "bun:test";
 import type { Session } from "@henry/shared";
-import { biasFrom, canonicalize, hasSpeech, matchSession, parseAnswer, recentThread, relaySafe, remember, resetThreadForTests, resolveOpen, smoothDictation, threadBlock } from "../src/voice";
+import { biasFrom, canonicalize, conversationNames, hasSpeech, withoutStockPhrases, matchSession, parseAnswer, recentThread, relaySafe, remember, resetThreadForTests, resolveOpen, smoothDictation, threadBlock } from "../src/voice";
 
 const session = (id: string, title: string) => ({ id, title }) as Session;
 
@@ -197,6 +197,59 @@ describe("smoothDictation", () => {
     expect(smoothDictation("and... I'm not sure", [])).toBe("and I'm not sure");
     expect(smoothDictation("wait... Henry knows", terms)).toBe("wait Henry knows");
     expect(smoothDictation("the... API calls", [])).toBe("the API calls");
+  });
+});
+
+describe("withoutStockPhrases", () => {
+  test("a clip that is only a video's sign-off is nothing", () => {
+    for (const s of ["Thanks for watching!", " Thank you so much for watching.", "Please subscribe.", "you", "Subtitles by the Amara.org community", " (dramatic music)", "*sighs*", "♪ ♪"]) {
+      expect(withoutStockPhrases(s)).toBe("");
+    }
+  });
+
+  test("a sign-off tacked onto real words goes and the words stay", () => {
+    expect(withoutStockPhrases("Run the tests again. Thanks for watching!")).toBe("Run the tests again.");
+    expect(withoutStockPhrases("(upbeat music) Ship it.")).toBe("Ship it.");
+  });
+
+  test("parentheses you meant are kept", () => {
+    expect(withoutStockPhrases("Rename it (the old one) first.")).toBe("Rename it (the old one) first.");
+  });
+
+  test("the same words inside a real sentence are kept", () => {
+    expect(withoutStockPhrases("Thank you, that fixed it.")).toBe("Thank you, that fixed it.");
+    expect(withoutStockPhrases("Can you check the subscribe button?")).toBe("Can you check the subscribe button?");
+    expect(withoutStockPhrases("Did you mean you?")).toBe("Did you mean you?");
+  });
+});
+
+describe("conversationNames", () => {
+  test("names come out of prose; ordinary words do not", () => {
+    const said = conversationNames([
+      "The resize goes through ConPTY, and `sessiond` keeps the PTYs. Kokoro reads it aloud.",
+      "Then smoothDictation drops the half-written dots and voice_audio5 hands it to the `whisper-cpp` build.",
+    ]);
+    expect(said).toEqual(expect.arrayContaining(["ConPTY", "sessiond", "smoothDictation", "voice_audio5", "whisper-cpp"]));
+    for (const w of ["The", "resize", "Then", "drops", "aloud", "half-written"]) expect(said).not.toContain(w);
+  });
+
+  test("a capital that starts a sentence is not a name, one mid-sentence is", () => {
+    expect(conversationNames(["Kokoro is slow. Piper is fast."])).toEqual([]);
+    expect(conversationNames(["use Piper instead"])).toEqual(["Piper"]);
+  });
+
+  test("a capital on a word that is lower case elsewhere is a label, not a name", () => {
+    expect(conversationNames(["open the Notes panel and add two notes"])).toEqual([]);
+  });
+
+  test("extensions, numbers, tags and links are skipped", () => {
+    const said = conversationNames(["edit `config.json` on port 14711 <system-reminder>x</system-reminder> see https://ex-ample.com/fooBar"]);
+    expect(said).toEqual(["config"]);
+  });
+
+  test("the most often said come first, and the list is capped", () => {
+    const said = conversationNames(["`alpha` `beta` `beta` `gamma` `gamma` `gamma`"], 2);
+    expect(said).toEqual(["gamma", "beta"]);
   });
 });
 

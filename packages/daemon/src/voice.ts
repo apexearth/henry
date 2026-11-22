@@ -44,6 +44,10 @@ const BIAS_CHARS = 700;
  * bias budget rather than added to it: whisper keeps the *end* of an overlong prompt, so an
  * overflow would cut your own vocabulary, which leads the list. */
 const AFTER_CHARS = 200;
+/** Names lifted from the conversation (conversationNames): from this many of its last turns,
+ * and at most this many of them, so they cannot crowd out the open sessions and repos. */
+const SAID_TURNS = 30;
+const SAID_TERMS = 24;
 /** A relayed message is a sentence, not a payload. */
 const MAX_RELAY_CHARS = 1_000;
 /** Sessions described in detail in one answer's context, across every machine. Each machine
@@ -120,6 +124,9 @@ export async function vocabulary(sessionId?: string): Promise<VocabTerm[]> {
     out.push({ term, source });
   };
   for (const w of config.voice.vocabulary ?? []) add(w, "you");
+  // Ahead of the open names: a word already said in the conversation is the likeliest to be said
+  // again, and the cap keeps it from crowding everything else out.
+  for (const w of conversationNames(conversationText(sessionId))) add(w, "said");
   for (const s of allRunning()) {
     if (s.title) add(s.title, "session");
     for (const r of reposOf(s)) {
@@ -129,6 +136,87 @@ export async function vocabulary(sessionId?: string): Promise<VocabTerm[]> {
   }
   if (sessionId) for (const w of await sessionWords(sessionId)) add(w, "file");
   return out;
+}
+
+/**
+ * The prose of the conversation the speaker is in, oldest first: the session's own turns, and
+ * what Henry said back in the spoken thread. Not the user's side of the thread, which is
+ * whisper's own output and would feed a mishearing back in as a word to expect. Tool calls,
+ * results and thinking are left out: names worth hearing are the ones someone wrote to a person.
+ */
+function conversationText(sessionId?: string): string[] {
+  const out: string[] = [];
+  if (sessionId) {
+    try {
+      const { turns } = readHistory(sessionId, SAID_TURNS * 4);
+      for (const t of turns.filter((t) => !t.sidechain).slice(-SAID_TURNS)) {
+        for (const b of t.blocks) if (b.kind === "text") out.push(b.text);
+      }
+    } catch {
+      // a peer's session, or no transcript yet
+    }
+  }
+  for (const e of recentThread()) out.push(e.henry);
+  return out;
+}
+
+const NOT_NAMES = new Set(["I", "I'm", "I've", "I'll", "I'd", "OK", "Ok"]);
+
+/**
+ * The words in a conversation that look like names rather than English: code in backticks,
+ * camelCase and snake_case, letters run into digits, and a capital in the middle of a sentence.
+ * Not a bare hyphen: "half-written" is English whisper already spells. Those are what whisper mishears ("sessiond", "ConPTY", "Kokoro") while the word is
+ * on the screen in front of you; it already knows ordinary words. Most often said first, ties to
+ * the most recent.
+ */
+export function conversationNames(texts: string[], max = SAID_TERMS): string[] {
+  const seen = new Map<string, { term: string; count: number; last: number }>();
+  let at = 0;
+  const token = /[A-Za-z0-9][\w'-]*[A-Za-z0-9]/g;
+  const note = (term: string) => {
+    const key = term.toLowerCase();
+    const hit = seen.get(key);
+    if (hit) {
+      hit.count++;
+      hit.last = at;
+      // ConPTY over conpty: the capitals are how the name is written.
+      if (hit.term === key) hit.term = term;
+    } else seen.set(key, { term, count: 1, last: at });
+  };
+  const qualified = new Set<string>();
+  const capital = new Set<string>();
+  const lower = new Set<string>();
+  for (const raw of texts) {
+    const text = raw.replace(/<[^>]*>/g, " ").replace(/\bhttps?:\/\/\S+/g, " ");
+    const coded = new Set<number>();
+    // One identifier in backticks, not a command: `git pull --ff-only` is three ordinary words.
+    for (const m of text.matchAll(/`([\w.-]{2,60})`/g)) for (let i = m.index; i < m.index + m[0].length; i++) coded.add(i);
+    for (const m of text.matchAll(token)) {
+      at++;
+      const word = m[0].replace(/'s$/, "");
+      if (word.length < 3 || word.length > 40 || /^\d+$/.test(word) || NOT_NAMES.has(word)) continue;
+      // A commit hash, or a folder in a path: nobody says either.
+      if (/^[0-9a-f-]{6,}$/.test(word) && /\d/.test(word)) continue;
+      if (/[\\/]/.test(text[m.index - 1] ?? "") || /[\\/]/.test(text[m.index + m[0].length] ?? "")) continue;
+      // An extension, not a word: the "ts" of voice.ts, the "json" of config.json.
+      if (text[m.index - 1] === "." && word.length <= 4 && /^[a-z]+$/.test(word)) continue;
+      const before = text.slice(0, m.index).trimEnd();
+      const midSentence = before !== "" && !/[.!?:;\n\-*#>(|"'`]$/.test(before);
+      const key = word.toLowerCase();
+      if (coded.has(m.index) || /[a-z][A-Z]/.test(word) || /[A-Za-z]\d|\d[A-Za-z]/.test(word) || /[A-Za-z]_[A-Za-z]/.test(word)) qualified.add(key);
+      else if (midSentence && /^[A-Z][a-z]/.test(word)) capital.add(key);
+      if (word === key) lower.add(key);
+      note(word);
+    }
+  }
+  // "the Notes panel" capitalises a word that is lower case everywhere else; Kokoro never is.
+  for (const key of capital) if (!lower.has(key)) qualified.add(key);
+  return [...seen]
+    .filter(([key]) => qualified.has(key))
+    .map(([, v]) => v)
+    .sort((a, b) => b.count - a.count || b.last - a.last)
+    .slice(0, max)
+    .map((v) => v.term);
 }
 
 /**
@@ -467,6 +555,33 @@ export function hasSpeech(wav: Uint8Array): boolean {
   return false;
 }
 
+/** What whisper says over noise. It learned from subtitled video, so a clip with no words in it
+ * comes back as the line a video ends on; nobody dictates these to a coding agent. */
+const STOCK_SENTENCES = [
+  /^(thanks|thank you)( (so|very) much)? for (watching|listening)\b/,
+  /^(please )?(like and )?subscribe\b/,
+  /^see you (in the next (video|one)|next time)$/,
+  /^(subtitles|captions|transcription|transcribed|translated|subtitled) by\b/,
+  /\bamara org\b/,
+];
+/** Said alone in a clip, these are noise too; inside a sentence they are words. */
+const STOCK_CLIPS = [/^you$/];
+
+/** A caption for a sound rather than a word: "(dramatic music)", "*sighs*", "♪". */
+const SOUND_CAPTION = /[([*][^)\]*]{0,40}\b(music|applause|laugh\w*|sigh\w*|cough\w*|silence|noise|inaudible|static|beep\w*|wind|breath\w*|clap\w*)\b[^)\]*]{0,40}[)\]*]|[♪♫]+/gi;
+
+/** A transcript without the sentences whisper invents over background noise. */
+export function withoutStockPhrases(text: string): string {
+  const heard = text.replace(SOUND_CAPTION, " ").replace(/\s+/g, " ").trim();
+  const flat = (s: string) => s.toLowerCase().replace(/[^a-z ]+/g, " ").replace(/\s+/g, " ").trim();
+  if ([...STOCK_CLIPS, ...STOCK_SENTENCES].some((r) => r.test(flat(heard)))) return "";
+  const sentences = heard.match(/[^.!?]+(?:[.!?]+|$)/g) ?? [];
+  return sentences
+    .filter((s) => !STOCK_SENTENCES.some((r) => r.test(flat(s))))
+    .join("")
+    .trim();
+}
+
 /** 16 kHz mono WAV in, text out. The panel does the resampling, because the browser already
  * has an AudioContext and the daemon would otherwise need ffmpeg on two platforms.
  * `sessionId` (dictation) adds that session's own vocabulary to the bias. `after` is what
@@ -491,11 +606,13 @@ export async function transcribe(wav: Uint8Array, sessionId?: string, after?: st
     const { prompt: bias } = biasFrom(terms, tail ? BIAS_CHARS - AFTER_CHARS : BIAS_CHARS);
     const prompt = [bias, tail].filter(Boolean).join(" ");
     const args = ["-m", model, "-f", clip, "-l", "en", "-nt", "-np"];
+    if (config.voice.vadModel) args.push("--vad", "-vm", config.voice.vadModel);
     if (prompt) args.push("--prompt", prompt);
     const { ok, stdout, stderr } = await run(config.voice.stt, args, STT_TIMEOUT_MS);
     if (!ok) throw new Error(`${config.voice.stt} failed: ${stderr.trim().split("\n").pop() ?? "no output"}`);
     // -nt still leaves blank lines and whisper's bracketed non-speech markers ([BLANK_AUDIO]).
-    const heard = stdout.replace(/\[[A-Z_ ]+\]/g, " ").replace(/\s+/g, " ").trim();
+    const heard = withoutStockPhrases(stdout.replace(/\[[A-Z_ ]+\]/g, " ").replace(/\s+/g, " ").trim());
+    if (!heard) return "";
     // Biasing makes a word likelier, not certain; this puts the ones it still mis-spells back.
     return smoothDictation(canonicalize(heard, terms), terms);
   } finally {
