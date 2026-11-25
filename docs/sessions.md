@@ -78,8 +78,22 @@ Where a session lives, how a window sees it, and what Henry spawns it with.
   sends PageUp/PageDown instead, one per third of a screen of travel. Ctrl+End jumps back to
   the bottom. Shells on an alternate screen (less, vim) keep the arrows.
 - **Sessions outlive the daemon, terminal included.** After a daemon restart the
-  sessions sessiond still holds are running in the rail with their scrollback; only
-  sessions from before the last sessiond (last 24h) come back as exited with their
-  repos and flags and no output. An exited Claude session has a ↻ button that
-  opens a new tab with `claude --resume <id>`. Every session carries `host` (config
+  sessions sessiond still holds are running in the rail with their scrollback. An exited
+  Claude session has a ↻ button that opens a new tab with `claude --resume <id>`.
+- **What went down with the machine comes back by itself** (`daemon/src/restore.ts`,
+  `restoreSessions`, default on). Only when the sessiond the daemon finds is not the one it
+  last had (its pid, kept in the DB): a daemon restart against the same sessiond starts
+  nothing. Then every session that was running, or ended within a minute and a half of the
+  daemon's last sign of life (it notes one every 30 s, since a shutdown can kill the sessions
+  before the daemon), starts again in its own row: same id, tab, title, topic and history.
+  Claude resumes its conversation (`--resume`, or a fresh start under the same id if it never
+  wrote one), a coordinator comes back as the coordinator, a terminal gets a new shell in its
+  folder. Not one you ended: closed through Henry, `/exit`, a shell left with exit code 0. A
+  session whose last hooks say it was mid-turn is not continued, since it may have been
+  halfway through something; it gets a flag saying so. A sessiond that dies under a running
+  daemon brings back the sessions it took with it the same way; ones it reported ended
+  first (`henry sessiond restart --now` hangs up) stay ended. Sessions start 1.5 s apart. `scripts/shortcut.ps1 -Startup` adds
+  the login shortcut that makes a reboot a non-event on Windows. Everything else from before
+  the last sessiond (last 24h) is in the rail as exited, with its repos and flags and no
+  output. Every session carries `host` (config
   `host`, default short hostname), groundwork for daemons on several machines.

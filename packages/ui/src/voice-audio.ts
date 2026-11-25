@@ -147,6 +147,9 @@ export function within<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
 
 /** How long the microphone gets to open: long enough to answer a permission prompt. */
 export const MIC_OPEN_MS = 15_000;
+/** A live mic hands the worklet a block every few milliseconds, silence included; none for this
+ * long, or a track muted this long, is a mic that is not coming back. */
+const MIC_SILENT_MS = 3_000;
 
 /** The capture device, given up on after MIC_OPEN_MS. One that opens after that is closed again
  * as it arrives, so a late answer does not leave the microphone live with nobody holding it. */
@@ -222,6 +225,20 @@ export const carriesOn = (text: string): boolean => /^[a-z]/.test(text);
 /** Waits before each retry of a transcription. A daemon restarting under `bun run dev` is back
  * within a few seconds; a whisper that failed because the machine was busy may need longer. */
 const RETRY_WAITS_MS = [1_000, 3_000, 8_000];
+/** Past the daemon's own two minutes for whisper: a request still open then is never answering. */
+const TRANSCRIBE_TIMEOUT_MS = 130_000;
+
+/** Transcriptions on the wire. A phone that locks can leave one open forever, answered by
+ * nothing, and clips are written down in order, so every clip after it would wait too: one open
+ * while the page was hidden is cut on the way back and retried at once. */
+const inFlight = new Set<AbortController>();
+if (typeof document !== "undefined") {
+  let hidden = new Set<AbortController>();
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) hidden = new Set(inFlight);
+    else for (const a of hidden) if (inFlight.has(a)) a.abort();
+  });
+}
 
 /**
  * A clip through the daemon's whisper, retried while the failure is one that passes: the daemon
@@ -238,14 +255,20 @@ export async function transcribeWav(wav: ArrayBuffer, session?: string, after?: 
   for (let attempt = 0; ; attempt++) {
     let error: Error;
     let passing = true;
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), TRANSCRIBE_TIMEOUT_MS);
+    inFlight.add(abort);
     try {
-      const res = await fetch(url, { method: "POST", headers: { "content-type": "audio/wav" }, body: wav });
+      const res = await fetch(url, { method: "POST", headers: { "content-type": "audio/wav" }, body: wav, signal: abort.signal });
       const body = (await res.json().catch(() => ({}))) as { text?: string; error?: string };
       if (res.ok) return body.text?.trim() ?? "";
       error = new Error(body.error ?? `transcribe failed (${res.status})`);
       passing = res.status >= 500 && res.status !== 503;
     } catch (e) {
       error = e instanceof Error ? e : new Error(String(e));
+    } finally {
+      clearTimeout(timer);
+      inFlight.delete(abort);
     }
     const wait = RETRY_WAITS_MS[attempt];
     if (!passing || wait === undefined) throw error;
@@ -268,8 +291,8 @@ export const canRecord = (): boolean => !!navigator.mediaDevices?.getUserMedia;
  * Each clip comes out as a 16 kHz WAV, in order; transcribing it is the caller's, so the words
  * go in the composer for the user to read and send, the way typed ones do.
  */
-export function liveMic(onState: (state: "idle" | "arming" | "recording") => void, onClip: (wav: ArrayBuffer) => void) {
-  let run: { ctx: AudioContext; stream: MediaStream; src: MediaStreamAudioSourceNode; node: AudioWorkletNode; seg: Segmenter } | undefined;
+export function liveMic(onState: (state: "idle" | "arming" | "recording") => void, onClip: (wav: ArrayBuffer) => void, onLost?: (why: string) => void) {
+  let run: { ctx: AudioContext; stream: MediaStream; src: MediaStreamAudioSourceNode; node: AudioWorkletNode; seg: Segmenter; watch: ReturnType<typeof setInterval> } | undefined;
   /** False once the press that opened the mic has let go, so an open that lands late shuts. */
   let wanted = false;
   let opening = false;
@@ -280,6 +303,7 @@ export function liveMic(onState: (state: "idle" | "arming" | "recording") => voi
     const r = run;
     run = undefined;
     if (!r) return;
+    clearInterval(r.watch);
     r.seg.flush();
     r.node.port.onmessage = null;
     r.src.disconnect();
@@ -310,10 +334,30 @@ export function liveMic(onState: (state: "idle" | "arming" | "recording") => voi
         const seg = new Segmenter(rate, (clip) => {
           order = order.then(() => pcmToWav16k(clip, rate).then(onClip)).catch(() => {});
         });
-        const node = await tapNode(ctx, (block) => seg.push(block));
+        let heard = Date.now();
+        const node = await tapNode(ctx, (block) => {
+          heard = Date.now();
+          seg.push(block);
+        });
         src.connect(node);
         opening = false;
-        run = { ctx, stream, src, node, seg };
+        // After a lock iOS can hand back a context that never runs or a track that has ended, and
+        // the button would say "listening" over silence until the app was killed. No audio for a
+        // while is the one symptom of all of them: let go of everything so the next tap starts clean.
+        const lost = (why: string) => {
+          if (run?.stream !== stream) return;
+          stop();
+          onLost?.(why);
+        };
+        let unmutedAt = Date.now();
+        const live = stream;
+        const watch = setInterval(() => {
+          const tracks = live.getAudioTracks();
+          if (!tracks.some((t) => t.muted)) unmutedAt = Date.now();
+          if (tracks.some((t) => t.readyState === "ended")) lost("the microphone was taken away; tap to start again");
+          else if (Date.now() - heard > MIC_SILENT_MS || Date.now() - unmutedAt > MIC_SILENT_MS) lost("the microphone stopped sending audio; tap to start again");
+        }, 1_000);
+        run = { ctx, stream, src, node, seg, watch };
         if (!wanted) return stop();
         onState("recording");
       } catch (e) {

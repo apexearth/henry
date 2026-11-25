@@ -97,3 +97,35 @@ describe("screens", () => {
     expect(screens.has(id)).toBe(false);
   });
 });
+
+describe("inputText", () => {
+  const rule = "─".repeat(40);
+  /** Claude Code's input box, as its renderer leaves it: rule, prompt row(s), rule, footer, then
+   * the cursor parked at `col` on the prompt row (1-based, as CUP counts). */
+  async function box(id: string, rows: string[], col: number): Promise<string | undefined> {
+    screens.open(id, 40, 10);
+    screens.write(id, `\x1b[2J\x1b[4;1H${rule}\r\n${rows.join("\r\n")}\r\n${rule}\r\n  ⏵⏵ auto mode on\x1b[5;${col}H`);
+    await settled();
+    const text = screens.inputText(id);
+    screens.forget(id);
+    return text;
+  }
+
+  test("an empty box, placeholder and all, is empty: the cursor sits where the text would start", async () => {
+    expect(await box("empty", ['❯ Try "write a test"'], 3)).toBe("");
+  });
+
+  test("a draft is read back, across the rows it wraps to", async () => {
+    expect(await box("draft", ["❯ hello draft"], 14)).toBe("hello draft");
+    expect(await box("wrap", ["❯ a long draft that runs past the edge", "  of the terminal"], 19)).toBe("a long draft that runs past the edge of the terminal");
+  });
+
+  test("no box on screen is no answer, not an empty one", async () => {
+    screens.open("shell", 40, 10);
+    screens.write("shell", "PS C:\\> dir\r\n");
+    await settled();
+    expect(screens.inputText("shell")).toBeUndefined();
+    screens.forget("shell");
+    expect(screens.inputText("gone")).toBeUndefined();
+  });
+});

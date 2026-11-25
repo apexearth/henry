@@ -64,8 +64,8 @@ strip, records and plays.
 - **The conversation primes the ear.** A word whisper mishears is usually one already on the
   screen, so the names in the session's last 30 turns of prose (and in what Henry said back in
   the spoken thread) go into the bias list, right after yours: backticked identifiers, camelCase
-  and snake_case, letters run into digits, and capitals mid-sentence on words never written in
-  lower case. Ordinary English, hashes, paths and the user's side of the thread (whisper's own
+  and snake_case, letters run into digits, capitals mid-sentence on words never written in
+  lower case, and three or more words hyphenated ("speech-to-text") said at least twice. Ordinary English, hashes, paths and the user's side of the thread (whisper's own
   output, mishearings included) stay out, and 24 at most go in. A question to Henry is primed by
   the session in view as well as dictation is.
 - **Known words are spelled back as written, but not ordinary words.** The bias list is your
@@ -189,3 +189,11 @@ strip, records and plays.
   screen: keys and a text box for typing, or a slab across the width you hold, with the words it
   heard above it. The mode is remembered, because a phone used by voice is used that way twice.
   The heard line is still a draft — tap it to fix a word, send when it says what you meant.
+- **Talk mode keeps the screen on, and a lock costs one take, not the app.** A phone that dims
+  and locks between sentences ends the recording, so talk mode holds a screen wake lock (asked
+  for again whenever the page comes back; typing mode never holds one). After a lock iOS can
+  hand back a microphone that is dead without saying so (an audio context that never runs, a
+  track muted or ended), and a transcription request left open across the lock that nothing
+  will answer, which held every later clip behind it. So a live mic that sends no audio, or
+  stays muted, for three seconds lets go of everything and says to tap again, and a request
+  open while the page was hidden is cut on return and retried.

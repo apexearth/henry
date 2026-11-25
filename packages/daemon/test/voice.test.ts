@@ -247,6 +247,11 @@ describe("conversationNames", () => {
     expect(said).toEqual(["config"]);
   });
 
+  test("a long hyphenated term said twice is jargon; once, or two words, is English", () => {
+    const said = conversationNames(["Run speech-to-text on it.", "The speech-to-text is up-to-date and half-written, half-written."]);
+    expect(said).toEqual(["speech-to-text"]);
+  });
+
   test("the most often said come first, and the list is capped", () => {
     const said = conversationNames(["`alpha` `beta` `beta` `gamma` `gamma` `gamma`"], 2);
     expect(said).toEqual(["gamma", "beta"]);

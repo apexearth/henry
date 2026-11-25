@@ -29,6 +29,9 @@ let killed: string[] = [];
 let launched: CreateOptions[] = [];
 let sent: ServerMessage[] = [];
 let replies: Record<string, string> = {};
+/** What each session's input shows unsent, and whether a key was pressed just now. */
+let drafts: Record<string, string> = {};
+let typing = false;
 
 function session(id: string, extra: Partial<Session> = {}): Session {
   return { id, cwd: join(tmp, "code", "app"), title: id, createdAt: live.length, status: "running", kind: "claude", activity: "waiting", ...extra };
@@ -50,6 +53,8 @@ beforeEach(() => {
   launched = [];
   sent = [];
   replies = {};
+  drafts = {};
+  typing = false;
   topics.setBroadcast((m) => sent.push(m));
   topics.setTimingForTests({ settleMs: 0, quietMs: 0, confirmMs: 0 });
   topics.setDepsForTests({
@@ -61,6 +66,8 @@ beforeEach(() => {
     write: (id, data) => written.push({ id, data }),
     kill: (id) => killed.push(id),
     reply: (id) => replies[id],
+    inputText: (id) => drafts[id] ?? "",
+    typedSince: () => typing,
     create: async (opts) => {
       launched.push(opts);
       const s = session(`coord-${launched.length}`, { cwd: opts.cwd, title: opts.title ?? "", topicId: opts.topicId, coordinator: opts.coordinator });
@@ -244,6 +251,43 @@ describe("topics", () => {
       expect(typed()).toHaveLength(3);
     } finally {
       topics.setTimingForTests({ quietMs: 0, confirmMs: 0 });
+    }
+  });
+
+  test("nothing is typed over a draft of yours; it goes in once the input is empty", async () => {
+    drafts.d = "half a thought";
+    topics.setTimingForTests({ draftRecheckMs: 50 });
+    try {
+      live.push(session("d", { title: "member" }));
+      const t = await topic("drafts");
+      topics.join("d", t.id);
+      const coord = topics.coordinatorOf(t.id)!;
+      const typed = () => written.filter((w) => w.id === "d").map((w) => w.data);
+      expect(await topics.prompt(coord.id, "d", "go", false)).toEqual({ ok: true, value: "queued" });
+      await Bun.sleep(150);
+      expect(typed()).toEqual([]);
+      drafts.d = "";
+      await Bun.sleep(150);
+      expect(typed()).toEqual(['[from the "drafts" coordinator; your reply goes back to it] go']);
+    } finally {
+      topics.setTimingForTests({ draftRecheckMs: 2_000 });
+    }
+  });
+
+  test("a key pressed just now holds a delivery even before the screen shows it", async () => {
+    typing = true;
+    topics.setTimingForTests({ draftRecheckMs: 50 });
+    try {
+      live.push(session("k", { title: "member" }));
+      const t = await topic("keys");
+      topics.join("k", t.id);
+      const coord = topics.coordinatorOf(t.id)!;
+      expect(await topics.prompt(coord.id, "k", "go", false)).toEqual({ ok: true, value: "queued" });
+      typing = false;
+      await Bun.sleep(150);
+      expect(written.filter((w) => w.id === "k")).toHaveLength(1);
+    } finally {
+      topics.setTimingForTests({ draftRecheckMs: 2_000 });
     }
   });
 

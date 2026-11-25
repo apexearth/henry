@@ -138,8 +138,10 @@ export function Composer({ session }: { session: Session }) {
         setHoldState(state);
       },
       (wav) => hearRef.current(wav),
+      (why) => noteRef.current(why),
     ),
   );
+  const noteRef = useRef(setNote);
   // The mic is made once; the clip handler it calls is this render's.
   const hearRef = useRef(hearClip);
   hearRef.current = hearClip;
@@ -293,6 +295,30 @@ export function Composer({ session }: { session: Session }) {
     setLatched(false);
     mic.current.stop();
   }
+
+  // Talking is hands-off, and a phone that dims and locks between sentences ends the take. The
+  // lock is the browser's to drop whenever the page hides, so it is asked for again on return.
+  // Only in talk mode: a screen held on while you type would be a battery spent for nothing.
+  const talking = mode === "talk" && (whisper || dictationSupported());
+  useEffect(() => {
+    if (!talking || !("wakeLock" in navigator)) return;
+    let lock: WakeLockSentinel | undefined;
+    let gone = false;
+    const ask = () => {
+      if (document.hidden || gone || (lock && !lock.released)) return;
+      navigator.wakeLock.request("screen").then(
+        (l) => (gone ? void l.release() : (lock = l)),
+        () => {},
+      );
+    };
+    ask();
+    document.addEventListener("visibilitychange", ask);
+    return () => {
+      gone = true;
+      document.removeEventListener("visibilitychange", ask);
+      void lock?.release().catch(() => {});
+    };
+  }, [talking]);
 
   // A phone that locks, or a swipe home, ends the recording: keep what was said rather than
   // leave a mic open behind the lock screen.

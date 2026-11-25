@@ -133,6 +133,7 @@ to delete.
 bun run dev          # daemon :14711 + Vite :14713 + native window, all reloading
 bun run app          # native window against a running daemon (needs Rust)
 powershell -ExecutionPolicy Bypass -File scripts\shortcut.ps1  # Windows: Start-menu "Henry (dev)", one window, no console
+powershell -ExecutionPolicy Bypass -File scripts\shortcut.ps1 -Startup  # the same, plus one in Startup: opens at login and brings your sessions back
 bun run test
 bun run smoke        # throwaway daemon driven over WS, /bin/sh in place of claude
 ```

@@ -51,6 +51,36 @@ export interface SessionEvents {
   update: [session: Session];
   data: [sessionId: string, data: string];
   exit: [sessionId: string, exitCode: number];
+  /** Sessions sessiond lost while this daemon was attached (it died and a new one started). */
+  lost: [sessions: Session[]];
+}
+
+/** What a session brought back takes from its topic (topics.inherit), and whether Claude resumes. */
+export interface Respawn extends Pick<CreateOptions, "topicId" | "coordinator" | "extraArgs"> {
+  /** A conversation is on disk to resume; otherwise Claude starts fresh under the same id. */
+  resume: boolean;
+}
+
+/** How often the daemon notes it is alive, so a restart can tell what ended as the machine went down. */
+const ALIVE_EVERY_MS = 30_000;
+/** A session that ended this close before the daemon last noted it was alive went down with it. */
+const DIED_WITH_MS = 90_000;
+
+/** A session Henry can start again by itself: a Claude conversation or a plain terminal it spawned. */
+function restartable(s: Session): boolean {
+  if (s.peer || s.command === "external" || !s.command) return false;
+  if (s.kind === "shell") return s.command === defaultShell().command;
+  return programName(s.command) === "claude" && !!s.claudeSessionId;
+}
+
+/** You ended it: through Henry, with /exit, or by leaving a shell cleanly. */
+function endedOnPurpose(s: Session): boolean {
+  if (db.wasClosed(s.id)) return true;
+  if (s.status !== "exited") return false;
+  if (s.kind === "shell") return s.exitCode === 0;
+  const end = db.listEvents({ sessionId: s.id, limit: 10 }).find((e) => e.hookEvent === "SessionEnd");
+  const reason = (end?.payload as { reason?: string } | undefined)?.reason;
+  return reason === "prompt_input_exit" || reason === "logout";
 }
 
 /** Environment for anything Henry spawns (sessiond, and through it every session). */
@@ -76,6 +106,9 @@ class SessionManager extends EventEmitter<SessionEvents> {
   readonly client: SessiondClient;
   private starting: Promise<void> | undefined;
   private started = false;
+  /** Found dead at the first start, waiting for restore.ts to take them. */
+  private lostAtStart: Session[] = [];
+  private alive: ReturnType<typeof setInterval> | undefined;
   /** Long input goes in paced pieces (typing.ts). */
   private typist = new Typist(
     (id, data) => this.client.send({ op: "write", id, data }),
@@ -136,8 +169,31 @@ class SessionManager extends EventEmitter<SessionEvents> {
       }
       this.reconcile(summaries);
       this.started = true;
+      db.setMeta("alive_at", String(Date.now()));
+      this.alive ??= setInterval(() => db.setMeta("alive_at", String(Date.now())), ALIVE_EVERY_MS);
     })();
     return this.starting;
+  }
+
+  /** The sessions found dead at startup that Henry can start again, once (restore.ts). */
+  takeLost(): Session[] {
+    const out = this.lostAtStart;
+    this.lostAtStart = [];
+    return out;
+  }
+
+  /**
+   * Is the sessiond we are attached to a different one from last time? Only then can anything
+   * have died with it: a daemon restart against the same sessiond finds every session still
+   * there, and must never start a second copy of one.
+   */
+  private newSessiond(): boolean {
+    const pid = this.client.remotePid;
+    if (!pid) return false;
+    const last = db.getMeta("sessiond_pid");
+    db.setMeta("sessiond_pid", String(pid));
+    // Nothing recorded: the first run of a daemon that keeps this, not evidence of a death.
+    return last !== undefined && Number(last) !== pid;
   }
 
   /** Sync the live table with sessiond's: attach to what it holds, restore the rest from the DB as exited. */
@@ -176,14 +232,31 @@ class SessionManager extends EventEmitter<SessionEvents> {
       this.rebuildScreen(sum);
       this.emit("update", session);
     }
+    const fresh = this.newSessiond();
     // Live entries sessiond no longer has (it was restarted underneath us).
+    const lost: Session[] = [];
     for (const l of this.live.values()) {
       if (l.local || known.has(l.session.id)) continue;
       l.local = "\x1b[2m[henry] sessiond restarted; terminal output was not retained\x1b[0m\r\n";
       screens.forget(l.session.id);
-      if (l.session.status === "running") this.finish(l, 1);
+      if (l.session.status !== "running") continue;
+      this.finish(l, 1);
+      if (fresh && restartable(l.session) && !db.wasClosed(l.session.id)) lost.push(l.session);
     }
-    if (this.started) return;
+    if (this.started) {
+      if (lost.length) this.emit("lost", lost);
+      return;
+    }
+    // First start, against a sessiond that is not the one the last daemon had: whatever was
+    // running then, or ended as the machine went down, went down with it.
+    if (fresh) {
+      const aliveAt = Number(db.getMeta("alive_at") ?? 0);
+      for (const s of db.listSessions()) {
+        if (known.has(s.id) || !restartable(s)) continue;
+        const died = s.status === "running" || (aliveAt > 0 && (s.endedAt ?? 0) >= aliveAt - DIED_WITH_MS);
+        if (died && !endedOnPurpose(s)) this.lostAtStart.push(s);
+      }
+    }
     // First start only: DB rows that claim running but sessiond does not hold died with
     // an earlier sessiond. Recent sessions come back exited (repos and flags
     // are still in the DB); kill (dismiss) drops them like any other exited session.
@@ -272,14 +345,9 @@ class SessionManager extends EventEmitter<SessionEvents> {
     // Henry-launched claude: pin its session id to ours (no hook round-trip needed to
     // bind) and layer Henry's hooks + statusline on top of the user's settings.
     const claudeId = opts.resume ?? id;
-    // MCP is its own flag: Claude Code ignores `mcpServers` inside a --settings file.
-    const mcpPath = isClaude ? syncLaunchMcp(henryDir) : undefined;
     // A fork keeps the pin: Claude Code takes --session-id with --resume only beside --fork-session.
     const idArgs = opts.fork ? ["--resume", opts.fork, "--fork-session", "--session-id", id] : [opts.resume ? "--resume" : "--session-id", claudeId];
-    const henryArgs = isClaude
-      ? [...idArgs, "--settings", writeLaunchSettings(henryDir), ...(mcpPath ? ["--mcp-config", mcpPath] : []), ...(opts.extraArgs ?? [])]
-      : shell?.args ?? [];
-    const args = opts.args ?? henryArgs;
+    const args = opts.args ?? (isClaude ? this.claudeArgs(idArgs, opts.extraArgs) : shell?.args ?? []);
     const session: Session = {
       id,
       claudeSessionId: isClaude && !opts.args ? claudeId : undefined,
@@ -296,6 +364,54 @@ class SessionManager extends EventEmitter<SessionEvents> {
     if (opts.coordinator) session.coordinator = true;
     this.hold(id, { session });
     db.insertSession(session);
+    this.launch(session, args, opts.cols, opts.rows);
+    return session;
+  }
+
+  /**
+   * Start a session again in its own row after sessiond lost it (restore.ts decides which, and
+   * with what): the same id, so its tab, topic, flags and history stay where they were. Claude
+   * resumes its conversation; a terminal starts a fresh shell in the same folder.
+   */
+  async respawn(prior: Session, how: Respawn): Promise<Session | undefined> {
+    await this.start();
+    if (!this.client.connected) await this.client.connect();
+    if (this.live.get(prior.id)?.session.status === "running") return undefined;
+    const shell = prior.kind === "shell" ? defaultShell() : undefined;
+    const claudeId = prior.claudeSessionId!;
+    const args = shell ? shell.args : this.claudeArgs([how.resume ? "--resume" : "--session-id", claudeId], how.extraArgs);
+    const session: Session = {
+      id: prior.id,
+      cwd: prior.cwd,
+      title: prior.title,
+      createdAt: prior.createdAt,
+      status: "running",
+      command: shell?.command ?? resolveClaude(),
+      kind: prior.kind ?? "claude",
+      host: localHost(),
+    };
+    if (prior.claudeSessionId) session.claudeSessionId = prior.claudeSessionId;
+    if (prior.parentSessionId) session.parentSessionId = prior.parentSessionId;
+    if (how.topicId) session.topicId = how.topicId;
+    if (how.coordinator) session.coordinator = true;
+    this.titleTail.delete(prior.id);
+    screens.forget(prior.id);
+    this.hold(prior.id, { session });
+    db.reopenSession(prior.id);
+    db.updateSession(prior.id, { command: session.command, claudeActive: false, topicId: session.topicId, coordinator: !!session.coordinator });
+    this.launch(session, args);
+    return session;
+  }
+
+  /** Claude's flags for a Henry session: its id, Henry's hooks and statusline, Henry's MCP server. */
+  private claudeArgs(idArgs: string[], extra: string[] = []): string[] {
+    // MCP is its own flag: Claude Code ignores `mcpServers` inside a --settings file.
+    const mcpPath = syncLaunchMcp(henryDir);
+    return [...idArgs, "--settings", writeLaunchSettings(henryDir), ...(mcpPath ? ["--mcp-config", mcpPath] : []), ...extra];
+  }
+
+  private launch(session: Session, args: string[], cols = 120, rows = 36): void {
+    const { id, kind, command } = session;
     // What this session will name for the rest of its life, hooks and MCP url alike. The
     // daemon keeps answering here even after its port moves (server.ts, syncAliasListeners).
     db.setSessionPort(id, boundPort());
@@ -315,13 +431,11 @@ class SessionManager extends EventEmitter<SessionEvents> {
       prependPath(env, writeLaunchBin(henryDir));
       env.HENRY_CLAUDE = resolveClaude();
     }
-    const spec = spawnSpec(command, args);
-    const cols = opts.cols ?? 120, rows = opts.rows ?? 36;
+    const spec = spawnSpec(command!, args);
     screens.open(id, cols, rows);
-    this.client.send({ op: "spawn", id, command: spec.command, args: spec.args, cwd, env, cols, rows });
+    this.client.send({ op: "spawn", id, command: spec.command, args: spec.args, cwd: session.cwd, env, cols, rows });
     this.client.send({ op: "attach", id });
     this.emit("update", session);
-    return session;
   }
 
   write(id: string, data: string): void {
@@ -348,6 +462,7 @@ class SessionManager extends EventEmitter<SessionEvents> {
     if (l.external && l.session.status === "running") {
       this.finish(l, 0);
     } else if (l.session.status === "running") {
+      db.markClosed(id);
       this.client.send({ op: "kill", id, signal: "SIGHUP" });
       // Anything still alive after a grace period gets SIGKILL.
       setTimeout(() => {

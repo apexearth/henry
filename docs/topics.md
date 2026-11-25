@@ -47,7 +47,13 @@ Several sessions on one subject, kept aware of each other by a session that sits
   (`waiting` or `idle`), and only once the session has been between turns for a second and a
   half: typing into a running turn or a permission prompt would answer something nobody meant
   to, and an Enter pressed while Claude Code is still running its Stop hooks is lost, leaving the
-  text unsent. An Enter that started no turn three seconds later is pressed again, twice at most,
+  text unsent. Nor while you are writing in that input: a key in the last four seconds, or words
+  in Claude Code's input box (read off the session's screen, `screens.inputText`) hold it, and it
+  looks again every two seconds, so it goes in once you have sent your draft or cleared it rather
+  than in the middle of it with its Enter sending both. The box has no colour on the screen to
+  tell its grey placeholder from typed text, so an empty box is told by the cursor parked at its
+  start; a draft with the cursor moved back to its start reads as empty once you stop typing. An
+  Enter that started no turn three seconds later is pressed again, twice at most,
   unless someone has typed into the session since. Until then it queues, three at most, for 30 minutes. A member on
 another machine is sent it over the link (`/api/topic/deliver`, served to peers only), and its
 machine checks that it is a member and that the text carries the label, then queues it the same way. It goes

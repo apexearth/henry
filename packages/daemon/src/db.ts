@@ -179,7 +179,10 @@ if (!(db.prepare("PRAGMA table_info(notes)").all() as { name: string }[]).some((
   if (!cols.has("last_seen_at")) db.exec("ALTER TABLE sessions ADD COLUMN last_seen_at INTEGER");
   if (!cols.has("topic_id")) db.exec("ALTER TABLE sessions ADD COLUMN topic_id TEXT");
   if (!cols.has("coordinator")) db.exec("ALTER TABLE sessions ADD COLUMN coordinator INTEGER");
+  // Set when you end a running session through Henry: a session you closed is not brought back.
+  if (!cols.has("closed_at")) db.exec("ALTER TABLE sessions ADD COLUMN closed_at INTEGER");
 }
+db.exec("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
 
 // repo_baselines.touched_at / hidden_at: when the session last named a path in the repo, and
 // when you hid it from that session's files tree. A repo touched since it was hidden comes back.
@@ -339,6 +342,28 @@ export function livePorts(): number[] {
 export function isDismissed(id: string): boolean {
   const r = db.prepare("SELECT dismissed_at FROM sessions WHERE id = ?").get(id) as { dismissed_at: number | null } | null;
   return r?.dismissed_at != null;
+}
+
+export function markClosed(id: string): void {
+  db.prepare("UPDATE sessions SET closed_at = ? WHERE id = ?").run(Date.now(), id);
+}
+
+export function wasClosed(id: string): boolean {
+  const r = db.prepare("SELECT closed_at FROM sessions WHERE id = ?").get(id) as { closed_at: number | null } | null;
+  return r?.closed_at != null;
+}
+
+/** A session brought back: it is running again, under the same row. */
+export function reopenSession(id: string): void {
+  db.prepare("UPDATE sessions SET status = 'running', exit_code = NULL, ended_at = NULL, closed_at = NULL, pid = NULL WHERE id = ?").run(id);
+}
+
+export function getMeta(key: string): string | undefined {
+  return (db.prepare("SELECT value FROM meta WHERE key = ?").get(key) as { value: string } | null)?.value;
+}
+
+export function setMeta(key: string, value: string): void {
+  db.prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(key, value);
 }
 
 /** Sessions younger than this stay visible in the rail across a daemon restart. */

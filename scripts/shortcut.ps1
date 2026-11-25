@@ -3,7 +3,10 @@
 # lets the taskbar treat the shortcut and the window as one app: one icon, and "Pin to taskbar"
 # on the running window pins this shortcut. Also refreshes a taskbar pin of the same name, since
 # pinning copies the .lnk and a copy made before this keeps its old target.
-#   powershell -ExecutionPolicy Bypass -File scripts\shortcut.ps1
+#   powershell -ExecutionPolicy Bypass -File scripts\shortcut.ps1 [-Startup]
+# -Startup also puts one in your Startup folder, so Henry opens at login and brings back the
+# sessions a reboot ended. Delete that shortcut to stop.
+param([switch]$Startup)
 $ErrorActionPreference = "Stop"
 $appId = "dev.apexearth.henry"
 $repo = Split-Path -Parent $PSScriptRoot
@@ -57,8 +60,11 @@ $pinned = Join-Path $env:APPDATA "Microsoft\Internet Explorer\Quick Launch\User 
 $icon = Join-Path $repo "packages\shell\src-tauri\target\debug\henry-shell.exe"
 if (-not (Test-Path $icon)) { $icon = Join-Path $env:USERPROFILE ".bun\bin\bun.exe" }
 
-foreach ($path in @($startMenu, $pinned)) {
+$atLogin = Join-Path ([Environment]::GetFolderPath("Startup")) $name
+
+foreach ($path in @($startMenu, $pinned, $atLogin)) {
   if ($path -eq $pinned -and -not (Test-Path $pinned)) { continue }
+  if ($path -eq $atLogin -and -not $Startup -and -not (Test-Path $atLogin)) { continue }
   $lnk = $shell.CreateShortcut($path)
   $lnk.TargetPath = Join-Path $env:SystemRoot "System32\wscript.exe"
   $lnk.Arguments = '"' + (Join-Path $repo "scripts\henry.vbs") + '"'

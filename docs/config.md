@@ -41,6 +41,7 @@
   "reposRoot": "~/code",
   "defaultRepo": "~/code",
   "retentionDays": 30,
+  "restoreSessions": true,
   "overseer": { "backend": "auto", "model": "claude-opus-5" },
   "mcp": { "enabled": true, "sessions": true },
   "federation": { "listen": "tailscale", "port": 14712 },

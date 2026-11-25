@@ -165,7 +165,8 @@ const NOT_NAMES = new Set(["I", "I'm", "I've", "I'll", "I'd", "OK", "Ok"]);
 /**
  * The words in a conversation that look like names rather than English: code in backticks,
  * camelCase and snake_case, letters run into digits, and a capital in the middle of a sentence.
- * Not a bare hyphen: "half-written" is English whisper already spells. Those are what whisper mishears ("sessiond", "ConPTY", "Kokoro") while the word is
+ * Not a bare hyphen: "half-written" is English whisper already spells, though three words or more
+ * hyphenated and said twice are jargon. Those are what whisper mishears ("sessiond", "ConPTY", "Kokoro") while the word is
  * on the screen in front of you; it already knows ordinary words. Most often said first, ties to
  * the most recent.
  */
@@ -186,6 +187,7 @@ export function conversationNames(texts: string[], max = SAID_TERMS): string[] {
   const qualified = new Set<string>();
   const capital = new Set<string>();
   const lower = new Set<string>();
+  const compound = new Set<string>();
   for (const raw of texts) {
     const text = raw.replace(/<[^>]*>/g, " ").replace(/\bhttps?:\/\/\S+/g, " ");
     const coded = new Set<number>();
@@ -205,12 +207,16 @@ export function conversationNames(texts: string[], max = SAID_TERMS): string[] {
       const key = word.toLowerCase();
       if (coded.has(m.index) || /[a-z][A-Z]/.test(word) || /[A-Za-z]\d|\d[A-Za-z]/.test(word) || /[A-Za-z]_[A-Za-z]/.test(word)) qualified.add(key);
       else if (midSentence && /^[A-Z][a-z]/.test(word)) capital.add(key);
+      else if (/^[A-Za-z]+(-[A-Za-z]+){2,}$/.test(word)) compound.add(key);
       if (word === key) lower.add(key);
       note(word);
     }
   }
   // "the Notes panel" capitalises a word that is lower case everywhere else; Kokoro never is.
   for (const key of capital) if (!lower.has(key)) qualified.add(key);
+  // "speech-to-text" said again and again is the conversation's jargon, heard as "speechless
+  // hacks" without it; an "up-to-date" in passing is English.
+  for (const key of compound) if (seen.get(key)!.count >= 2) qualified.add(key);
   return [...seen]
     .filter(([key]) => qualified.has(key))
     .map(([, v]) => v)

@@ -107,9 +107,12 @@ that reloads it. The page is someone's code, so it never runs as Henry: every `/
 carries a CSP sandbox and the iframe omits `allow-same-origin`, which leaves it an opaque
 origin, and the daemon refuses anything but `/raw` from `Origin: null`, so it can neither read
 the API nor POST to it or open `/ws`. As on file://, that also means no ES modules or `fetch`
-of the files beside it. Only on this machine's loopback listener: a relayed session's file is
-on another disk, and on the phone the page's requests would go without the device cookie, so
-both show the source.
+of the files beside it. `/raw` is only for this machine's loopback listener: a relayed session's
+file is on another disk, and on the phone the page's requests would go without the device
+cookie. There the page runs from the text the peek already read, as the same sandboxed iframe's
+`srcdoc`: a self-contained page (inline styles and scripts, a CDN) looks as it does on the desk,
+while the CSS and pictures beside it do not load. A truncated file (over the 1 MB a peek
+carries) is shown as source.
 
 **A PDF is drawn by pdf.js in a sandboxed frame, after you ask.** A file whose bytes start
 `%PDF-` (whatever its name) is flagged in the peek and carries no content. The peek is an

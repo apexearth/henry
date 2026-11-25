@@ -33,6 +33,7 @@ import { revealSpec } from "./platform";
 import * as seen from "./seen";
 import { localHost, sessions } from "./sessions";
 import * as coordinator from "./coordinator";
+import * as restore from "./restore";
 import * as topics from "./topics";
 import * as voice from "./voice";
 import { sessionWrites } from "./written";
@@ -526,6 +527,7 @@ export async function startServer(): Promise<void> {
   topics.setBroadcast(broadcast);
   notes.setOutputs(broadcast, federation.pushNotes);
   topics.start();
+  restore.start(broadcast);
   // Held apart from the port so the alias listeners can reuse them verbatim.
   const opts = {
     hostname: "127.0.0.1",

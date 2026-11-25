@@ -396,6 +396,8 @@ export interface HenryConfig {
   defaultRepo: string;
   /** Days of events, flags and usage snapshots to keep; 0 keeps everything. */
   retentionDays: number;
+  /** Start again the sessions that went down with the machine or sessiond (restore.ts). Default on. */
+  restoreSessions?: boolean;
   /** The model Henry asks on its own behalf (voice answers, spoken notices, PR summaries). */
   overseer: {
     backend: OverseerBackend;

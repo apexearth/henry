@@ -108,6 +108,30 @@ class Screens {
     return out + s.pending;
   }
 
+  /**
+   * What is typed in Claude Code's input box, read off the screen: "" when it is empty, undefined
+   * when no input box is on screen (a dialog, a plain shell). The box opens with a "❯" row just
+   * under a full-width rule and runs to the next rule. An empty box parks the cursor right after
+   * the "❯", where its placeholder or a suggested prompt starts; the screen carries no colour that
+   * would tell that grey text from typed text, so the cursor is what does.
+   */
+  inputText(id: string): string | undefined {
+    const s = this.map.get(id);
+    if (!s) return undefined;
+    const b = s.term.buffer.active;
+    const row = (y: number) => b.getLine(b.viewportY + y)?.translateToString(true).replace(/^│ ?/, "").replace(/ ?│\s*$/, "") ?? "";
+    const rule = (y: number) => /^[─━╭╰]{2}[─━]{8,}/.test(row(y).trim());
+    for (let y = s.term.rows - 1; y > 0; y--) {
+      if (!/^[❯>!] ?/.test(row(y)) || !rule(y - 1)) continue;
+      const cursorY = b.baseY + b.cursorY - b.viewportY;
+      if (cursorY === y && b.cursorX <= 2) return "";
+      const lines = [row(y).replace(/^[❯>!] ?/, "")];
+      for (let k = y + 1; k < s.term.rows && !rule(k); k++) lines.push(row(k).trim());
+      return lines.join(" ").replace(/\s+/g, " ").trim();
+    }
+    return undefined;
+  }
+
   forget(id: string): void {
     this.map.get(id)?.term.dispose();
     this.map.delete(id);

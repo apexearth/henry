@@ -44,7 +44,7 @@ export async function fetchPeek(path: string, cwd?: string, at?: At): Promise<Fi
 /** An HTML page runs from `/raw/<path>` (daemon files.ts), so its relative links load the files
  *  beside it as file:// would. Only this machine's files, and only through the loopback
  *  listener: a relayed session's file is on another disk, and the phone's cookie does not ride
- *  along with a sandboxed page's requests. */
+ *  along with a sandboxed page's requests. Elsewhere the page runs from its text (srcdoc). */
 function rawServed(at: At): boolean {
   if (!["127.0.0.1", "localhost", "[::1]"].includes(location.hostname)) return false;
   return !peerOf(at);
@@ -462,7 +462,8 @@ export function FileView({ path, line, active, local = false, machine, popped = 
   // choice is remembered for the next peek of that kind.
   const isText = !!peek && !peek.binary && !peek.image;
   const isMd = isText && languageFor(path) === "markdown";
-  const isHtml = isText && /\.html?$/i.test(path) && rawServed(at);
+  // A cut-off page would run half a script; that one stays source.
+  const isHtml = isText && /\.html?$/i.test(path) && !peek?.truncated;
   const kind: PageKind = isHtml ? "html" : "md";
   const [mdView, setMdView] = useState<MdView>(() => (line ? "source" : loadMdView(kind)));
   useEffect(() => {
@@ -622,8 +623,14 @@ export function FileView({ path, line, active, local = false, machine, popped = 
         )}
         {showPage && peek && isHtml && (
           <div className="peek-pane peek-html">
-            {/* Opaque origin (no allow-same-origin): the page runs, but never as Henry. */}
-            <iframe key={reloads} src={rawUrl(peek.path)} title={name} sandbox="allow-scripts allow-forms allow-modals allow-popups allow-downloads" />
+            {/* Opaque origin (no allow-same-origin): the page runs, but never as Henry. Where
+                `/raw` cannot serve it (a peer's file, the phone), the text read for the peek runs
+                as srcdoc: the page itself works, the files beside it do not load. */}
+            {rawServed(at) ? (
+              <iframe key={reloads} src={rawUrl(peek.path)} title={name} sandbox="allow-scripts allow-forms allow-modals allow-popups allow-downloads" />
+            ) : (
+              <iframe key={reloads} srcDoc={editing ? preview ?? draft ?? text : peek.content} title={name} sandbox="allow-scripts allow-forms allow-modals allow-popups allow-downloads" />
+            )}
           </div>
         )}
         {showPage && peek && !isHtml && (

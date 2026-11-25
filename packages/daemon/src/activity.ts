@@ -281,6 +281,16 @@ export function restore(now = Date.now()): void {
   age(now);
 }
 
+/** Where a session's last hooks left it, read from the log alone: what it was doing when it died. */
+export function lastActivity(sessionId: string): SessionActivity | undefined {
+  const turn = newTurn();
+  let state: SessionActivity | undefined;
+  for (const e of db.listEvents({ sessionId, limit: RESTORE_EVENTS }).reverse()) {
+    if (e.kind === "hook" && e.hookEvent) state = nextActivity(e.hookEvent, e.payload as Payload, turn) ?? state;
+  }
+  return state;
+}
+
 let timer: ReturnType<typeof setInterval> | undefined;
 
 export function start(): void {

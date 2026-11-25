@@ -33,6 +33,7 @@ import * as engagement from "./engagement";
 import * as federation from "./federation";
 import { readHistory } from "./history";
 import { isWindows } from "./platform";
+import { screens } from "./screen";
 import { sessions, type CreateOptions } from "./sessions";
 import { relaySafe } from "./voice";
 
@@ -62,6 +63,10 @@ const timing = {
   quietMs: 1_500,
   /** An Enter that has not started a turn by then is pressed again (0: never). */
   confirmMs: 3_000,
+  /** A key this recent means you are typing, whatever the screen shows yet. */
+  typingMs: 4_000,
+  /** How often a delivery held behind your draft looks again: nothing else would tell it. */
+  draftRecheckMs: 2_000,
 };
 /** Enters pressed again for one delivery before Henry leaves it for the user. */
 const RETRIES = 2;
@@ -108,6 +113,8 @@ interface Deps {
   peerJoin(sessionId: string, topicId: string | null): boolean;
   /** Someone typed into the session at or after `since`. */
   typedSince(id: string, since: number): boolean;
+  /** What is typed in the session's input and not sent, off its screen ("" for nothing). */
+  inputText(id: string): string | undefined;
 }
 
 export type PeerTarget = { session: string } | { topic: string };
@@ -135,6 +142,7 @@ const real: Deps = {
     return link?.status === "connected" ? link.http(method, path, body === undefined ? undefined : JSON.stringify(body)) : undefined;
   },
   typedSince: (id, since) => engagement.typedSince(id, since),
+  inputText: (id) => screens.inputText(id),
   peerJoin: (sessionId, topicId) => {
     const link = federation.linkOf(sessionId);
     if (link?.status !== "connected") return false;
@@ -530,16 +538,23 @@ const between = (s: Session) => s.status === "running" && (s.activity === "waiti
 /** How long until a session between turns has been quiet for `quietMs`; 0 when it has. */
 const quietIn = (s: Session, now: number) => Math.max(0, (s.activitySince ?? 0) + timing.quietMs - now);
 const ready = (s: Session, now = Date.now()) => between(s) && quietIn(s, now) === 0;
+/** You are writing in its input: a key just now, or words on screen you have not sent. Typed then,
+ * a message would land in the middle of yours, and its Enter would send both. */
+const drafting = (s: Session, now: number) => deps.typedSince(s.id, now - timing.typingMs) || !!deps.inputText(s.id);
 
-/** A flush for a session that is between turns but not yet quiet: no update will come to prompt it. */
+/** A flush for a session that is between turns but not yet quiet, or quiet with your draft in its
+ * input: no session update will come to prompt either. */
 const wakes = new Map<string, ReturnType<typeof setTimeout>>();
 function wakeLater(s: Session, now: number): void {
   if (wakes.has(s.id) || !between(s)) return;
+  const quiet = quietIn(s, now);
   wakes.set(s.id, setTimeout(() => {
     wakes.delete(s.id);
     flush(s.id);
-  }, quietIn(s, now) + 50));
+  }, quiet ? quiet + 50 : timing.draftRecheckMs));
 }
+/** Sessions whose deliveries are waiting on your draft, so the log says so once, not every recheck. */
+const heldByDraft = new Set<string>();
 
 function deliver(d: Delivery): void {
   deps.write(d.to, d.text);
@@ -572,11 +587,16 @@ export function flush(sessionId: string, now = Date.now()): void {
     pending.delete(sessionId);
     return;
   }
-  if (!ready(s, now)) {
+  if (!ready(s, now) || drafting(s, now)) {
     pending.set(sessionId, fresh);
     wakeLater(s, now);
+    if (ready(s, now) && !heldByDraft.has(sessionId)) {
+      heldByDraft.add(sessionId);
+      console.log(`[topics] holding ${fresh.length} for ${s.title}: you are writing in its input`);
+    }
     return;
   }
+  heldByDraft.delete(sessionId);
   // One at a time: a sent prompt starts a turn, and the next waits for that turn to end. Drafts
   // go in together, since nothing is submitted.
   pending.delete(sessionId);
@@ -625,7 +645,7 @@ export function deliverFromPeer(topicId: string, sessionId: string, raw: string,
 
 function enqueue(d: Delivery, to: Session, cap: number): Result<PromptOutcome> {
   const queue = pending.get(to.id) ?? [];
-  if (!queue.length && ready(to, d.at)) {
+  if (!queue.length && ready(to, d.at) && !drafting(to, d.at)) {
     deliver(d);
     return ok(d.send ? "sent" : "drafted");
   }
