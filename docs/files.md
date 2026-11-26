@@ -109,10 +109,15 @@ origin, and the daemon refuses anything but `/raw` from `Origin: null`, so it ca
 the API nor POST to it or open `/ws`. As on file://, that also means no ES modules or `fetch`
 of the files beside it. `/raw` is only for this machine's loopback listener: a relayed session's
 file is on another disk, and on the phone the page's requests would go without the device
-cookie. There the page runs from the text the peek already read, as the same sandboxed iframe's
-`srcdoc`: a self-contained page (inline styles and scripts, a CDN) looks as it does on the desk,
-while the CSS and pictures beside it do not load. A truncated file (over the 1 MB a peek
-carries) is shown as source.
+cookie. There the page runs as the same sandboxed iframe's `srcdoc`, which has no folder, so before
+it runs the window reads the files the page names relative to itself from the page's machine
+(`/api/file/bytes`, through the link for a peer's) and writes them in: pictures, video and
+audio as data: URLs, stylesheets and scripts inline, 60 MB in all. A report on the Mac whose
+photos sit in `../photos/` shows them on the PC. Links to other pages, and anything a script or
+a stylesheet loads by itself, do not follow. A page over the 1 MB a peek carries (charts inlined
+as data: URLs) still runs: `/raw` serves it whole, and the `srcdoc` frame fetches the whole file
+first. Past the 10 MB a relay carries it is shown as source, since half a page would run half a
+script.
 
 **A PDF is drawn by pdf.js in a sandboxed frame, after you ask.** A file whose bytes start
 `%PDF-` (whatever its name) is flagged in the peek and carries no content. The peek is an

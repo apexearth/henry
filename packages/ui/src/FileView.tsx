@@ -59,6 +59,79 @@ function bytesUrl(path: string, at: At): string {
   return `/api/file/bytes?${q}`;
 }
 
+/** The most of a page the srcdoc frame fetches: what a relayed `/api/file/bytes` carries
+ *  (daemon files.ts RELAYED_BYTES_CAP). */
+const PAGE_BYTES_CAP = 10 * 1024 * 1024;
+
+const BESIDE_TYPES: Record<string, string> = {
+  png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", svg: "image/svg+xml",
+  avif: "image/avif", ico: "image/x-icon", mp4: "video/mp4", webm: "video/webm", mp3: "audio/mpeg", wav: "audio/wav",
+};
+/** All the files a page pulls in from beside it, together. */
+const BESIDE_CAP = 60 * 1024 * 1024;
+
+/** A relative reference against the page's folder, as a path on that machine. */
+function besidePath(ref: string, dir: string): string | undefined {
+  if (!ref || /^([a-z][\w+.-]*:|\/\/|#)/i.test(ref)) return undefined;
+  const p = decodeURIComponent(new URL(ref.replace(/[?#].*$/, ""), "file://" + (dir.startsWith("/") ? "" : "/") + dir).pathname);
+  return /^\/[A-Za-z]:\//.test(p) ? p.slice(1) : p;
+}
+
+/**
+ * A page run from its text (srcdoc) has no folder, so `../photos/x.jpg` finds nothing. Read
+ * each file it names from the page's machine (a peer's through the link) and write it in:
+ * pictures and media as data: URLs, CSS and scripts inline. Links to other pages stay as they
+ * are, and past BESIDE_CAP the rest is left out.
+ */
+async function withFilesBeside(html: string, dir: string, at: At): Promise<string> {
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const jobs: { el: Element; attr: string; path: string; as: "data" | "style" | "script" }[] = [];
+  for (const el of doc.querySelectorAll("img[src], source[src], video[src], audio[src], video[poster], input[type=image][src]")) {
+    for (const attr of ["src", "poster"]) {
+      const path = besidePath(el.getAttribute(attr) ?? "", dir);
+      if (path) jobs.push({ el, attr, path, as: "data" });
+    }
+  }
+  for (const el of doc.querySelectorAll('link[rel~="stylesheet"][href]')) {
+    const path = besidePath(el.getAttribute("href") ?? "", dir);
+    if (path) jobs.push({ el, attr: "href", path, as: "style" });
+  }
+  for (const el of doc.querySelectorAll("script[src]")) {
+    const path = besidePath(el.getAttribute("src") ?? "", dir);
+    if (path) jobs.push({ el, attr: "src", path, as: "script" });
+  }
+  if (!jobs.length) return html;
+  const read = new Map<string, Promise<Blob | null>>();
+  let total = 0;
+  const blobOf = (path: string) => {
+    if (!read.has(path)) {
+      read.set(path, fetch(bytesUrl(path, at)).then((r) => (r.ok ? r.blob() : null)).catch(() => null));
+    }
+    return read.get(path)!;
+  };
+  // A few at a time: a page of photos is dozens of reads through one link.
+  for (let i = 0; i < jobs.length; i += 6) {
+    await Promise.all(jobs.slice(i, i + 6).map(async (j) => {
+      const blob = await blobOf(j.path);
+      if (!blob || (total += blob.size) > BESIDE_CAP) return;
+      if (j.as === "data") {
+        const ext = j.path.slice(j.path.lastIndexOf(".") + 1).toLowerCase();
+        const typed = new Blob([blob], { type: BESIDE_TYPES[ext] ?? "application/octet-stream" });
+        j.el.setAttribute(j.attr, await new Promise<string>((res) => {
+          const fr = new FileReader();
+          fr.onload = () => res(String(fr.result));
+          fr.readAsDataURL(typed);
+        }));
+      } else {
+        const code = doc.createElement(j.as);
+        code.textContent = await blob.text();
+        j.el.replaceWith(code);
+      }
+    }));
+  }
+  return "<!doctype html>\n" + doc.documentElement.outerHTML;
+}
+
 function rawUrl(path: string): string {
   const parts = path.replace(/\\/g, "/").replace(/^\/+/, "").split("/");
   return "/raw/" + parts.map((p) => encodeURIComponent(p).replace(/%3A/g, ":")).join("/");
@@ -462,8 +535,10 @@ export function FileView({ path, line, active, local = false, machine, popped = 
   // choice is remembered for the next peek of that kind.
   const isText = !!peek && !peek.binary && !peek.image;
   const isMd = isText && languageFor(path) === "markdown";
-  // A cut-off page would run half a script; that one stays source.
-  const isHtml = isText && /\.html?$/i.test(path) && !peek?.truncated;
+  // A page past the peek's 1 MB (images inlined as data: URLs) runs whole: `/raw` serves all of
+  // it, and elsewhere its bytes are fetched in full. Past what a relay carries it stays source,
+  // since a cut-off page would run half a script.
+  const isHtml = isText && /\.html?$/i.test(path) && (!peek?.truncated || peek.size <= PAGE_BYTES_CAP);
   const kind: PageKind = isHtml ? "html" : "md";
   const [mdView, setMdView] = useState<MdView>(() => (line ? "source" : loadMdView(kind)));
   useEffect(() => {
@@ -480,6 +555,23 @@ export function FileView({ path, line, active, local = false, machine, popped = 
   // being typed, a beat behind the keys.
   const showPage = (isMd || isHtml) && (mdView === "split" || (mdView === "page" && !find && !editing));
   const showSource = !showPage || mdView === "split";
+  // The srcdoc frame's page: the whole file even past the peek's cut, with the files beside it
+  // that it names (pictures, CSS, scripts) read from its machine and written into it.
+  const [pageDoc, setPageDoc] = useState<string | null>(null);
+  const srcdocPage = isHtml && showPage && !editing && !rawServed(at);
+  useEffect(() => {
+    setPageDoc(null);
+    if (!srcdocPage || !peek) return;
+    let live = true;
+    void (async () => {
+      const html = peek.truncated ? await fetch(bytesUrl(peek.path, at)).then((r) => (r.ok ? r.text() : null)) : peek.content;
+      const doc = await withFilesBeside(html ?? peek.content, dir, at).catch(() => html ?? peek.content);
+      if (live) setPageDoc(doc);
+    })();
+    return () => {
+      live = false;
+    };
+  }, [srcdocPage, peek?.path, peek?.mtime, at, reloads]);
   const [preview, setPreview] = useState<string | null>(null);
   useEffect(() => {
     if (!editing || !showPage || draft === null) return void setPreview(null);
@@ -629,7 +721,11 @@ export function FileView({ path, line, active, local = false, machine, popped = 
             {rawServed(at) ? (
               <iframe key={reloads} src={rawUrl(peek.path)} title={name} sandbox="allow-scripts allow-forms allow-modals allow-popups allow-downloads" />
             ) : (
-              <iframe key={reloads} srcDoc={editing ? preview ?? draft ?? text : peek.content} title={name} sandbox="allow-scripts allow-forms allow-modals allow-popups allow-downloads" />
+              srcdocPage && pageDoc === null ? (
+                <div className="peek-meta" style={{ padding: 12 }}>loading the page and the files beside it…</div>
+              ) : (
+                <iframe key={reloads} srcDoc={editing ? preview ?? draft ?? text : pageDoc ?? peek.content} title={name} sandbox="allow-scripts allow-forms allow-modals allow-popups allow-downloads" />
+              )
             )}
           </div>
         )}
