@@ -313,7 +313,7 @@ export function stats(): Record<string, number> {
 // The page's relative links (its CSS, scripts, pictures) resolve under the same prefix, so a
 // page and the files beside it load as they would from disk. Every answer carries a CSP
 // sandbox, which gives the page an opaque origin: it runs its scripts but is never Henry's
-// origin, so it cannot read Henry's API, and server.ts refuses the `Origin: null` it sends.
+// origin, so it cannot read Henry's API, and origin.ts refuses the `Origin: null` it sends.
 
 export const RAW_PREFIX = "/raw/";
 

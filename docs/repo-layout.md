@@ -15,6 +15,7 @@ henry/
     daemon/
       src/index.ts             # cli: start | install | uninstall | status | sessiond status|restart
       src/server.ts            # HTTP + WS on 127.0.0.1:14711, serves ui/dist
+      src/origin.ts            # refuses another site's page and a rebound Host before any routing
       src/sessions.ts          # session records, reconciliation with sessiond, attach/detach
       src/sessiond-client.ts   # finds/starts sessiond, NDJSON over loopback TCP, reconnect
       src/sessiond-cli.ts      # henry sessiond status | restart [--now]

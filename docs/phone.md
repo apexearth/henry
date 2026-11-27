@@ -9,7 +9,7 @@ through that machine's peers, so one phone reaches every Henry the desk reaches.
   vocabulary as federation — `"tailscale"` (default) binds the 100.64/10 address, `"off"` never
   listens, an explicit address binds that — on `phone.port` (14714). It serves the UI, `/api/*`
   and `/ws`, and nothing else: `/hook`, `/statusline` and `/mcp` are how local processes talk to
-  the daemon and are unauthenticated because loopback is the boundary, so off loopback they 404.
+  the daemon and carry no credential, only a loopback Host and no foreign `Origin` (platform.md), so off loopback they 404.
   `/api/federation/*` and phone management are refused there too: a phone drives sessions, it does
   not hand out keys. Windows on this listener take the same broadcasts as loopback ones and count
   toward `windowCount()`, so a session's ask knows a phone is watching.

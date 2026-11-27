@@ -328,8 +328,8 @@ export type Verdict =
 
 export function verdict(req: Request, url: URL): Verdict {
   const { pathname } = url;
-  // Hooks, the status line and MCP are how local processes talk to the daemon. They are
-  // unauthenticated on loopback because loopback is the boundary; off it, they do not exist.
+  // Hooks, the status line and MCP are how local processes talk to the daemon. They carry no
+  // credential, only a loopback Host and no foreign Origin (origin.ts); off loopback, they do not exist.
   if (pathname === "/hook" || pathname === "/statusline" || pathname === "/mcp") return { allow: false, status: 404, error: "not found" };
   // Claiming is the one thing a device does before it has any credential.
   if (pathname === "/api/phone/claim") {

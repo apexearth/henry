@@ -17,6 +17,7 @@ import type { ClientMessage, FederationStatus, HostUsage, Note, PeerStatus, Serv
 import { config, henryDir, onConfigReload } from "./config";
 import { FED_VERSION, Handshake, fingerprint, isHello, newIdentity, newPairingCode, normalizeCode, proofsEqual, signTranscript, verifyTranscript, type Derived, type IdentityKeys } from "./fed-crypto";
 import { PeerLink, type FedState, type LinkDeps } from "./fed-peer";
+import { refusal } from "./origin";
 import { localHost } from "./sessions";
 
 /** A window or a peer link, as server.ts drives it. */
@@ -190,6 +191,8 @@ function startListener(): void {
       fetch(req, srv) {
         const url = new URL(req.url);
         if (url.pathname !== "/fed") return new Response("not found", { status: 404 });
+        // A peer sends no Origin; one that does is a browser page.
+        if (refusal(req, false, false)) return new Response("forbidden", { status: 403 });
         const ip = srv.requestIP(req)?.address ?? "?";
         const lock = failures.get(ip);
         if (lock && lock.n >= LOCKOUT_FAILURES && Date.now() < lock.until) return new Response("locked", { status: 429 });

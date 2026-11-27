@@ -31,6 +31,13 @@ What Henry is built on, how it is served, which ports it takes, and what differs
   neighbours, off IANA-registered numbers, and below 32768 so no OS's ephemeral range can
   land an outbound connection on it. `HENRY_PORT` overrides the daemon port everywhere
   (daemon, hooks, Vite proxy, shell).
+- **Loopback is not a boundary against the browser.** Any page on any site can open a
+  WebSocket to 127.0.0.1 and send it a text/plain POST without a preflight, and a page whose
+  name was rebound to 127.0.0.1 reads the answers. So every listener refuses a request whose
+  `Origin` is not its own page (`origin.ts`; the Vite proxy passes its Host through, so the
+  dev page is its own), and the loopback ones refuse a Host that is not a loopback name.
+  Hooks, the CLI and MCP clients send no `Origin`. An HTML peek's `Origin: null` may load
+  `/raw` and nothing else.
 - **The running daemon publishes its port; hooks read it, not their environment.** A PTY
   outlives the daemon, so the `HENRY_PORT` in a session's environment is only true until the
   daemon moves — when Henry left 4711 for 14711, every session started before the move went
